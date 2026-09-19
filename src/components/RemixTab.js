@@ -3,6 +3,8 @@ import { PreviewSource } from '../audio/PreviewSource.js'
 import { BakedClipPreview } from '../audio/BakedClipPreview.js'
 import { createLoopEditorController } from './LoopEditor.js'
 import { createSeamViewController } from './SeamView.js'
+import { createSpectralRepairController } from './SpectralRepairView.js'
+import { formatHz, normalizeRegions } from '../domain/spectralLayout.js'
 import { loopLayout, clipToSource, sourceToClip } from '../domain/loopLayout.js'
 import { createEqEditorController, Q_MIN, Q_MAX, SLOPE_CAPABLE_EQ_TYPES } from './EqEditor.js'
 import { createWaveformScrollbar } from './WaveformScrollbar.js'
@@ -262,8 +264,10 @@ export default class EditorPlugin {
     this.disposePreview()
     this.stopWholeMixSpectrumTicking()
     clearTimeout(this._seamDetailPeaksTimer)
+    clearTimeout(this._spectrogramTimer)
     this.presetEq?.destroy()
     this.seamView?.destroy()
+    this.spectralView?.destroy()
     this.filterControls?.unmount()
     this.groupEq?.destroy()
     this.flucVolBar?.destroy()
@@ -826,6 +830,28 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
             </div>
             <p class="editor-eq-hint">Click + to add a band, drag it to shape it (hold Ctrl while dragging for finer control), or type exact values above for the selected (highlighted) band. Scroll over a node to adjust its Q. Double-click resets just its gain; Alt+click fully resets it. The trash button (or dragging a node onto it) deletes the selected band. Mute silences a band without losing its settings; Solo hears only that band while tuning. The pink spectrum shows the sound's own content and doesn't change as you drag bands; the red-shaded regions show which frequencies your current bands would actually cut.</p>
           </div>
+          <div id="editor-spectral-section" class="editor-spectral">
+            <div class="editor-eq-header">
+              <span class="editor-eq-label">Spectral repair</span>
+              <button id="editor-spectral-delete" class="btn btn-svg-icon" type="button" title="Delete the selected box" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m5 0V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+              <button id="editor-spectral-clear" class="btn btn-small btn-icon-text" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                Clear all
+              </button>
+            </div>
+            <canvas id="editor-spectral-canvas" class="editor-spectral-canvas" title="Drag to draw a box around a sound to remove. Drag a box to move it, drag its edge to resize it, right-click it (or select it and press Delete) to remove it."></canvas>
+            <div class="editor-spectral-controls">
+              <span id="editor-spectral-selection" class="editor-spectral-selection">No box selected</span>
+              <label>
+                <span>Reduce by</span>
+                <input id="editor-spectral-reduction" type="range" min="6" max="80" step="1" value="40" disabled />
+                <span id="editor-spectral-reduction-value" class="editor-filter-value">40 dB</span>
+              </label>
+            </div>
+            <p class="editor-eq-hint">Removes a short sound hiding inside another one: a cough in the rain, a bird over the wind, a phone buzz. Find it as a bright spot on the spectrogram (time across, pitch up), drag a box around it, and just that box gets turned down. Everything outside the box stays as it was. Heard after you Save: switch the preview to <strong>Saved audio</strong> to check it.</p>
+          </div>
           <div class="editor-presets">
             <span class="editor-presets-label">Presets</span>
             <button class="btn btn-small" type="button" data-preset="muffled">Muffled</button>
@@ -933,6 +959,13 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       seamStatus: container.querySelector('#editor-seam-status'),
       envelopeEnabled: container.querySelector('#editor-envelope-enabled'),
       envelopeReset: container.querySelector('#editor-envelope-reset'),
+      spectralSection: container.querySelector('#editor-spectral-section'),
+      spectralCanvas: container.querySelector('#editor-spectral-canvas'),
+      spectralDelete: container.querySelector('#editor-spectral-delete'),
+      spectralClear: container.querySelector('#editor-spectral-clear'),
+      spectralSelection: container.querySelector('#editor-spectral-selection'),
+      spectralReduction: container.querySelector('#editor-spectral-reduction'),
+      spectralReductionValue: container.querySelector('#editor-spectral-reduction-value'),
       scatterSection: container.querySelector('#editor-scatter-section'),
       scatterGapMin: container.querySelector('#editor-scatter-gap-min'),
       scatterGapMax: container.querySelector('#editor-scatter-gap-max'),
@@ -1173,6 +1206,20 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.loopEditorController.onLoopChange(({ loopStart, loopEnd }) => {
       this.commitLoopPoints(loopStart, loopEnd)
     })
+    this.spectralView = createSpectralRepairController(this.els.spectralCanvas)
+    this.spectralView.onChange(() => {
+      this.updateSpectralControls()
+      this.applyFilterControls()
+    })
+    this.spectralView.onSelect(() => this.updateSpectralControls())
+    this.els.spectralReduction.addEventListener('input', () => {
+      this.spectralView.setSelectedReduction(Number(this.els.spectralReduction.value))
+    })
+    this.els.spectralDelete.addEventListener('click', () => this.spectralView.removeSelected())
+    this.els.spectralClear.addEventListener('click', () => this.spectralView.clear())
+    // Needs app 0.1.237's getSpectrogram; hide the panel on an older app
+    // rather than show a box that can never fill in.
+    this.els.spectralSection.classList.toggle('hidden', typeof this.api.audio.getSpectrogram !== 'function')
     this.seamView = createSeamViewController(this.els.seamCanvas)
     this.seamView.setLimits({
       maxSeconds: Number(this.els.crossfade.max) / 1000,
@@ -2178,6 +2225,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.updateLoopTimeInputs(loopStart, loopEnd)
     this.previewSource?.setLoopPoints(loopStart, loopEnd)
     this.syncSeamView()
+    this.syncSpectralView()
     const active = this.activePreview()
     this.updateStickyProgress(active?.currentTime ?? 0)
     this.updateSaveButtonState()
@@ -2275,13 +2323,19 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.loopEditorController.setEnvelope(filters.volumeEnvelope.enabled, filters.volumeEnvelope.points)
       this.els.envelopeEnabled.checked = Boolean(filters.volumeEnvelope.enabled)
     }
+    // Effect presets don't define it, so a preset click keeps the boxes.
+    if (filters.spectralRepairs) {
+      this.spectralView.setRegions(filters.spectralRepairs)
+      this.updateSpectralControls()
+    }
   }
 
   currentFilters() {
     return {
       ...this.filterControls.getValues(),
       eq: this.eqEditorController.getBands(),
-      volumeEnvelope: this.loopEditorController.getEnvelope()
+      volumeEnvelope: this.loopEditorController.getEnvelope(),
+      spectralRepairs: this.spectralView.getRegions()
     }
   }
 
@@ -2501,6 +2555,48 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   // Pushes the current trim/crossfade/mode into the Loop seam strip.
+  // --- Spectral repair ---
+  // The panel shows the trim only (that's all a bake reads). The spectrogram
+  // is refetched for a new trim once the drag settles.
+  syncSpectralView() {
+    if (!this.spectralView || !this.loopEditorController) return
+    const id = this.currentEntry?.id
+    if (!id || typeof this.api.audio.getSpectrogram !== 'function') return
+    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
+    if (!(loopEnd > loopStart)) return
+    const key = `${id}:${loopStart}:${loopEnd}`
+    if (key === this._spectrogramKey) return
+    this._spectrogramKey = key
+    this.spectralView.setView(loopStart, loopEnd)
+    this.spectralView.setSpectrogram(null, 'Reading the sound…')
+    clearTimeout(this._spectrogramTimer)
+    this._spectrogramTimer = setTimeout(async () => {
+      let spec = null
+      try {
+        spec = await this.api.audio.getSpectrogram(id, { windowStart: loopStart, windowEnd: loopEnd, ...this.spectralView.requestSize() })
+      } catch (err) {
+        console.error('Editor: spectrogram fetch failed', err)
+      }
+      if (key !== this._spectrogramKey) return
+      this.spectralView.setSpectrogram(spec, spec ? '' : "Couldn't read this sound")
+    }, 250)
+  }
+
+  updateSpectralControls() {
+    const box = this.spectralView.getSelected()
+    this.els.spectralDelete.disabled = !box
+    this.els.spectralReduction.disabled = !box
+    this.els.spectralClear.disabled = this.spectralView.getRegions().length === 0
+    if (!box) {
+      const count = this.spectralView.getRegions().length
+      this.els.spectralSelection.textContent = count ? `${count} box${count === 1 ? '' : 'es'}. Click one to change it.` : 'No box selected'
+      return
+    }
+    this.els.spectralSelection.textContent = `${box.startSec.toFixed(2)}–${box.endSec.toFixed(2)} s · ${formatHz(box.lowHz)}–${formatHz(box.highHz)}`
+    this.els.spectralReduction.value = String(box.reductionDb)
+    this.els.spectralReductionValue.textContent = `${box.reductionDb} dB`
+  }
+
   syncSeamView() {
     if (!this.seamView || !this.loopEditorController) return
     const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
@@ -3174,7 +3270,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
             position: p.position,
             gain: p.gain
           }))
-        }
+        },
+        spectralRepairs: normalizeRegions(filters.spectralRepairs)
       },
       crossfadeMs,
       speedPitch: {
@@ -3827,6 +3924,10 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     // Doppler already needed (see the comment on its own re-apply just
     // below).
     this.loopEditorController.setEnvelope(filters.volumeEnvelope?.enabled ?? false, filters.volumeEnvelope?.points)
+    this.spectralView.setRegions(filters.spectralRepairs ?? [])
+    this.updateSpectralControls()
+    this._spectrogramKey = null
+    this.syncSpectralView()
     // BUG FIX (caught live testing this feature, not by review): loadSound()
     // only calls setPlayModeControls() (sets the radio buttons' checked
     // state), never applyPlayModeControl() itself - that only runs off the
