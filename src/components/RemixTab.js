@@ -146,6 +146,16 @@ export default class EditorPlugin {
     this.groupLevelHistory = []
   }
 
+  // The app (0.1.238+) swaps in plugin updates live, but waits while this
+  // returns true, so an update never throws away edits: unsaved Sound,
+  // Fluctuation, Preset or Group changes, or a save still writing.
+  isBusy() {
+    if (this._saveInProgress || this._groupSaveInProgress) return true
+    if (this.hasUnsavedChanges() || this.fluctuationDirty()) return true
+    if (this.selectedPresetId && this.wholeMixCurrent && this.wholeMixSaved && !wholeMixEqual(this.wholeMixCurrent, this.wholeMixSaved)) return true
+    return Boolean(this.selectedGroupId && this.groupCurrent && this.groupSaved && !groupFiltersEqual(this.groupCurrent, this.groupSaved))
+  }
+
   async onload() {
     this.api.settings
       .get()
