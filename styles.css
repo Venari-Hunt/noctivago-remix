@@ -1,0 +1,1222 @@
+.editor-picker {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.editor-sound-search {
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.editor-sound-options {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.editor-sound-option {
+  padding: 7px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-sound-option:hover,
+.editor-sound-option-highlighted {
+  background: var(--surface-alt);
+}
+
+.editor-sound-option-clear {
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  margin-bottom: 4px;
+}
+
+.editor-sound-option-empty {
+  padding: 7px 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.editor-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.editor-panel h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Owner UI feedback (2026-09-17): Sync group used to sit at the very bottom
+   of the Random Interval panel, far from the sound it names - moved up next
+   to the sound's own name/search bar since it's an identity field, not a
+   per-play randomization range. Only shown in Random Interval mode - see
+   setPlayModeControls()/applyPlayModeControl(). */
+.editor-sync-group-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-sync-group-row input {
+  width: 140px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Hover marquee for a truncated sound title - mirrors the Mixer's own
+   .sound-row-name-marquee (src/renderer/styles/main.css). wireNameMarquee()
+   in index.js sets --marquee-distance / --marquee-duration per name. */
+.editor-sound-name-marquee {
+  text-overflow: clip;
+  animation: editor-sound-name-marquee var(--marquee-duration, 3s) ease-in-out infinite;
+}
+
+@keyframes editor-sound-name-marquee {
+  0%, 8% {
+    transform: translateX(0);
+  }
+  45%, 55% {
+    transform: translateX(var(--marquee-distance));
+  }
+  92%, 100% {
+    transform: translateX(0);
+  }
+}
+
+#editor-canvas {
+  width: 100%;
+  height: 160px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: ew-resize;
+}
+
+.editor-scrollbar {
+  position: relative;
+  height: 10px;
+  margin-top: 4px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.editor-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: 8px;
+  background: var(--accent);
+  border-radius: 5px;
+  cursor: grab;
+}
+
+.editor-scrollbar-thumb:active {
+  cursor: grabbing;
+}
+
+/* Sticky bar (mounted into the shared #tab-sticky-bar, see TabHost.js/
+   src/renderer/styles/main.css for the outer bar's own styling) - these
+   rules only style this tab's own contents inside it. */
+
+/* This tab packs a lot into the sticky bar (play, loop, progress, time,
+   volume, mute, solo, undo/redo, cancel, save, save-as-copy); at the app's
+   default narrow window it wraps to 2-3 rows. Tighten the gap and let the
+   progress bar wrap as a whole unit (rather than collapsing to a sliver)
+   so the wrapped rows read as groups instead of a jumble. */
+.tab-sticky-panel[data-tab-id='remix'] {
+  gap: 6px 8px;
+}
+
+/* Mode switch (v0.1.147): only one of these two groups is ever visible at a
+   time (Sound mode's playback cluster, or Preset/Group mode's Save/status/
+   Delete) - each is its own flex row so its children still lay out and wrap
+   the same way they did as direct children of the sticky bar before this
+   wrapper was added. */
+.editor-sticky-mode-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  flex: 1 1 auto;
+}
+
+.editor-loop-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.editor-loop-icon-btn:hover {
+  color: var(--text);
+}
+
+.editor-loop-icon-btn-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Taller than the visual 6px track so there's a comfortable drag/click
+   target for seeking - the track itself (below) stays thin, this outer
+   element just widens the hit area around it. */
+.editor-sticky-progress {
+  position: relative;
+  flex: 1 1 90px;
+  min-width: 90px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.editor-sticky-progress-track {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  background: var(--surface-alt);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.editor-sticky-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+}
+
+/* The draggable "needle" - a small circle riding the fill's own leading
+   edge, requested directly ("put a little circle on it so you can drag").
+   Not clipped by the track's overflow:hidden since it's a sibling of the
+   track, not a child of it. */
+.editor-sticky-progress-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px var(--surface);
+  pointer-events: none;
+}
+
+.editor-sticky-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-sticky-volume {
+  flex-shrink: 0;
+  width: 90px;
+}
+
+/* Pushed to the far right of the sticky bar, same spot the spacer used to
+   put it at the bottom of the scrollable panel - Save is a distinct,
+   separate action from the playback cluster to its left. Deliberately NOT
+   flex-shrink:0 - its own text can grow to "Nothing to save" (longer than
+   "Save"), and a past real regression (v0.1.59) showed forcing this
+   specific button to hold its full width crowds a tight row; letting it
+   shrink instead (see main.css's .btn-icon-text comment) is the fix that
+   was already learned once for this exact button. */
+.editor-sticky-save {
+  margin-left: auto;
+  min-width: 0;
+}
+
+.editor-waveform-status {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  min-height: 14px;
+}
+
+.editor-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 10px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-times label,
+.editor-filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-suggest-loop-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: -2px 0 10px;
+}
+
+.editor-suggest-status {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.editor-times input[type='text'] {
+  width: 80px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.editor-playmode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.editor-playmode-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  width: 82px;
+  flex-shrink: 0;
+}
+
+.editor-playmode-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.editor-playmode-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Owner UI feedback (2026-09-17): Fade in/out used to sit at the very bottom
+   of the Random Interval/Scheduled panel, far from the waveform above, which
+   already shows the exact same fade as a pair of draggable pins at the trim
+   edges (see LoopEditor/waveform.js, wired through onFadesChange). Moved
+   right under the Playback mode picker so it's next to what it visually
+   controls, with an explicit on/off switch instead of "0 = off" being the
+   only way to turn it off. */
+.editor-fade-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.editor-fade-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.editor-fade-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.editor-fade-fields label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-fade-fields input[type='number'] {
+  width: 64px;
+}
+
+.editor-fade-fields input:disabled {
+  opacity: 0.4;
+}
+
+.editor-fade-enable {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.editor-scatter-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.editor-scatter-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-scatter-controls label > span:first-child {
+  width: 82px;
+  flex-shrink: 0;
+}
+
+.editor-scatter-controls label.editor-scatter-check {
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.editor-scatter-controls label.editor-scatter-check input {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.editor-scatter-controls input:disabled {
+  opacity: 0.4;
+}
+
+.editor-scatter-controls input[type='range'] {
+  flex: 1;
+}
+
+.editor-scatter-controls input[type='number'] {
+  width: 64px;
+}
+
+/* The Gap card's Min/Max/Bias row - nested inside .editor-gap-axis (an
+   .editor-fluctuation-axis, see that class for the card styling), which is
+   itself inside .editor-scatter-controls, so its labels already inherit that
+   section's own label/input styling below. */
+.editor-gap-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.editor-gap-range label {
+  flex: 1 1 130px;
+}
+
+.editor-scatter-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.editor-crossfade {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.editor-crossfade label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-crossfade label > span:first-child {
+  width: 82px;
+  flex-shrink: 0;
+}
+
+.editor-crossfade input[type='range'] {
+  flex: 1;
+}
+
+.editor-crossfade-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.editor-speed-pitch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.editor-speed-pitch label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-speed-pitch label > span:first-child {
+  width: 82px;
+  flex-shrink: 0;
+}
+
+.editor-speed-pitch input[type='range'] {
+  flex: 1;
+}
+
+.editor-reverse-toggle {
+  cursor: pointer;
+}
+
+.editor-speed-pitch-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.editor-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.editor-filters label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-filters label > span:first-child {
+  width: 82px;
+  flex-shrink: 0;
+}
+
+.editor-filters input[type='range'] {
+  flex: 1;
+}
+
+.editor-filters input[type='number'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-filter-action {
+  display: flex;
+}
+
+.editor-filter-value {
+  width: 60px;
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-eq {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.editor-eq-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+/* "Click to revert to previous session's mix" - spans the EQ box's full
+   width (a large, easy-to-hit target, not a small link) so it's genuinely
+   easy to click, per direct feedback. Only shown while there's something to
+   revert (see index.js's updateEqRevertBannerVisibility). */
+.editor-eq-revert-banner {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-strong);
+  background: var(--surface-alt);
+  color: var(--accent);
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.editor-eq-revert-banner:hover {
+  background: var(--accent-strong);
+  color: #fff;
+}
+
+.editor-eq-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.editor-eq-compare {
+  display: flex;
+  gap: 2px;
+}
+
+.editor-eq-compare-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.editor-eq-compare-btn:hover {
+  color: var(--text);
+}
+
+.editor-eq-compare-btn-active {
+  color: var(--surface);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+#editor-eq-canvas {
+  width: 100%;
+  height: 140px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.editor-eq-band-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-eq-band-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-eq-band-controls input[type='number'] {
+  width: 70px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.editor-eq-band-controls select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.editor-eq-toggle-btn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.editor-eq-toggle-btn:hover {
+  color: var(--text);
+}
+
+.editor-eq-mute-active {
+  color: var(--danger);
+  border-color: var(--danger-strong);
+}
+
+.editor-eq-solo-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.editor-sticky-solo {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.editor-sticky-solo:hover {
+  color: var(--text);
+}
+
+.editor-sticky-solo-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* "Copy to preset…" (v0.1.188) - matches .editor-sticky-solo's own sizing so
+   it sits at ease among the sticky bar's other compact controls, not the
+   wider .editor-mix-picker-row select styling meant for a full-width row. */
+.editor-sticky-mode-group select {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 160px;
+}
+
+.editor-sticky-mode-group select:hover {
+  color: var(--text);
+}
+
+/* "Live edit" (the editable Web Audio preview) vs "Saved audio" (the actual
+   baked clip file) - see EditorPlugin.togglePreviewMode()'s own doc comment.
+   Active (auditioning the real saved file) reuses the same "positive" green
+   the Remix fade visual and Export's success state already use, so it reads
+   as "this is the truth," distinct from the app's usual accent blue. */
+.editor-preview-mode-toggle {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.editor-preview-mode-toggle-active {
+  color: #9ece6a;
+  border-color: #9ece6a;
+}
+
+/* v0.1.142: Saved mode is sticky now - an edit no longer force-switches back
+   to Live, it just makes the currently-playing bake stale until autosave
+   catches up. Dashed border on the same green flags "still the truth, but
+   about to be refreshed" rather than a color change that would suggest an
+   error state. */
+.editor-preview-mode-toggle-active.editor-preview-mode-toggle-stale {
+  border-style: dashed;
+}
+
+.editor-eq-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.editor-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: -4px 0 16px;
+}
+
+.editor-presets-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-right: 2px;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.editor-save-status {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  min-height: 14px;
+}
+
+.editor-empty {
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 40px;
+}
+
+.editor-scroll-top-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: var(--surface);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.editor-scroll-top-btn:hover {
+  background: var(--accent-strong);
+}
+
+/* Merged tab (v0.1.147): Sound / Preset / Group mode switch, folding in what
+   used to be the separate "Preset Remix" tab and its "Sound Groups" section
+   - direct feedback ("I want preset remix to work exactly as a copy of the
+   remix tab" / "streamline into the remix tab"). The mode switch sits above
+   the existing sound picker; .editor-mix-* below is the whole-mix/group
+   panel content, renamed from the old plugin's own `.premix-*` prefix now
+   that it lives in this file rather than a separate stylesheet. */
+.editor-mode-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.editor-mode-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.editor-mode-pill {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.editor-mode-pill:hover {
+  color: var(--text);
+}
+
+.editor-mode-pill-active {
+  background: var(--accent-strong);
+  color: #fff;
+}
+
+.editor-mode-pill-active:hover {
+  color: #fff;
+}
+
+.editor-mode-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-mix-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.editor-mode-panel {
+  margin-top: 4px;
+}
+
+.editor-mix-waveform-canvas {
+  display: block;
+  width: 100%;
+  height: 70px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  margin: 4px 0 12px;
+}
+
+.editor-mix-eq-canvas {
+  display: block;
+  width: 100%;
+  /* Matches #editor-eq-canvas's own height (Sound mode) now that Preset/
+     Group mode share the exact same EqEditor.js module - was 160px, a
+     leftover from the old scoped-down WholeMixEqEditor.js. */
+  height: 140px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  touch-action: none;
+  margin: 4px 0 0;
+  cursor: pointer;
+}
+
+.editor-mix-picker-row select {
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 13px;
+  min-width: 200px;
+}
+
+.editor-mix-controls.editor-mix-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.editor-mix-eq-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 10px;
+}
+
+.editor-mix-eq-fields label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-mix-eq-fields input,
+.editor-mix-eq-fields select {
+  width: 72px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.editor-mix-eq-fields select {
+  width: 96px;
+}
+
+.editor-mix-eq-fields input:disabled,
+.editor-mix-eq-fields select:disabled {
+  opacity: 0.45;
+}
+
+.editor-mix-group-editor {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.editor-mix-group-editor.hidden {
+  display: none;
+}
+
+.editor-mix-group-editor h4 {
+  margin: 16px 0 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.editor-mix-group-editor .editor-mix-row input[type='text'] {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.editor-mix-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-mix-row > span:first-child {
+  width: 84px;
+  flex-shrink: 0;
+}
+
+.editor-mix-row input[type='range'] {
+  flex: 1;
+}
+
+.editor-mix-row input[type='number'] {
+  max-width: 90px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.editor-mix-group-members {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.editor-mix-group-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 3px 4px;
+}
+
+.editor-mix-status {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  min-height: 1em;
+}
+
+/* --- Fluctuation (v0.1.164) - slow volume/pitch drift on a looping sound.
+   The two "bar with 3 circles" controls are canvases (see
+   ui/FluctuationBar.js), styled here at a fixed height with a full-width
+   bitmap resized to match on every draw. --- */
+.editor-fluctuation {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.editor-fluctuation-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.editor-fluctuation-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.editor-fluctuation-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* Owner UI feedback (2026-09-17, screenshot): each bar's own toggles read as
+   "thrown around" with no visual boundary, and the whole shape repeated on
+   every bar with nothing telling you which controls belonged to which one.
+   Giving the axis its own bordered card (nested inside the section's own
+   surface, one shade lighter) makes the grouping visible at a glance - fixes
+   every bar this markup is used for at once (Sound mode's Fluctuation axes,
+   and every Random Interval / Scheduled per-play bar and the Gap card
+   below), rather than a one-off fix per instance. */
+.editor-fluctuation-axis {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* Same feedback: the axis name ("Pitch", "Volume drift"...) was the same
+   size/weight as every other label around it, so scanning for which bar you
+   wanted meant reading all of them. Bumped to read as a heading. */
+.editor-fluctuation-enable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.editor-fluctuation-sub {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.editor-fluctuation-bar {
+  width: 100%;
+  height: 54px;
+  display: block;
+  touch-action: none;
+}
+
+.editor-fluctuation-knobs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.editor-fluctuation-knobs label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  flex: 1 1 200px;
+}
+
+.editor-fluctuation-knobs label > span:first-child {
+  width: 82px;
+  flex-shrink: 0;
+}
+
+.editor-fluctuation-knobs input[type='range'] {
+  flex: 1;
+}
+
+.editor-fluctuation-knobs input:disabled {
+  opacity: 0.4;
+}
+
+.editor-fluctuation-num {
+  width: 56px;
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: var(--surface-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.editor-fluctuation-dash {
+  color: var(--text-dim);
+}
+
+/* The Fully-random checkbox row spans the whole knobs area rather than
+   sharing it with the seconds fields. */
+.editor-fluctuation-fullrandom {
+  flex: 1 1 100%;
+  align-items: flex-start;
+}
+
+.editor-fluctuation-fullrandom > span {
+  flex: 1;
+}
+
+.editor-seam-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.editor-seam-heading {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.editor-seam-canvas {
+  display: block;
+  width: 100%;
+  height: 96px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
