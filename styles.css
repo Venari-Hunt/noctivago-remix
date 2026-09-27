@@ -40,6 +40,20 @@
   text-overflow: ellipsis;
 }
 
+.editor-sound-option-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+.editor-sound-option-dot-off {
+  visibility: hidden;
+}
+
 .editor-sound-option:hover,
 .editor-sound-option-highlighted {
   background: var(--surface-alt);

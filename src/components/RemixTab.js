@@ -2171,8 +2171,13 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     options.forEach((entry, index) => {
       const li = document.createElement('li')
       li.className = 'editor-sound-option' + (index === this.pickerHighlightIndex ? ' editor-sound-option-highlighted' : '')
-      li.textContent = entry.name
-      li.title = entry.name
+      // A yellow dot marks sounds that are in the Mixer's mix right now.
+      // Every row gets the slot so the names line up.
+      const dot = document.createElement('span')
+      dot.className = 'editor-sound-option-dot' + (entry.included ? '' : ' editor-sound-option-dot-off')
+      li.appendChild(dot)
+      li.title = entry.included ? `${entry.name} (in the mix)` : entry.name
+      li.append(entry.name)
       // mousedown + preventDefault, not click - stops the input from
       // blurring (and therefore closePicker() from firing) before this
       // handler runs, which would otherwise remove the option out from
