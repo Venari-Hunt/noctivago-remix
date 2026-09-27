@@ -217,6 +217,22 @@ export default class EditorPlugin {
     }
     window.addEventListener('noctivago:active-preset-changed', this._onActivePresetChanged)
 
+    // The Mixer's right-click "Edit in Remix": come to the front and open
+    // that sound in Sound mode. Unsaved edits on a different sound get the
+    // usual leave prompt first; declining keeps the current sound open.
+    this._onEditSound = async (evt) => {
+      const soundId = evt.detail?.soundId
+      if (!soundId || !this.app.tabs.show) return
+      await this.app.tabs.show('remix')
+      if (!this._tabActive) return
+      this.setMode('sound')
+      if (this.currentEntry?.id === soundId) return
+      if (this.currentEntry && !(await this.confirmLeaveIfDirty())) return
+      await this.refreshLibrary().catch((err) => console.error('Editor: failed to refresh library', err))
+      this.selectPickerSound(soundId)
+    }
+    window.addEventListener('noctivago:edit-sound', this._onEditSound)
+
     this.unregister = this.app.tabs.register({
       id: 'remix',
       title: 'Remix',
@@ -271,6 +287,7 @@ export default class EditorPlugin {
   async onunload() {
     if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown)
     if (this._onActivePresetChanged) window.removeEventListener('noctivago:active-preset-changed', this._onActivePresetChanged)
+    if (this._onEditSound) window.removeEventListener('noctivago:edit-sound', this._onEditSound)
     this.disposePreview()
     this.stopWholeMixSpectrumTicking()
     clearTimeout(this._seamDetailPeaksTimer)

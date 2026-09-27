@@ -88,6 +88,8 @@ export interface PluginApp {
   tabs: {
     /** Adds a tab. Returns a function that removes it again. */
     register(tab: TabDefinition): () => void
+    /** Brings one of this plugin's own tabs to the front (app 0.1.248+). Resolves when done or vetoed. */
+    show(tabId: string): Promise<void>
   }
   settings: {
     /**
