@@ -1,3 +1,4 @@
+import { PALETTE } from '../domain/palette.js'
 // The "bar with 3 circles" control the owner spec'd for Remix Fluctuation
 // (Obsidian inbox): a horizontal track with three draggable handles -
 //   - min  : the lowest the value drifts to
@@ -78,7 +79,7 @@ export function createFluctuationBar(canvas, { valueMin, valueMax, defaults, for
     const cy = Math.round(cssH * 0.42)
     ctx.clearRect(0, 0, cssW, cssH)
 
-    const accent = styleColor('--accent', '#7aa2f7')
+    const accent = styleColor('--accent', PALETTE.accent)
     const biasColor = '#bb9af7'
     const dim = enabled ? 1 : 0.4
     ctx.globalAlpha = dim
@@ -104,7 +105,7 @@ export function createFluctuationBar(canvas, { valueMin, valueMax, defaults, for
       const x = xFor(v)
       ctx.beginPath()
       ctx.arc(x, cy, HANDLE_RADIUS, 0, Math.PI * 2)
-      ctx.fillStyle = filled ? color : '#1a1b26'
+      ctx.fillStyle = filled ? color : PALETTE.surface
       ctx.fill()
       ctx.lineWidth = 2
       ctx.strokeStyle = color

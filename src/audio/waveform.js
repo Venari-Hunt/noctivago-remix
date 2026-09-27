@@ -1,3 +1,4 @@
+import { PALETTE, withAlpha } from '../domain/palette.js'
 function formatTick(seconds, showHours) {
   const s = Math.floor(seconds % 60)
   const m = Math.floor(seconds / 60) % 60
@@ -82,7 +83,7 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
   const startX = timeToX(loopStart)
   const endX = timeToX(loopEnd)
 
-  ctx.fillStyle = 'rgba(122, 162, 247, 0.35)'
+  ctx.fillStyle = withAlpha(PALETTE.accent, 0.12)
   ctx.fillRect(startX, 0, endX - startX, height)
 
   // Fade in/out visual (draggable via the corner pins below) - the trimmed
@@ -163,13 +164,13 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
     for (let x = 1; x < width; x++) ctx.lineTo(x + 0.5, maxY[x])
     for (let x = width - 1; x >= 0; x--) ctx.lineTo(x + 0.5, minY[x])
     ctx.closePath()
-    ctx.fillStyle = 'rgba(122, 162, 247, 0.55)'
+    ctx.fillStyle = withAlpha(PALETTE.accent, 0.55)
     ctx.fill()
-    ctx.strokeStyle = '#7aa2f7'
+    ctx.strokeStyle = PALETTE.accent
     ctx.lineWidth = 1
     ctx.stroke()
   } else {
-    ctx.strokeStyle = '#3b3f58'
+    ctx.strokeStyle = PALETTE.border
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(0, mid)
@@ -177,7 +178,7 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
     ctx.stroke()
   }
 
-  ctx.fillStyle = '#8892b0'
+  ctx.fillStyle = PALETTE.textDim
   ctx.font = '11px sans-serif'
   ctx.textBaseline = 'top'
   const showHours = duration >= 3600
@@ -188,7 +189,7 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
   const firstTick = Math.ceil(viewStart / step) * step
   for (let t = firstTick; t <= viewEnd; t += step) {
     const x = timeToX(t)
-    ctx.strokeStyle = 'rgba(59, 63, 88, 0.7)'
+    ctx.strokeStyle = withAlpha(PALETTE.border, 0.7)
     ctx.beginPath()
     ctx.moveTo(x + 0.5, mid - 6)
     ctx.lineTo(x + 0.5, mid + 6)
@@ -196,7 +197,7 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
     ctx.fillText(formatTick(t, showHours), x + 3, height - 14)
   }
 
-  ctx.strokeStyle = '#f7768e'
+  ctx.strokeStyle = PALETTE.danger
   ctx.lineWidth = 2
   ctx.beginPath()
   ctx.moveTo(startX, 0)

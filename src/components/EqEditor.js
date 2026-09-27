@@ -1,3 +1,4 @@
+import { PALETTE, withAlpha } from '../domain/palette.js'
 // Draggable-node parametric EQ editor - a scoped-down take on FL Studio's
 // "Fruity Parametric EQ 2" (the reference the user showed a screenshot of,
 // see noctivago_remix_eq_future memory). Band count is fully user-managed -
@@ -63,14 +64,14 @@ export const STEEP_STAGE_COUNT = 4
 // unselected coloring, so a band's shape is now readable at a glance without
 // selecting it - 'off' has neither (it does nothing, stays the plain dimmed
 // gray the bypassed/muted state already used). 'peaking' keeps the graph's
-// original accent blue since it's the most common/default type.
+// app's accent color since it's the most common/default type.
 const TYPE_CYCLE_ORDER = ['off', 'lowpass', 'highpass', 'bandpass', 'notch', 'lowshelf', 'highshelf', 'peaking']
 const TYPE_COLORS = {
-  peaking: '#7aa2f7',
+  peaking: PALETTE.accent,
   lowpass: '#2dd4bf',
   highpass: '#ef4444',
   bandpass: '#34d399',
-  notch: '#fbbf24',
+  notch: '#fb923c',
   lowshelf: '#a78bfa',
   highshelf: '#22d3ee'
 }
@@ -206,7 +207,7 @@ function drawBandEnergyBackdrop(ctx, width, height, freqs, energies, viewMinHz, 
   if (!freqs || !energies || freqs.length === 0) return
   const maxEnergy = Math.max(...energies, 0.0001)
   const barWidth = 28
-  ctx.fillStyle = 'rgba(122, 162, 247, 0.16)'
+  ctx.fillStyle = withAlpha(PALETTE.accent, 0.16)
   freqs.forEach((freqHz, i) => {
     const x = freqToX(freqHz, width, viewMinHz, viewMaxHz)
     const normalized = Math.min(1, energies[i] / maxEnergy)
@@ -346,24 +347,24 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
 
   for (const g of [-24, -12, 0, 12, 24]) {
     const y = gainToY(g, height)
-    ctx.strokeStyle = g === 0 ? '#3b3f58' : 'rgba(59, 63, 88, 0.5)'
+    ctx.strokeStyle = g === 0 ? PALETTE.border : withAlpha(PALETTE.border, 0.5)
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(0, y)
     ctx.lineTo(width, y)
     ctx.stroke()
-    ctx.fillStyle = '#8892b0'
+    ctx.fillStyle = PALETTE.textDim
     ctx.fillText(`${g > 0 ? '+' : ''}${g}`, 4, Math.min(Math.max(y, 8), height - 8))
   }
 
   for (const f of niceFreqTicks(viewMinHz, viewMaxHz)) {
     const x = freqToX(f, width, viewMinHz, viewMaxHz)
-    ctx.strokeStyle = 'rgba(59, 63, 88, 0.5)'
+    ctx.strokeStyle = withAlpha(PALETTE.border, 0.5)
     ctx.beginPath()
     ctx.moveTo(x, 0)
     ctx.lineTo(x, height)
     ctx.stroke()
-    ctx.fillStyle = '#8892b0'
+    ctx.fillStyle = PALETTE.textDim
     ctx.fillText(formatFreqLabel(f), x + 3, height - 10)
   }
 
@@ -378,7 +379,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
   drawCutOverlay(ctx, width, height, responseCurve)
 
   if (responseCurve) {
-    ctx.strokeStyle = '#7aa2f7'
+    ctx.strokeStyle = PALETTE.accent
     ctx.lineWidth = 2
     ctx.beginPath()
     for (let x = 0; x < responseCurve.length; x++) {
@@ -389,7 +390,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
     }
     ctx.stroke()
   } else if (bands.length === 0) {
-    ctx.fillStyle = '#8892b0'
+    ctx.fillStyle = PALETTE.textDim
     ctx.font = '12px sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('Click + to add a band', width / 2, height / 2)
@@ -437,15 +438,15 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
 
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
-    ctx.fillStyle = bypassed ? 'rgba(122, 137, 176, 0.35)' : color
+    ctx.fillStyle = bypassed ? withAlpha(PALETTE.textDim, 0.35) : color
     ctx.fill()
-    ctx.strokeStyle = isSelected ? '#f7768e' : '#1a1b26'
+    ctx.strokeStyle = isSelected ? PALETTE.danger : PALETTE.surface
     ctx.lineWidth = isSelected ? 2.5 : 1.5
     ctx.stroke()
 
     const initials = TYPE_INITIALS[type]
     if (initials && !bypassed) {
-      ctx.fillStyle = '#1a1b26'
+      ctx.fillStyle = PALETTE.surface
       ctx.font = 'bold 8px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText(initials, x, y + 0.5)
