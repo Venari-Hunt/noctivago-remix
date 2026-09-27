@@ -1,3 +1,4 @@
+import { PALETTE, withAlpha } from '../domain/palette.js'
 import { LEVEL_HISTORY_LENGTH } from '../domain/levels.js'
 
 export function drawLevelHistory(canvas, history) {
@@ -26,10 +27,10 @@ export function drawLevelHistory(canvas, history) {
   for (let i = 0; i < history.length; i++) ctx.lineTo(xAt(i), yAt(i))
   ctx.lineTo(xAt(history.length - 1), height)
   ctx.closePath()
-  ctx.fillStyle = 'rgba(122, 162, 247, 0.35)'
+  ctx.fillStyle = withAlpha(PALETTE.accent, 0.35)
   ctx.fill()
 
-  ctx.strokeStyle = '#7aa2f7'
+  ctx.strokeStyle = PALETTE.accent
   ctx.lineWidth = 1.5
   ctx.beginPath()
   for (let i = 0; i < history.length; i++) {

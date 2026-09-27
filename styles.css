@@ -624,7 +624,7 @@
 
 .editor-eq-revert-banner:hover {
   background: var(--accent-strong);
-  color: #fff;
+  color: var(--on-accent, #000);
 }
 
 .editor-eq-label {
@@ -893,11 +893,11 @@
 
 .editor-mode-pill-active {
   background: var(--accent-strong);
-  color: #fff;
+  color: var(--on-accent, #000);
 }
 
 .editor-mode-pill-active:hover {
-  color: #fff;
+  color: var(--on-accent, #000);
 }
 
 .editor-mode-hint {

@@ -1,3 +1,4 @@
+import { PALETTE, withAlpha } from '../domain/palette.js'
 import { resizeCanvasForDisplay } from '../audio/waveform.js'
 import {
   MAX_HZ,
@@ -22,13 +23,13 @@ import {
 const EDGE_HIT_PX = 6
 const GRID_HZ = [100, 1000, 10000]
 const COLORS = {
-  background: '#161a2b',
+  background: PALETTE.surface,
   grid: 'rgba(255, 255, 255, 0.12)',
-  label: '#c0caf5',
-  dim: '#8892b0',
-  boxFill: 'rgba(122, 162, 247, 0.16)',
+  label: PALETTE.text,
+  dim: PALETTE.textDim,
+  boxFill: withAlpha(PALETTE.accent, 0.16),
   box: 'rgba(255, 255, 255, 0.7)',
-  selected: '#7aa2f7',
+  selected: PALETTE.accent,
   draft: 'rgba(255, 255, 255, 0.9)'
 }
 

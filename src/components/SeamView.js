@@ -1,3 +1,4 @@
+import { PALETTE, withAlpha } from '../domain/palette.js'
 import { resizeCanvasForDisplay } from '../audio/waveform.js'
 import { loopLayout, clipToSource } from '../domain/loopLayout.js'
 
@@ -42,20 +43,20 @@ const MIN_VIEW_SECONDS = 0.05
 // without resampling on every single pixel.
 const SOURCE_RANGE_SAMPLES = 48
 const COLORS = {
-  background: '#161a2b',
-  secondHalf: 'rgba(122, 162, 247, 0.10)',
+  background: PALETTE.surface,
+  secondHalf: withAlpha(PALETTE.accent, 0.10),
   firstHalf: 'rgba(158, 206, 106, 0.08)',
-  wave: 'rgba(122, 162, 247, 0.65)',
-  tailWave: 'rgba(122, 162, 247, 0.55)',
+  wave: withAlpha(PALETTE.accent, 0.65),
+  tailWave: withAlpha(PALETTE.accent, 0.55),
   headWave: 'rgba(158, 206, 106, 0.55)',
   hatch: 'rgba(255, 255, 255, 0.07)',
   overlap: 'rgba(255, 255, 255, 0.05)',
   edge: 'rgba(255, 255, 255, 0.85)',
-  tailCurve: '#7aa2f7',
+  tailCurve: PALETTE.accent,
   headCurve: '#9ece6a',
-  label: '#c0caf5',
-  dim: '#8892b0',
-  playhead: '#ff9e64'
+  label: PALETTE.text,
+  dim: PALETTE.textDim,
+  playhead: PALETTE.text
 }
 
 export function createSeamViewController(canvas) {
