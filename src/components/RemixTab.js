@@ -1928,6 +1928,15 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.updatePreviewMuteIcon()
 
     this.els.stickySoundControls = container.querySelector('#editor-sticky-sound-controls')
+    // The sound picker lives in the sticky bar, under the transport row, so
+    // the sound can be switched from anywhere down the page. mount() already
+    // built and wired it; moving the node keeps every listener.
+    this.els.soundPicker = this.els.soundSearch?.closest('.editor-picker')
+    if (this.els.soundPicker) {
+      this.els.soundPicker.classList.add('editor-picker-sticky')
+      this.els.soundPicker.classList.toggle('hidden', this.mode !== 'sound')
+      container.appendChild(this.els.soundPicker)
+    }
     this.els.stickyMixControls = container.querySelector('#editor-sticky-mix-controls')
     this.els.mixPlayPause = container.querySelector('#editor-mix-play-pause')
     this.els.mixSoloGroup = container.querySelector('#editor-mix-solo-group')
@@ -4648,6 +4657,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixGroupSelect.classList.toggle('hidden', mode !== 'group')
     this.els.mixGroupNew.classList.toggle('hidden', mode !== 'group')
     this.els.stickySoundControls.classList.toggle('hidden', mode !== 'sound')
+    this.els.soundPicker?.classList.toggle('hidden', mode !== 'sound')
     this.els.stickyMixControls.classList.toggle('hidden', mode === 'sound')
     this.els.mixDeleteGroup.classList.toggle('hidden', mode !== 'group' || !this.selectedGroupId)
     this.els.mixCopyGroupTo.classList.toggle('hidden', mode !== 'group' || !this.selectedGroupId)

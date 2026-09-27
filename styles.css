@@ -3,6 +3,16 @@
   margin-bottom: 12px;
 }
 
+.editor-picker-sticky {
+  flex: 1 0 100%;
+  margin-bottom: 0;
+}
+
+/* Above the tab content scrolling under the sticky bar. */
+.editor-picker-sticky .editor-sound-options {
+  z-index: 30;
+}
+
 .editor-sound-search {
   width: 100%;
   padding: 8px;
