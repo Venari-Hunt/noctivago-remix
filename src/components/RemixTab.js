@@ -50,8 +50,8 @@ export default class EditorPlugin {
     // baked) - this is its own small parallel dirty flag instead.
     this.savedFluctuationSnapshot = null
     // The "hear the real baked file" half of the preview toggle - see
-    // BakedClipPreview.js's own doc comment for why this exists (Doppler and
-    // Reverse have no live preview at all; Pitch is only a rough
+    // BakedClipPreview.js's own doc comment for why this exists (Doppler has
+    // no live preview at all; Pitch is only a rough
     // approximation). 'live' (the editable Web Audio chain, previewSource)
     // or 'saved' (the actual baked clip file, bakedPreview) - always reset
     // to 'live' on a fresh load() since a new sound's own bake (if any) is
@@ -784,7 +784,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
               <input id="editor-reverse" type="checkbox" />
               Reverse
             </label>
-            <p class="editor-speed-pitch-hint">Speed applies live, even for sounds too long to bake into a clip. Pitch and Reverse only take effect once saved (loops under 10 minutes) — Pitch previews approximately while dragging (briefly affects tempo too); Reverse has no live preview at all.</p>
+            <p class="editor-speed-pitch-hint">Speed applies live, even for sounds too long to bake into a clip. Reverse plays live too, for sounds up to 10 minutes long. Pitch only takes effect once saved (loops under 10 minutes) and previews approximately while dragging (briefly affects tempo too).</p>
+            <p id="editor-reverse-status" class="editor-speed-pitch-hint hidden" role="status"></p>
           </div>
           <div id="editor-filters" class="editor-filters"></div>
           <div class="editor-eq">
@@ -1042,6 +1043,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       pitch: container.querySelector('#editor-pitch'),
       pitchValue: container.querySelector('#editor-pitch-value'),
       reverse: container.querySelector('#editor-reverse'),
+      reverseStatus: container.querySelector('#editor-reverse-status'),
       doppler: container.querySelector('#editor-doppler'),
       dopplerHint: container.querySelector('#editor-doppler-hint'),
       dopplerOptions: container.querySelector('#editor-doppler-options'),
@@ -3268,6 +3270,18 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.updateSaveButtonState()
   }
 
+  // Live Reverse status under the Reverse toggle (PreviewSource's
+  // reverseState). Silent when it simply works.
+  showReverseState(state) {
+    const messages = {
+      pending: 'Preparing the reversed preview…',
+      unavailable: 'Reverse is heard live only for sounds up to 10 minutes long. If the loop is under 10 minutes, save and switch the preview to Saved audio to hear it.'
+    }
+    const message = messages[state] ?? ''
+    this.els.reverseStatus.textContent = message
+    this.els.reverseStatus.classList.toggle('hidden', !message)
+  }
+
   // Builds a comparable snapshot of "what's currently saved" vs. "what's
   // live in the controls" - explicit key order/defaults on both sides
   // (rather than relying on entry.filters' own possibly-partial shape, e.g.
@@ -3943,6 +3957,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.setPlayPauseIcon(false)
       this.eqEditorController.clearSpectrum()
     }
+    this.previewSource.onReverseStateChange = (state) => this.showReverseState(state)
+    this.showReverseState(this.previewSource.reverseState)
     const duration = await this.previewSource.waitForMetadata()
     if (this.currentEntry?.id !== id) return // switched sounds while loading
 
@@ -3957,7 +3973,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.previewSource.setLoopPoints(loopStart, loopEnd)
     this.previewSource.setFilters(this.previewFilters())
     this.previewSource.setFluctuation(this.fluctuation)
-    this.previewSource.audioEl.currentTime = loopStart
+    this.previewSource.scrubTo(loopStart)
     this.loopEditorController.load(duration, loopStart, loopEnd)
     // load() resets its own volume-envelope state to neutral, same reason
     // it resets Doppler (a fresh sound shouldn't inherit the previous one's

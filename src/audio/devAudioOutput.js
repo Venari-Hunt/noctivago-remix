@@ -14,6 +14,13 @@
 const DEV_OUTPUT_LABEL_MATCH = /yeti/i
 
 export async function routeDevAudioOutput(...sinks) {
+  // The app's Settings > General > Audio > Output device owns the choice
+  // (app v0.1.276+); follow it when present, else fall back to the Yeti.
+  const shared = window.noctivagoAudioOutput
+  if (shared) {
+    await Promise.all(sinks.map((sink) => shared.register(sink)))
+    return
+  }
   try {
     if (await window.noctivago.isPackaged()) return
     const devices = await navigator.mediaDevices.enumerateDevices()
