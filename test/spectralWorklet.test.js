@@ -57,3 +57,44 @@ test('worklet text parses and a box is applied at the anchored source time', () 
   assert.ok(rms(out, at(0.1), at(0.3)) > 0.3, 'before the box it is intact')
   assert.ok(rms(out, at(1.7), at(1.9)) > 0.3, 'after the box it is intact')
 })
+
+test('noise worklet text parses (imports stripped) and turns the hiss down', async () => {
+  const strip = (t) => t.replace(/^export /gm, '').replace(/^import .*$/gm, '')
+  const read = (n) => strip(fs.readFileSync(new URL('../src/audio/' + n, import.meta.url), 'utf8'))
+  const code = read('spectralRepairDsp.js') + '\n' + read('noiseReductionDsp.js') + '\n' + read('noiseReductionWorklet.js')
+  let Processor = null
+  const sandbox = {
+    sampleRate: SR,
+    currentFrame: 0,
+    AudioWorkletProcessor: class {
+      constructor() {
+        this.port = {}
+      }
+    },
+    registerProcessor: (name, cls) => {
+      Processor = cls
+    },
+    Float32Array,
+    Float64Array,
+    Math
+  }
+  vm.createContext(sandbox)
+  vm.runInContext(code, sandbox)
+  const { computeNoiseProfile } = await import('../src/audio/noiseReductionDsp.js')
+  let seed = 7
+  const hiss = new Float32Array(128 * Math.ceil((SR * 2) / 128))
+  for (let i = 0; i < hiss.length; i++) {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    hiss[i] = 0.05 * ((seed / 0xffffffff) * 2 - 1)
+  }
+  const p = new Processor()
+  p.port.onmessage({ data: { profile: computeNoiseProfile([hiss], SR, 0, 1), strength: 18 } })
+  const out = new Float32Array(hiss.length)
+  for (let i = 0; i < hiss.length; i += 128) {
+    const o = [new Float32Array(128)]
+    p.process([[hiss.subarray(i, i + 128)]], [o])
+    out.set(o[0], i)
+  }
+  const level = (x) => rms(x, SR * 0.5 + 2048, SR * 1.5 + 2048)
+  assert.ok(20 * Math.log10(level(hiss) / level(out)) > 10, 'hiss down by 10+ dB')
+})

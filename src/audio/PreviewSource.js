@@ -4,6 +4,8 @@ import { SoundFluctuation } from './Modulator.js'
 import { NoiseGate } from './NoiseGate.js'
 import { PitchStage } from './PitchStage.js'
 import { SpectralStage } from './SpectralStage.js'
+import { NoiseStage } from './NoiseStage.js'
+import { computeNoiseProfile, resolveNoiseWindow } from './noiseReductionDsp.js'
 import { dopplerSemitones } from '../domain/doppler.js'
 import { rampEqualPower } from './equalPowerRamp.js'
 import { canReverseLive, reverseRegion, encodeWav16, reversedToSource, sourceToReversed } from '../domain/reverseRegion.js'
@@ -139,11 +141,14 @@ function createVoice(engine, soundId) {
   // Live Spectral repair, then live pitch (one engine): each wired in between the
   // source and the gate only while it has something to do, in the order the
   // saved clip runs them (repair on source time, then Speed/Pitch/Doppler).
+  const noiseHub = engine.context.createGain()
   const spectralHub = engine.context.createGain()
   const pitchHub = engine.context.createGain()
-  sourceNode.connect(spectralHub)
+  sourceNode.connect(noiseHub)
+  noiseHub.connect(spectralHub)
   spectralHub.connect(pitchHub)
   pitchHub.connect(noiseGate.input)
+  const noiseStage = new NoiseStage(engine.context, noiseHub, spectralHub)
   const spectralStage = new SpectralStage(engine.context, spectralHub, pitchHub)
   const pitchStage = new PitchStage(engine.context, pitchHub, noiseGate.input)
   noiseGate.output.connect(highpassNode)
@@ -165,7 +170,7 @@ function createVoice(engine, soundId) {
   reverbSendGain.connect(reverbConvolver)
   reverbConvolver.connect(crossfadeGain)
 
-  return { audioEl, sourceNode, spectralHub, pitchHub, spectralStage, pitchStage, noiseGate, highpassNode, lowpassNode, eqNodes, eqNodeGroups, eqTopology: '', filterGainNode, echoDelayNode, echoSendGain, echoFeedbackGain, reverbSendGain, reverbConvolver, reverbSizeMs: 0, crossfadeGain }
+  return { audioEl, sourceNode, noiseHub, spectralHub, pitchHub, noiseStage, spectralStage, pitchStage, noiseGate, highpassNode, lowpassNode, eqNodes, eqNodeGroups, eqTopology: '', filterGainNode, echoDelayNode, echoSendGain, echoFeedbackGain, reverbSendGain, reverbConvolver, reverbSizeMs: 0, crossfadeGain }
 }
 
 // Tears down and rebuilds a voice's eqNodes chain to match a new band
@@ -264,8 +269,10 @@ function disposeVoice(voice) {
   voice.audioEl.pause()
   voice.audioEl.removeAttribute('src')
   voice.audioEl.load()
+  voice.noiseStage.dispose()
   voice.spectralStage.dispose()
   voice.pitchStage.dispose()
+  voice.noiseHub.disconnect()
   voice.spectralHub.disconnect()
   voice.pitchHub.disconnect()
   voice.sourceNode.disconnect()
@@ -314,6 +321,9 @@ export class PreviewSource {
     this._crossfading = false
     this._speedPitch = speedPitch
     this._pitchModSemitones = 0
+    this._noiseToken = 0
+    this._noiseTimer = null
+    this._noiseFilters = null
     this._disposed = false
 
     // Live Reverse (one engine, step 1). When Reverse is on, both voices
@@ -481,6 +491,46 @@ export class PreviewSource {
     // remade once the drag settles. Until then the old copy keeps playing
     // with its own region (_reverse), so playback stays consistent.
     if (changed && this._wantsReverse()) this._scheduleReverse(250)
+    if (changed && this._noiseFilters?.denoiseEnabled) {
+      clearTimeout(this._noiseTimer)
+      this._noiseTimer = setTimeout(() => this._syncNoise(), 250)
+    }
+  }
+
+  // Live Noise reduction: the profile is the average spectrum of the sample
+  // window of the source file (the same window and the same maths the saved clip
+  // uses). Needs the decoded file, so only for files short enough to decode
+  // (the same limit as live Reverse); longer ones are heard only once saved.
+  async _syncNoise() {
+    const filters = this._noiseFilters
+    const token = ++this._noiseToken
+    const off = () => {
+      for (const voice of this.voices) voice.noiseStage.set(null, 12)
+    }
+    if (!filters?.denoiseEnabled) return off()
+    const fileDuration = await this.waitForMetadata()
+    if (token !== this._noiseToken || this._disposed) return
+    const loopStart = this.loopStart
+    const loopEnd = this.loopEnd ?? fileDuration
+    const window = resolveNoiseWindow(filters.denoiseSampleStartSec, filters.denoiseSampleEndSec, loopStart, loopEnd)
+    if (!window || !canReverseLive(fileDuration, 0, fileDuration)) return off()
+    try {
+      this._decoded ??= fetch(this._soundSrc)
+        .then((response) => {
+          if (!response.ok) throw new Error('Sound unavailable (' + response.status + ')')
+          return response.arrayBuffer()
+        })
+        .then((bytes) => this.engine.context.decodeAudioData(bytes))
+      const buffer = await this._decoded
+      if (token !== this._noiseToken || this._disposed) return
+      const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c))
+      const profile = computeNoiseProfile(channels, buffer.sampleRate, window.start, window.end)
+      for (const voice of this.voices) voice.noiseStage.set(profile, filters.denoiseStrengthDb ?? 12)
+    } catch (err) {
+      console.error('Live noise reduction preview failed', err)
+      this._decoded = null
+      if (token === this._noiseToken) off()
+    }
   }
 
   _wantsReverse() {
@@ -589,6 +639,8 @@ export class PreviewSource {
   setFilters(filters) {
     for (const voice of this.voices) applyFiltersToVoice(voice, this.engine.context, filters)
     this._syncGates()
+    this._noiseFilters = filters
+    this._syncNoise()
     this.setVolumeEnvelope(filters.volumeEnvelope)
     if (!this.panStage.hasPan(filters.pan ?? 0)) this.panStage.setPan(filters.pan ?? 0)
   }
@@ -827,6 +879,7 @@ export class PreviewSource {
     this.playing = false
     this._disposed = true
     this._reverseToken++
+    clearTimeout(this._noiseTimer)
     if (this._reverseTimer) clearTimeout(this._reverseTimer)
     if (this._reverse) URL.revokeObjectURL(this._reverse.url)
     this._reverse = null

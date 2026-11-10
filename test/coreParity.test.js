@@ -32,7 +32,7 @@ test("dopplerSemitones matches the app's src/shared/doppler.js", async (t) => {
 
 test("the Spectral repair and noise DSP files match the app's copies", async (t) => {
   const fs = await import('node:fs')
-  for (const name of ['spectralRepairDsp.js']) {
+  for (const name of ['spectralRepairDsp.js', 'noiseReductionDsp.js']) {
     const core = await loadCore('src/shared/' + name)
     if (!core) return t.skip('GitHub unreachable, or the app has not published ' + name + ' yet')
     const mine = fs.readFileSync(new URL('../src/audio/' + name, import.meta.url), 'utf8')
