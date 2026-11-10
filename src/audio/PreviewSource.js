@@ -3,6 +3,7 @@ import { PanStage } from './PanStage.js'
 import { SoundFluctuation } from './Modulator.js'
 import { NoiseGate } from './NoiseGate.js'
 import { PitchStage } from './PitchStage.js'
+import { SpectralStage } from './SpectralStage.js'
 import { dopplerSemitones } from '../domain/doppler.js'
 import { rampEqualPower } from './equalPowerRamp.js'
 import { canReverseLive, reverseRegion, encodeWav16, reversedToSource, sourceToReversed } from '../domain/reverseRegion.js'
@@ -135,9 +136,16 @@ function createVoice(engine, soundId) {
   const crossfadeGain = engine.context.createGain()
   crossfadeGain.gain.value = 0
 
-  sourceNode.connect(noiseGate.input)
-  // Live pitch (one engine): wired between source and gate only while a shift is needed.
-  const pitchStage = new PitchStage(engine.context, sourceNode, noiseGate.input)
+  // Live Spectral repair, then live pitch (one engine): each wired in between the
+  // source and the gate only while it has something to do, in the order the
+  // saved clip runs them (repair on source time, then Speed/Pitch/Doppler).
+  const spectralHub = engine.context.createGain()
+  const pitchHub = engine.context.createGain()
+  sourceNode.connect(spectralHub)
+  spectralHub.connect(pitchHub)
+  pitchHub.connect(noiseGate.input)
+  const spectralStage = new SpectralStage(engine.context, spectralHub, pitchHub)
+  const pitchStage = new PitchStage(engine.context, pitchHub, noiseGate.input)
   noiseGate.output.connect(highpassNode)
   highpassNode.connect(lowpassNode)
   const eqChainEnd = eqNodes.reduce((prev, node) => {
@@ -157,7 +165,7 @@ function createVoice(engine, soundId) {
   reverbSendGain.connect(reverbConvolver)
   reverbConvolver.connect(crossfadeGain)
 
-  return { audioEl, sourceNode, pitchStage, noiseGate, highpassNode, lowpassNode, eqNodes, eqNodeGroups, eqTopology: '', filterGainNode, echoDelayNode, echoSendGain, echoFeedbackGain, reverbSendGain, reverbConvolver, reverbSizeMs: 0, crossfadeGain }
+  return { audioEl, sourceNode, spectralHub, pitchHub, spectralStage, pitchStage, noiseGate, highpassNode, lowpassNode, eqNodes, eqNodeGroups, eqTopology: '', filterGainNode, echoDelayNode, echoSendGain, echoFeedbackGain, reverbSendGain, reverbConvolver, reverbSizeMs: 0, crossfadeGain }
 }
 
 // Tears down and rebuilds a voice's eqNodes chain to match a new band
@@ -199,6 +207,7 @@ function applyFiltersToVoice(voice, context, filters) {
   const { highpassHz, lowpassHz, gainDb, echoDelayMs = 0, echoDecay = 0, reverbSizeMs = 0, reverbMix = 0, eq = [] } = filters
   const now = context.currentTime
   voice.noiseGate.configure(filters)
+  voice.spectralStage.setRegions(filters.spectralRepairs)
   voice.highpassNode.frequency.setTargetAtTime(highpassHz, now, FILTER_SMOOTHING_SECONDS)
   voice.lowpassNode.frequency.setTargetAtTime(lowpassHz, now, FILTER_SMOOTHING_SECONDS)
   voice.filterGainNode.gain.setTargetAtTime(Math.pow(10, gainDb / 20), now, FILTER_SMOOTHING_SECONDS)
@@ -255,7 +264,10 @@ function disposeVoice(voice) {
   voice.audioEl.pause()
   voice.audioEl.removeAttribute('src')
   voice.audioEl.load()
+  voice.spectralStage.dispose()
   voice.pitchStage.dispose()
+  voice.spectralHub.disconnect()
+  voice.pitchHub.disconnect()
   voice.sourceNode.disconnect()
   voice.noiseGate.dispose()
   voice.highpassNode.disconnect()
@@ -647,6 +659,15 @@ export class PreviewSource {
     for (const voice of this.voices) voice.pitchStage.set(base + this._dopplerFor(voice))
   }
 
+  // Tells each voice's Spectral repair stage where in the source file its audio
+  // is now, so the boxes land on the same moments as in the saved clip.
+  _anchorSpectral() {
+    const rate = (this._reverse ? -1 : 1) * (this._speedPitch?.speed ?? 1)
+    for (const voice of this.voices) {
+      if (voice.spectralStage.wired) voice.spectralStage.setAnchor(this._toSource(voice.audioEl.currentTime), rate)
+    }
+  }
+
   _dopplerFor(voice) {
     const sp = this._speedPitch
     if (!sp?.dopplerEnabled) return 0
@@ -725,6 +746,7 @@ export class PreviewSource {
     }
 
     if (this._speedPitch?.dopplerEnabled) this._updatePitch()
+    this._anchorSpectral()
     this._rafId = requestAnimationFrame(() => this._tick())
   }
 
