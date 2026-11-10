@@ -2,6 +2,8 @@ import { createReverbImpulse } from './reverbIR.js'
 import { PanStage } from './PanStage.js'
 import { SoundFluctuation } from './Modulator.js'
 import { NoiseGate } from './NoiseGate.js'
+import { PitchStage } from './PitchStage.js'
+import { dopplerSemitones } from '../domain/doppler.js'
 import { rampEqualPower } from './equalPowerRamp.js'
 import { canReverseLive, reverseRegion, encodeWav16, reversedToSource, sourceToReversed } from '../domain/reverseRegion.js'
 
@@ -134,6 +136,8 @@ function createVoice(engine, soundId) {
   crossfadeGain.gain.value = 0
 
   sourceNode.connect(noiseGate.input)
+  // Live pitch (one engine): wired between source and gate only while a shift is needed.
+  const pitchStage = new PitchStage(engine.context, sourceNode, noiseGate.input)
   noiseGate.output.connect(highpassNode)
   highpassNode.connect(lowpassNode)
   const eqChainEnd = eqNodes.reduce((prev, node) => {
@@ -153,7 +157,7 @@ function createVoice(engine, soundId) {
   reverbSendGain.connect(reverbConvolver)
   reverbConvolver.connect(crossfadeGain)
 
-  return { audioEl, sourceNode, noiseGate, highpassNode, lowpassNode, eqNodes, eqNodeGroups, eqTopology: '', filterGainNode, echoDelayNode, echoSendGain, echoFeedbackGain, reverbSendGain, reverbConvolver, reverbSizeMs: 0, crossfadeGain }
+  return { audioEl, sourceNode, pitchStage, noiseGate, highpassNode, lowpassNode, eqNodes, eqNodeGroups, eqTopology: '', filterGainNode, echoDelayNode, echoSendGain, echoFeedbackGain, reverbSendGain, reverbConvolver, reverbSizeMs: 0, crossfadeGain }
 }
 
 // Tears down and rebuilds a voice's eqNodes chain to match a new band
@@ -236,35 +240,22 @@ function applyFiltersToVoice(voice, context, filters) {
   voice.lowpassNode.connect(voice.analyserFeed)
 }
 
-// Speed previews accurately via playbackRate alone (the browser's own
-// default preservesPitch=true keeps a pure tempo change from also shifting
-// pitch). Pitch has no equivalent native "shift pitch only" lever on
-// <audio> - approximated by disabling preservesPitch and folding the
-// desired pitch ratio into the SAME playbackRate value, which necessarily
-// also nudges the apparent tempo away from the requested speed for as long
-// as a nonzero pitch shift is active. This is a known, accepted trade-off
-// (matches the note this feature was scoped from) - the saved clip renders
-// speed and pitch independently and accurately via ffmpeg's rubberband
-// filter (see src/main/ffmpeg/loopClip.js); this preview is only meant to
-// give an immediate, rough sense of direction while dragging, not a
-// faithful stand-in for the bake. Reverse is not handled here: the voices
-// switch to a reversed copy of the loop instead (see PreviewSource's
-// _renderReverse).
-// pitchModFactor folds in live pitch fluctuation (see PreviewSource's
-// this._fluctuation) - a plain multiplier on playbackRate, same limitation
-// as Pitch itself here (also nudges tempo). 1 when no pitch drift is active.
-function applySpeedPitchToVoice(voice, speedPitch, pitchModFactor = 1) {
-  const speed = speedPitch?.speed ?? 1
-  const pitchSemitones = speedPitch?.pitchSemitones ?? 0
-  const pitchRatio = Math.pow(2, pitchSemitones / 12)
-  voice.audioEl.preservesPitch = pitchSemitones === 0 && pitchModFactor === 1
-  voice.audioEl.playbackRate = speed * pitchRatio * pitchModFactor
+// Speed plays through the <audio> element's own pitch-keeping stretch
+// (preservesPitch stays on), so Speed never moves the pitch. Pitch, Doppler and
+// Fluctuation pitch are one semitone value for the voice's PitchStage (see
+// PitchStage.js and PreviewSource._updatePitch), the same engine the saved
+// clip uses. Reverse is not handled here: the voices switch to a reversed copy
+// of the loop instead (see PreviewSource's _renderReverse).
+function applySpeedToVoice(voice, speedPitch) {
+  voice.audioEl.preservesPitch = true
+  voice.audioEl.playbackRate = speedPitch?.speed ?? 1
 }
 
 function disposeVoice(voice) {
   voice.audioEl.pause()
   voice.audioEl.removeAttribute('src')
   voice.audioEl.load()
+  voice.pitchStage.dispose()
   voice.sourceNode.disconnect()
   voice.noiseGate.dispose()
   voice.highpassNode.disconnect()
@@ -310,7 +301,7 @@ export class PreviewSource {
     this._pauseTimeoutId = null
     this._crossfading = false
     this._speedPitch = speedPitch
-    this._pitchModFactor = 1
+    this._pitchModSemitones = 0
     this._disposed = false
 
     // Live Reverse (one engine, step 1). When Reverse is on, both voices
@@ -333,7 +324,7 @@ export class PreviewSource {
     this.voices = [createVoice(engine, soundId), createVoice(engine, soundId)]
     this.activeIndex = 0
     this.voices[0].crossfadeGain.gain.value = 1
-    for (const voice of this.voices) applySpeedPitchToVoice(voice, speedPitch)
+    for (const voice of this.voices) applySpeedToVoice(voice, speedPitch)
 
     // Fluctuation (v0.1.164): one shared drift stage after both crossfade
     // voices combine, so a loop-seam crossfade doesn't fight it. Mirrors
@@ -344,12 +335,13 @@ export class PreviewSource {
     this._fluctuation = new SoundFluctuation({
       onVolume: (v) => this.fluctuationGain.gain.setTargetAtTime(v, this.engine.context.currentTime, 0.12),
       onPitch: (semitones) => {
-        this._pitchModFactor = Math.pow(2, semitones / 12)
-        this._applyPlaybackRate()
+        this._pitchModSemitones = semitones
+        this._updatePitch()
       },
       onPan: (v) => this.driftPanStage.setPan(v)
     })
     this._fluctuation.configure(fluctuation ?? {})
+    this._updatePitch()
 
     // Volume envelope (per-sound, Loop mode, drag points on the waveform to
     // shape volume over time - Audacity's classic tool). A dedicated gain
@@ -642,11 +634,33 @@ export class PreviewSource {
   }
 
   _applyPlaybackRate() {
-    for (const voice of this.voices) applySpeedPitchToVoice(voice, this._speedPitch, this._pitchModFactor)
+    for (const voice of this.voices) applySpeedToVoice(voice, this._speedPitch)
+    this._updatePitch()
+  }
+
+  // Static Pitch + Doppler (by where each voice is in the loop) + Fluctuation,
+  // in semitones, into each voice's PitchStage. The saved clip uses the same
+  // Doppler contour (src/shared/doppler.js in the app).
+  _updatePitch() {
+    const sp = this._speedPitch
+    const base = (sp?.pitchSemitones ?? 0) + this._pitchModSemitones
+    for (const voice of this.voices) voice.pitchStage.set(base + this._dopplerFor(voice))
+  }
+
+  _dopplerFor(voice) {
+    const sp = this._speedPitch
+    if (!sp?.dopplerEnabled) return 0
+    const duration = this._loopEnd() - this._regionStart()
+    if (!(duration > 0) || !Number.isFinite(duration)) return 0
+    // The bake bends the pitch over source time and reverses afterwards, so on
+    // the reversed copy the curve is read backwards.
+    const t = this._reverse ? duration - voice.audioEl.currentTime : voice.audioEl.currentTime - this.loopStart
+    return dopplerSemitones(t, duration, sp.dopplerClosestFraction, sp.dopplerIntensitySemitones, sp.dopplerReversed, sp.dopplerSharpness)
   }
 
   setFluctuation(fluctuation) {
     this._fluctuation.configure(fluctuation ?? {})
+    this._updatePitch()
     this._fluctuation.sync(this.playing)
   }
 
@@ -710,6 +724,7 @@ export class PreviewSource {
       this._finishCrossfade()
     }
 
+    if (this._speedPitch?.dopplerEnabled) this._updatePitch()
     this._rafId = requestAnimationFrame(() => this._tick())
   }
 
@@ -755,6 +770,7 @@ export class PreviewSource {
     this.playing = true
     this._fluctuation.sync(true)
     this._syncGates()
+    this._updatePitch()
     this._tick()
   }
 
