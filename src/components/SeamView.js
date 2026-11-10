@@ -42,19 +42,22 @@ const MIN_VIEW_SECONDS = 0.05
 // header comment above) - enough steps to catch the blend's two curves
 // without resampling on every single pixel.
 const SOURCE_RANGE_SAMPLES = 48
+// Desktop 2.0 look (mock screen "remix", Loop seam): one gray waveform, an
+// amber band for the crossfade, the fading-out end in amber and the
+// fading-in start in the text color.
 const COLORS = {
   background: PALETTE.surface,
-  secondHalf: withAlpha(PALETTE.accent, 0.10),
-  firstHalf: 'rgba(158, 206, 106, 0.08)',
-  wave: withAlpha(PALETTE.accent, 0.65),
-  tailWave: withAlpha(PALETTE.accent, 0.55),
-  headWave: 'rgba(158, 206, 106, 0.55)',
-  hatch: 'rgba(255, 255, 255, 0.07)',
-  overlap: 'rgba(255, 255, 255, 0.05)',
-  edge: 'rgba(255, 255, 255, 0.85)',
+  secondHalf: 'rgba(0, 0, 0, 0)',
+  firstHalf: 'rgba(0, 0, 0, 0)',
+  wave: PALETTE.wave,
+  tailWave: withAlpha(PALETTE.wave, 0.7),
+  headWave: withAlpha(PALETTE.text, 0.35),
+  hatch: 'rgba(255, 255, 255, 0.04)',
+  overlap: withAlpha(PALETTE.accent, 0.08),
+  edge: PALETTE.accent,
   tailCurve: PALETTE.accent,
-  headCurve: '#9ece6a',
-  label: PALETTE.text,
+  headCurve: PALETTE.text,
+  label: PALETTE.textDim,
   dim: PALETTE.textDim,
   playhead: PALETTE.text
 }
@@ -173,7 +176,7 @@ export function createSeamViewController(canvas) {
 
   function label(ctx, text, x, align, color = COLORS.label, y = 4) {
     ctx.fillStyle = color
-    ctx.font = '10px sans-serif'
+    ctx.font = "11px 'Segoe UI', sans-serif"
     ctx.textBaseline = 'top'
     ctx.textAlign = align
     ctx.fillText(text, x, y)

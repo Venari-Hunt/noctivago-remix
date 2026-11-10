@@ -1,14 +1,14 @@
-// Canvas colors, mirroring the app's theme tokens in its main.css (OLED
-// black, one yellow accent). Canvases can't read CSS variables for free, and
-// the old hardcoded blue palette clashed with the app, so every canvas draws
-// from here instead.
+// Canvas colors, mirroring the app's theme tokens in its main.css (the
+// Desktop 2.0 look: graphite, one amber accent). Canvases can't read CSS
+// variables for free, so every canvas draws from here instead.
 export const PALETTE = {
-  accent: '#ffc933',
-  text: '#f5f5f5',
-  textDim: '#8f8f8f',
-  surface: '#0d0d0d',
-  border: '#3a3a3a',
-  danger: '#ff6b6b'
+  accent: '#e0b84c',
+  text: '#ece9e2',
+  textDim: '#a3a09a',
+  surface: '#0f0f11',
+  border: '#2d2d33',
+  danger: '#ff6b6b',
+  wave: '#6a6a72'
 }
 
 // '#rrggbb' + alpha -> 'rgba(r, g, b, a)'

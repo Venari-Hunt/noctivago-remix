@@ -12,8 +12,9 @@ import { createFluctuationBar } from './FluctuationBar.js'
 import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountFilterControls } from './FilterControls.jsx'
-import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
-import { PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
+import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
+import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
+import { arrangeLayout, arrangeBar } from './layout.js'
 import { wireNameMarquee } from './nameMarquee.js'
 import { fluctuationTimingMarkup, driftAxisTogglesMarkup, shotAxisMarkup, mixFluctuationMarkup } from './markup.js'
 import { requestAnalyser, requestMixerStatus } from './mixerBridge.js'
@@ -955,6 +956,14 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       </div>
     `
 
+    // Desktop 2.0 layout: wraps and moves the nodes above (layout.js).
+    this.root = container
+    this.layout = arrangeLayout(container, {
+      onView: (view) => {
+        if (view === 'seam') this.syncSeamView()
+      }
+    })
+
     this.els = {
       soundSearch: container.querySelector('#editor-sound-search'),
       soundOptions: container.querySelector('#editor-sound-options'),
@@ -1803,55 +1812,43 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   // lifecycle mount() itself already has.
   mountSticky(container) {
     container.innerHTML = `
-      <div id="editor-sticky-sound-controls" class="editor-sticky-mode-group">
-      <button id="editor-play-pause" class="btn btn-svg-icon" type="button" title="Play">${PLAY_ICON_SVG}</button>
-      <button id="editor-loop-toggle" class="editor-loop-icon-btn editor-loop-icon-btn-active" type="button" title="Loop preview" aria-pressed="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M17 1l4 4-4 4"/>
-          <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
-          <path d="M7 23l-4-4 4-4"/>
-          <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
-        </svg>
-      </button>
-      <button id="editor-preview-mode-toggle" class="btn btn-small editor-preview-mode-toggle" type="button" disabled>Live edit</button>
-      <div id="editor-sticky-progress" class="editor-sticky-progress" title="Drag to seek">
-        <div class="editor-sticky-progress-track">
-          <div id="editor-sticky-progress-fill" class="editor-sticky-progress-fill"></div>
+      <div class="rx-bar">
+        <div id="rx-bar-left" class="rx-bar-l"></div>
+        <div id="rx-bar-center" class="rx-bar-c"></div>
+        <div class="rx-bar-r">
+          <div id="editor-sticky-sound-controls" class="editor-sticky-mode-group">
+            <button id="editor-undo" class="rx-i" type="button" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>${icon('undo-2')}</button>
+            <button id="editor-redo" class="rx-i" type="button" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>${icon('redo-2')}</button>
+            <button id="editor-cancel" class="rx-b rx-ghost" type="button" title="Discard every change made since this sound was opened in Remix">Cancel</button>
+            <button id="editor-save-as-copy" class="rx-b" type="button" title="Save a new sound with this one's trim and every setting, without touching this one">${icon('copy')}<span>Save as copy</span></button>
+            <button id="editor-save" class="rx-b rx-pri editor-sticky-save" type="button">${icon('save')}<span id="editor-save-label">Save</span></button>
+          </div>
+          <div id="editor-sticky-mix-controls" class="editor-sticky-mode-group hidden">
+            <button id="editor-mix-play-pause" class="btn btn-svg-icon" type="button" title="Play">${PLAY_ICON_SVG}</button>
+            <button id="editor-mix-solo-group" class="editor-sticky-solo hidden" type="button">Solo group</button>
+            <span id="editor-mix-status" class="editor-sticky-time"></span>
+            <select id="editor-mix-copy-group-to" class="hidden" title="Copy this group's name, filters/EQ and members into another preset - it's governed entirely by whichever preset it ends up in from then on">
+              <option value="" selected disabled>Copy to preset…</option>
+            </select>
+            <button id="editor-mix-delete-group" class="btn btn-danger btn-icon-text hidden" type="button">Delete group</button>
+            <button id="editor-mix-save" class="btn btn-primary btn-icon-text editor-sticky-save" type="button">Save</button>
+          </div>
         </div>
-        <div id="editor-sticky-progress-thumb" class="editor-sticky-progress-thumb"></div>
       </div>
-      <span id="editor-sticky-time" class="editor-sticky-time">0:00 / 0:00</span>
-      <input id="editor-sticky-volume" type="range" min="0" max="100" value="${Math.round(this.previewVolume * 100)}" class="editor-sticky-volume" title="Preview volume" />
-      <button id="editor-sticky-mute" class="btn btn-svg-icon" type="button" title="Mute">${VOLUME_ICON_SVG}</button>
-      <button id="editor-sticky-solo" class="editor-sticky-solo" type="button" title="Solo: mute every other sound already playing in the Mixer while you audition this one">Solo</button>
-      <button id="editor-undo" class="btn btn-svg-icon" type="button" title="Undo (Ctrl+Z)" disabled>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-      </button>
-      <button id="editor-redo" class="btn btn-svg-icon" type="button" title="Redo (Ctrl+Shift+Z)" disabled>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-9.36 2.13L23 10"/></svg>
-      </button>
-      <button id="editor-cancel" class="btn btn-icon-text" type="button" title="Discard every change made since this sound was opened in Remix">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-        Cancel
-      </button>
-      <button id="editor-save" class="btn btn-primary btn-icon-text editor-sticky-save" type="button">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-        <span id="editor-save-label">Save</span>
-      </button>
-      <button id="editor-save-as-copy" class="btn btn-icon-text" type="button" title="Trim out just this segment and save it as a brand-new sound, without touching this one's own saved trim - for cutting several segments out of one longer recording">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Save as copy
-      </button>
-      </div>
-      <div id="editor-sticky-mix-controls" class="editor-sticky-mode-group hidden">
-        <button id="editor-mix-play-pause" class="btn btn-svg-icon" type="button" title="Play">${PLAY_ICON_SVG}</button>
-        <button id="editor-mix-solo-group" class="editor-sticky-solo hidden" type="button">Solo group</button>
-        <span id="editor-mix-status" class="editor-sticky-time"></span>
-        <select id="editor-mix-copy-group-to" class="hidden" title="Copy this group's name, filters/EQ and members into another preset - it's governed entirely by whichever preset it ends up in from then on">
-          <option value="" selected disabled>Copy to preset…</option>
-        </select>
-        <button id="editor-mix-delete-group" class="btn btn-danger btn-icon-text hidden" type="button">Delete group</button>
-        <button id="editor-mix-save" class="btn btn-primary btn-icon-text editor-sticky-save" type="button">Save</button>
+      <div id="rx-transport-src" hidden>
+        <button id="editor-play-pause" class="rx-b rx-play" type="button" title="Play" aria-label="Preview">${PLAY_ICON_SVG}</button>
+        <button id="editor-loop-toggle" class="rx-i editor-loop-icon-btn editor-loop-icon-btn-active" type="button" title="Loop preview" aria-label="Loop preview" aria-pressed="true">${icon('repeat')}</button>
+        <button id="editor-sticky-solo" class="rx-i editor-sticky-solo" type="button" aria-label="Solo" title="Solo: mute every other sound already playing in the Mixer while you audition this one">S</button>
+        <span id="editor-sticky-time" class="editor-sticky-time rx-num">0:00 / 0:00</span>
+        <button id="editor-preview-mode-toggle" class="editor-preview-mode-toggle rx-live" type="button" disabled>Live edit</button>
+        <button id="editor-sticky-mute" class="rx-i" type="button" title="Mute">${VOLUME_ICON_SVG}</button>
+        <input id="editor-sticky-volume" type="range" min="0" max="100" value="${Math.round(this.previewVolume * 100)}" class="editor-sticky-volume rx-fader" title="Preview volume" aria-label="Preview volume" />
+        <div id="editor-sticky-progress" class="editor-sticky-progress" title="Drag to seek">
+          <div class="editor-sticky-progress-track">
+            <div id="editor-sticky-progress-fill" class="editor-sticky-progress-fill"></div>
+          </div>
+          <div id="editor-sticky-progress-thumb" class="editor-sticky-progress-thumb"></div>
+        </div>
       </div>
     `
 
@@ -1878,6 +1875,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.save.addEventListener('click', () => this.save().catch((err) => console.error('Editor: save failed', err)))
     this.els.saveAsCopy = container.querySelector('#editor-save-as-copy')
     this.els.saveAsCopy.addEventListener('click', () => this.saveAsCopy().catch((err) => console.error('Editor: save as copy failed', err)))
+    this.els.saveSegment = this.root.querySelector('#editor-save-segment')
+    this.els.saveSegment.addEventListener('click', () => this.saveSegmentAsNew().catch((err) => console.error('Editor: save segment failed', err)))
 
     this.els.playPause.addEventListener('click', async () => {
       const active = this.activePreview()
@@ -1930,15 +1929,10 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.updatePreviewMuteIcon()
 
     this.els.stickySoundControls = container.querySelector('#editor-sticky-sound-controls')
-    // The sound picker lives in the sticky bar, under the transport row, so
-    // the sound can be switched from anywhere down the page. mount() already
-    // built and wired it; moving the node keeps every listener.
+    // The sound picker lives in the bar's left slot (layout.js moves it there),
+    // so the sound can be switched from anywhere. mount() built and wired it.
     this.els.soundPicker = this.els.soundSearch?.closest('.editor-picker')
-    if (this.els.soundPicker) {
-      this.els.soundPicker.classList.add('editor-picker-sticky')
-      this.els.soundPicker.classList.toggle('hidden', this.mode !== 'sound')
-      container.appendChild(this.els.soundPicker)
-    }
+    this.els.soundPicker?.classList.toggle('hidden', this.mode !== 'sound')
     this.els.stickyMixControls = container.querySelector('#editor-sticky-mix-controls')
     this.els.mixPlayPause = container.querySelector('#editor-mix-play-pause')
     this.els.mixSoloGroup = container.querySelector('#editor-mix-solo-group')
@@ -1957,6 +1951,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       const targetPresetId = this.els.mixCopyGroupTo.value
       this.copyGroupToPreset(targetPresetId).catch((err) => console.error('Editor: group copy failed', err))
     })
+    arrangeBar(container, this.root)
+    this.setBarEnabled(Boolean(this.currentEntry))
   }
 
   effectivePreviewVolume() {
@@ -2238,6 +2234,19 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.historyStack = []
     this.historyIndex = -1
     this.updateUndoRedoButtonsUI()
+    this.setBarEnabled(false)
+  }
+
+  // With nothing open there is nothing to cancel or save (mock: remix-empty).
+  // Safe before mountSticky() has made the buttons.
+  setBarEnabled(enabled) {
+    if (!this.els.cancel) return
+    this.els.cancel.disabled = !enabled
+    this.els.saveAsCopy.disabled = !enabled
+    if (!enabled) {
+      this.els.save.disabled = true
+      this.els.saveLabel.textContent = 'Save'
+    }
   }
 
   updateLoopTimeInputs(loopStart, loopEnd) {
@@ -2740,7 +2749,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     if (active.playing) active.pause()
     active.scrubTo(startAt)
     this._seamTimer = setTimeout(() => this.stopSeamListen(), (secondsToSeamEnd + SEAM_TAIL_SECONDS) * 1000)
-    this.els.seamListen.textContent = 'Stop'
+    this.els.seamListen.querySelector('span').textContent = 'Stop'
     this.els.seamStatus.textContent = 'Playing through the loop point…'
     await this.engine.resume()
     await active.play()
@@ -2758,7 +2767,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this._seamTimer = null
     if (this._seamRestoreLooping) this.previewSource?.setLooping(this.looping)
     this._seamRestoreLooping = false
-    this.els.seamListen.textContent = 'Listen to the seam'
+    this.els.seamListen.querySelector('span').textContent = 'Listen to the seam'
     this.els.seamStatus.textContent = ''
     if (pause && this.activePreview()?.playing) {
       this.activePreview().pause()
@@ -2956,6 +2965,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.playModeScatter.checked = playMode === 'scatter'
     this.els.playModeScheduled.checked = playMode === 'scheduled'
     this.els.crossfadeSection.classList.toggle('hidden', playMode === 'scatter' || playMode === 'scheduled')
+    this.layout?.setPlayMode(playMode)
     this.els.scatterSection.classList.toggle('hidden', playMode !== 'scatter')
     this.els.scheduleSection.classList.toggle('hidden', playMode !== 'scheduled')
     // Fade and Sync group (owner UI feedback, 2026-09-17): moved up near the
@@ -3067,6 +3077,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   applyPlayModeControl() {
     const playMode = this.currentPlayMode()
     this.els.crossfadeSection.classList.toggle('hidden', playMode === 'scatter' || playMode === 'scheduled')
+    this.layout?.setPlayMode(playMode)
     this.els.scatterSection.classList.toggle('hidden', playMode !== 'scatter')
     this.els.scheduleSection.classList.toggle('hidden', playMode !== 'scheduled')
     this.els.fadeSection.classList.toggle('hidden', playMode !== 'scatter' && playMode !== 'scheduled')
@@ -3847,6 +3858,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
 
     this.els.empty.classList.add('hidden')
     this.els.panel.classList.remove('hidden')
+    this.setBarEnabled(true)
     this.els.soundName.textContent = entry.name
     this.els.soundName.title = entry.name
     this.setPlayPauseIcon(false)
@@ -3890,41 +3902,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.loopEditorController?.setDopplerEnabled(speedPitch.dopplerEnabled ?? false)
 
     const playMode = entry.playMode ?? 'loop'
-    const scatter = entry.scatter ?? {
-      minGapSeconds: 5,
-      maxGapSeconds: 35,
-      gapFullyRandom: false,
-      gapBiasEnabled: false,
-      gapBiasSeconds: 20,
-      minPitchSemitones: 0,
-      maxPitchSemitones: 0,
-      pitchFullyRandom: false,
-      pitchBiasEnabled: false,
-      pitchBiasSemitones: 0,
-      minVolume: 1,
-      maxVolume: 1,
-      minSpeed: 1,
-      maxSpeed: 1,
-      fadeInMs: 0,
-      fadeOutMs: 0,
-      syncGroup: ''
-    }
-    const schedule = entry.schedule ?? {
-      type: 'times',
-      times: [],
-      intervalMinutes: 60,
-      minPitchSemitones: 0,
-      maxPitchSemitones: 0,
-      pitchFullyRandom: false,
-      pitchBiasEnabled: false,
-      pitchBiasSemitones: 0,
-      minVolume: 1,
-      maxVolume: 1,
-      minSpeed: 1,
-      maxSpeed: 1,
-      fadeInMs: 0,
-      fadeOutMs: 0
-    }
+    const scatter = entry.scatter ?? defaultScatter()
+    const schedule = entry.schedule ?? defaultSchedule()
     this.setPlayModeControls(playMode)
     this.setScatterControls(scatter)
     this.setScheduleControls(schedule)
@@ -4464,6 +4443,47 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.saveStatus.textContent = baked
       ? `Saved a copy: "${name}".`
       : `Saved a copy: "${name}" (streams directly - trim over 10 minutes, or the clip render failed).`
+    await this.refreshLibrary()
+  }
+
+  // "Save segment as new" (Desktop 2.0, owner 2026-11-10): a brand-new sound
+  // that is only the trimmed part. Unlike Save as copy it carries none of
+  // this sound's settings: filters, EQ, speed, pitch, play mode, per-play
+  // ranges and drift all start at their defaults. The open sound is untouched.
+  async saveSegmentAsNew() {
+    if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B') return
+    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
+    const filters = structuredClone(NEUTRAL_FILTERS)
+    const speedPitch = defaultSpeedPitch()
+    const crossfadeSeconds = DEFAULT_CROSSFADE_MS / 1000
+    const name = this.nextCopyName(this.currentEntry.name)
+    this.els.saveSegment.disabled = true
+    this.els.saveStatus.textContent = `Saving the segment as "${name}"…`
+    const newEntry = await this.api.library.duplicateSound(this.currentEntry.id, { name })
+    if (!newEntry) {
+      this.els.saveSegment.disabled = false
+      this.els.saveStatus.textContent = 'Save segment failed — could not create the new sound.'
+      return
+    }
+
+    await this.api.library.updateLoopPoints(newEntry.id, { loopStart, loopEnd })
+    await this.api.library.updateFilters(newEntry.id, filters)
+    await this.api.library.updateCrossfade(newEntry.id, crossfadeSeconds)
+    await this.api.library.updateSpeedPitch(newEntry.id, speedPitch)
+    await this.api.library.updatePlayMode(newEntry.id, 'loop')
+    await this.api.library.updateScatterConfig(newEntry.id, defaultScatter())
+    await this.api.library.updateSchedule(newEntry.id, defaultSchedule())
+    await this.api.library.updateFluctuation(newEntry.id, defaultFluctuation())
+
+    let baked = false
+    if (loopEnd - loopStart <= MAX_BUFFER_CLIP_SECONDS) {
+      const result = await this.api.audio.renderLoopClip(newEntry.id, { loopStart, loopEnd, filters, crossfadeSeconds, speedPitch })
+      baked = result.ok
+    }
+    this.els.saveSegment.disabled = false
+    this.els.saveStatus.textContent = baked
+      ? `Saved the segment as a new sound: "${name}".`
+      : `Saved the segment as a new sound: "${name}" (streams directly - trim over 10 minutes, or the clip render failed).`
     await this.refreshLibrary()
   }
 

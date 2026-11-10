@@ -327,3 +327,50 @@ export function cloneGroupFilters(filters) {
 export function groupFiltersEqual(a, b) {
   return canonicalMixFilters(a, { includeFadeIn: false }) === canonicalMixFilters(b, { includeFadeIn: false })
 }
+
+// What a sound has before Remix ever saves these (mirrors library.js's new-
+// sound defaults). Fresh objects each call: callers hand them to the store.
+export function defaultScatter() {
+  return {
+    minGapSeconds: 5,
+    maxGapSeconds: 35,
+    gapFullyRandom: false,
+    gapBiasEnabled: false,
+    gapBiasSeconds: 20,
+    minPitchSemitones: 0,
+    maxPitchSemitones: 0,
+    pitchFullyRandom: false,
+    pitchBiasEnabled: false,
+    pitchBiasSemitones: 0,
+    minVolume: 1,
+    maxVolume: 1,
+    minSpeed: 1,
+    maxSpeed: 1,
+    fadeInMs: 0,
+    fadeOutMs: 0,
+    syncGroup: ''
+  }
+}
+
+export function defaultSchedule() {
+  return {
+    type: 'times',
+    times: [],
+    intervalMinutes: 60,
+    minPitchSemitones: 0,
+    maxPitchSemitones: 0,
+    pitchFullyRandom: false,
+    pitchBiasEnabled: false,
+    pitchBiasSemitones: 0,
+    minVolume: 1,
+    maxVolume: 1,
+    minSpeed: 1,
+    maxSpeed: 1,
+    fadeInMs: 0,
+    fadeOutMs: 0
+  }
+}
+
+export function defaultSpeedPitch() {
+  return { speed: 1, pitchSemitones: 0, reversed: false, dopplerEnabled: false, dopplerClosestFraction: 0.5, dopplerIntensitySemitones: 5, dopplerReversed: false, dopplerSharpness: 0.5 }
+}
