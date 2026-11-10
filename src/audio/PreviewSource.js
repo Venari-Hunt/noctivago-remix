@@ -3,6 +3,7 @@ import { PanStage } from './PanStage.js'
 import { SoundFluctuation } from './Modulator.js'
 import { NoiseGate } from './NoiseGate.js'
 import { rampEqualPower } from './equalPowerRamp.js'
+import { canReverseLive, reverseRegion, encodeWav16, reversedToSource, sourceToReversed } from '../domain/reverseRegion.js'
 
 const RAMP_SECONDS = 0.15
 const LOOP_EPSILON_SECONDS = 0.03
@@ -246,8 +247,9 @@ function applyFiltersToVoice(voice, context, filters) {
 // speed and pitch independently and accurately via ffmpeg's rubberband
 // filter (see src/main/ffmpeg/loopClip.js); this preview is only meant to
 // give an immediate, rough sense of direction while dragging, not a
-// faithful stand-in for the bake. Reverse has no live preview at all - it
-// only takes effect once saved.
+// faithful stand-in for the bake. Reverse is not handled here: the voices
+// switch to a reversed copy of the loop instead (see PreviewSource's
+// _renderReverse).
 // pitchModFactor folds in live pitch fluctuation (see PreviewSource's
 // this._fluctuation) - a plain multiplier on playbackRate, same limitation
 // as Pitch itself here (also nudges tempo). 1 when no pitch drift is active.
@@ -309,6 +311,24 @@ export class PreviewSource {
     this._crossfading = false
     this._speedPitch = speedPitch
     this._pitchModFactor = 1
+    this._disposed = false
+
+    // Live Reverse (one engine, step 1). When Reverse is on, both voices
+    // stream a reversed WAV copy of the loop region instead of the source
+    // file, so every filter, the seam crossfade and Speed act on reversed
+    // audio, in the same order the bake now uses (reverse first, then the
+    // filters - src/main/ffmpeg/loopClip.js in core). _reverse is the
+    // region that copy was made from ({ url, start, end }), or null while
+    // the voices play the source file. reverseState is 'off', 'pending',
+    // 'on' or 'unavailable' (file too long, or decoding failed); RemixTab
+    // shows it via onReverseStateChange.
+    this._soundSrc = `sound://${soundId}`
+    this._sourceDuration = null
+    this._decoded = null
+    this._reverse = null
+    this._reverseToken = 0
+    this._reverseTimer = null
+    this.reverseState = 'off'
 
     this.voices = [createVoice(engine, soundId), createVoice(engine, soundId)]
     this.activeIndex = 0
@@ -398,6 +418,10 @@ export class PreviewSource {
     this.analyserNode = engine.context.createAnalyser()
     this.analyserNode.fftSize = 2048
     this.analyserFeedNode.connect(this.analyserNode)
+
+    // A sound saved with Reverse on opens reversed. Deferred one task so the
+    // caller can set onReverseStateChange first.
+    if (this._wantsReverse()) this._scheduleReverse(0)
   }
 
   // LoopEditor's playhead tracking and manual currentTime pokes only ever
@@ -408,9 +432,23 @@ export class PreviewSource {
     return this.voices[this.activeIndex].audioEl
   }
 
-  // Same shape as BakedClipPreview.currentTime (source-file time here).
+  // Same shape as BakedClipPreview.currentTime (source-file time here,
+  // also while the voices play the reversed copy).
   get currentTime() {
-    return this.audioEl.currentTime
+    return this._toSource(this.audioEl.currentTime)
+  }
+
+  _toSource(t) {
+    return this._reverse ? reversedToSource(this._reverse, t) : t
+  }
+
+  _fromSource(s) {
+    return this._reverse ? sourceToReversed(this._reverse, s) : s
+  }
+
+  // Start of the region the voices loop over, in their own timeline.
+  _regionStart() {
+    return this._reverse ? 0 : this.loopStart
   }
 
   _inactiveVoice() {
@@ -418,17 +456,121 @@ export class PreviewSource {
   }
 
   waitForMetadata() {
+    if (this._sourceDuration != null) return Promise.resolve(this._sourceDuration)
     const el = this.voices[0].audioEl
-    if (el.readyState >= 1) return Promise.resolve(el.duration)
+    const remember = (duration) => {
+      this._sourceDuration = duration
+      return duration
+    }
+    if (el.readyState >= 1) return Promise.resolve(remember(el.duration))
     return new Promise((resolve) => {
-      el.addEventListener('loadedmetadata', () => resolve(el.duration), { once: true })
+      el.addEventListener('loadedmetadata', () => resolve(remember(el.duration)), { once: true })
     })
   }
 
   setLoopPoints(loopStart, loopEnd) {
+    const changed = loopStart !== this.loopStart || loopEnd !== this.loopEnd
     this.loopStart = loopStart
     this.loopEnd = loopEnd
     this._resetToSingleVoice()
+    // A loop drag fires this many times a second; the reversed copy is only
+    // remade once the drag settles. Until then the old copy keeps playing
+    // with its own region (_reverse), so playback stays consistent.
+    if (changed && this._wantsReverse()) this._scheduleReverse(250)
+  }
+
+  _wantsReverse() {
+    return Boolean(this._speedPitch?.reversed)
+  }
+
+  _scheduleReverse(delayMs) {
+    if (this._reverseTimer) clearTimeout(this._reverseTimer)
+    this._reverseTimer = setTimeout(() => {
+      this._reverseTimer = null
+      this._renderReverse()
+    }, delayMs)
+  }
+
+  _setReverseState(state) {
+    if (this.reverseState === state) return
+    this.reverseState = state
+    this.onReverseStateChange?.(state)
+  }
+
+  async _renderReverse() {
+    const token = ++this._reverseToken
+    if (!this._wantsReverse()) {
+      await this._swapVoices(this._soundSrc, null, token)
+      this._setReverseState('off')
+      return
+    }
+    const fileDuration = await this.waitForMetadata()
+    const start = this.loopStart
+    const end = this.loopEnd ?? fileDuration
+    if (token !== this._reverseToken || this._disposed) return
+    if (!canReverseLive(fileDuration, start, end)) {
+      await this._swapVoices(this._soundSrc, null, token)
+      this._setReverseState('unavailable')
+      return
+    }
+    if (this._reverse?.start === start && this._reverse?.end === end) {
+      this._setReverseState('on')
+      return
+    }
+    this._setReverseState('pending')
+    try {
+      // Decoded once per sound and kept while this preview lives, so a loop
+      // drag only re-slices instead of decoding the file again.
+      this._decoded ??= fetch(this._soundSrc)
+        .then((response) => {
+          if (!response.ok) throw new Error(`Sound unavailable (${response.status})`)
+          return response.arrayBuffer()
+        })
+        .then((bytes) => this.engine.context.decodeAudioData(bytes))
+      const buffer = await this._decoded
+      if (token !== this._reverseToken || this._disposed) return
+      const wav = encodeWav16(reverseRegion(buffer, start, end), buffer.sampleRate)
+      const url = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))
+      const swapped = await this._swapVoices(url, { url, start, end }, token)
+      if (!swapped) return
+      this._setReverseState('on')
+    } catch (err) {
+      console.error('Live reverse preview failed', err)
+      this._decoded = null
+      if (token !== this._reverseToken || this._disposed) return
+      await this._swapVoices(this._soundSrc, null, token)
+      this._setReverseState('unavailable')
+    }
+  }
+
+  // Points both voices at a new src (the source file, or a reversed copy)
+  // and keeps the playhead where it was in source time, so turning Reverse
+  // on mid-play carries on from the same spot, now walking backwards.
+  // Returns false when a newer request superseded this one.
+  async _swapVoices(src, region, token) {
+    const old = this._reverse
+    if (!old && !region) return true
+    const sourceTime = this.currentTime
+    const wasPlaying = this.playing
+    this._resetToSingleVoice()
+    for (const voice of this.voices) voice.audioEl.pause()
+    this._reverse = region
+    for (const voice of this.voices) voice.audioEl.src = src
+    if (old) URL.revokeObjectURL(old.url)
+    const active = this.voices[this.activeIndex]
+    await new Promise((resolve) => {
+      if (active.audioEl.readyState >= 1) return resolve()
+      active.audioEl.addEventListener('loadedmetadata', resolve, { once: true })
+      active.audioEl.addEventListener('error', resolve, { once: true })
+    })
+    if (token !== this._reverseToken || this._disposed) return false
+    const start = this._regionStart()
+    const end = this._loopEnd()
+    let t = this._fromSource(sourceTime)
+    if (!(t >= start) || (Number.isFinite(end) && t >= end - LOOP_EPSILON_SECONDS)) t = start
+    active.audioEl.currentTime = t
+    if (wasPlaying && this.playing) await active.audioEl.play().catch(() => {})
+    return true
   }
 
   setLooping(looping) {
@@ -474,7 +616,10 @@ export class PreviewSource {
     const loopStart = this.loopStart
     const loopEnd = this.loopEnd ?? loopStart
     const span = Math.max(loopEnd - loopStart, 0.0001)
-    const position = Math.min(Math.max((currentTime - loopStart) / span, 0), 1)
+    const forward = Math.min(Math.max((currentTime - loopStart) / span, 0), 1)
+    // The bake shapes the clip after reversing it, so the envelope's
+    // timeline runs along the reversed audio: its start is the source's end.
+    const position = this._reverse ? 1 - forward : forward
     const gain = sampleEnvelopeGain(this._volumeEnvelope.points, position)
     this.envelopeGain.gain.setTargetAtTime(gain, this.engine.context.currentTime, 0.05)
   }
@@ -486,8 +631,14 @@ export class PreviewSource {
   }
 
   setSpeedPitch(speedPitch) {
+    const reverseChanged = Boolean(speedPitch?.reversed) !== this._wantsReverse()
     this._speedPitch = speedPitch
     this._applyPlaybackRate()
+    if (reverseChanged) {
+      if (this._reverseTimer) clearTimeout(this._reverseTimer)
+      this._reverseTimer = null
+      this._renderReverse()
+    }
   }
 
   _applyPlaybackRate() {
@@ -515,17 +666,20 @@ export class PreviewSource {
     this._crossfading = false
   }
 
+  // t is source-file time, like every caller's playhead.
   scrubTo(t) {
     this._resetToSingleVoice()
-    this.voices[this.activeIndex].audioEl.currentTime = t
+    this.voices[this.activeIndex].audioEl.currentTime = this._fromSource(t)
   }
 
+  // End of the looped region in the voices' own timeline.
   _loopEnd() {
-    return this.loopEnd ?? this.voices[0].audioEl.duration
+    if (this._reverse) return this._reverse.end - this._reverse.start
+    return this.loopEnd ?? this._sourceDuration ?? this.voices[0].audioEl.duration
   }
 
   _effectiveCrossfade() {
-    const duration = this._loopEnd() - this.loopStart
+    const duration = this._loopEnd() - this._regionStart()
     if (!Number.isFinite(duration) || duration <= 0) return 0
     return Math.max(0, Math.min(this.crossfadeSeconds, duration / 4))
   }
@@ -546,7 +700,7 @@ export class PreviewSource {
       // No usable crossfade window (disabled, or too short a loop) - same
       // hard seek-back every other playback mode in this app falls back to.
       if (Number.isFinite(end) && active.audioEl.currentTime >= end - LOOP_EPSILON_SECONDS) {
-        active.audioEl.currentTime = this.loopStart
+        active.audioEl.currentTime = this._regionStart()
       }
     } else if (!this._crossfading) {
       if (Number.isFinite(end) && active.audioEl.currentTime >= end - fade) {
@@ -564,7 +718,7 @@ export class PreviewSource {
     const incoming = this._inactiveVoice()
     const now = this.engine.context.currentTime
 
-    incoming.audioEl.currentTime = this.loopStart
+    incoming.audioEl.currentTime = this._regionStart()
     incoming.audioEl.play().catch(() => {})
 
     rampEqualPower(active.crossfadeGain.gain, now, fade, 1, 0)
@@ -587,9 +741,10 @@ export class PreviewSource {
       this._pauseTimeoutId = null
     }
     const active = this.voices[this.activeIndex]
+    const start = this._regionStart()
     const end = this._loopEnd()
-    if (active.audioEl.currentTime < this.loopStart || (Number.isFinite(end) && active.audioEl.currentTime >= end)) {
-      active.audioEl.currentTime = this.loopStart
+    if (active.audioEl.currentTime < start || (Number.isFinite(end) && active.audioEl.currentTime >= end)) {
+      active.audioEl.currentTime = start
     }
     active.crossfadeGain.gain.setValueAtTime(1, this.engine.context.currentTime)
     await active.audioEl.play()
@@ -632,6 +787,12 @@ export class PreviewSource {
 
   dispose() {
     this.playing = false
+    this._disposed = true
+    this._reverseToken++
+    if (this._reverseTimer) clearTimeout(this._reverseTimer)
+    if (this._reverse) URL.revokeObjectURL(this._reverse.url)
+    this._reverse = null
+    this._decoded = null
     if (this._rafId) cancelAnimationFrame(this._rafId)
     if (this._pauseTimeoutId) clearTimeout(this._pauseTimeoutId)
     this._fluctuation.dispose()
