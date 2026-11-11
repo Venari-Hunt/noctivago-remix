@@ -430,7 +430,10 @@ export class PreviewSource {
     for (const voice of this.voices) voice.analyserFeed = this.analyserFeedNode
 
     this.analyserNode = engine.context.createAnalyser()
-    this.analyserNode.fftSize = 2048
+    // 4096 bins and no built-in smoothing: the EQ graph runs its own peak
+    // hold and fall (EqEditor tickSpectrum), and needs the finer lows.
+    this.analyserNode.fftSize = 4096
+    this.analyserNode.smoothingTimeConstant = 0
     this.analyserFeedNode.connect(this.analyserNode)
 
     // A sound saved with Reverse on opens reversed. Deferred one task so the

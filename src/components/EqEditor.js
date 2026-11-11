@@ -216,39 +216,83 @@ function drawBandEnergyBackdrop(ctx, width, height, freqs, energies, viewMinHz, 
   })
 }
 
-// The real, live-reacting spectrum analyzer (what the user was actually
-// referencing by "the frequencies light up in pink" - the static backdrop
-// above was a reasonable-looking but fundamentally different thing, a
-// one-time snapshot rather than something that responds to playback).
-// freqData is a Uint8Array from AnalyserNode.getByteFrequencyData() - each
-// bin already dB-scaled to 0-255 by the Web Audio API itself (mapped from
-// the analyser's minDecibels/maxDecibels), so no extra scaling is needed
-// here for it to look perceptually reasonable, unlike a raw linear FFT
-// magnitude array. Bins are linearly spaced in frequency (unlike this
-// graph's log-frequency X axis) - drawn as a filled area connecting each
-// bin's (freq, magnitude) point via freqToX, which naturally compresses
-// many high-frequency bins into few pixels and spreads low-frequency bins
-// out, same as any real log-frequency spectrum display built from a linear
-// FFT. Pink/red (var(--danger) elsewhere in this app) to match the FL
-// Studio reference this was modeled on.
-function drawLiveSpectrum(ctx, width, height, freqData, sampleRate, viewMinHz, viewMaxHz) {
-  if (!freqData) return
-  const binHz = sampleRate / 2 / freqData.length
+// The live spectrum (step 13a: sharper and easier to read, owner 2026-11-05,
+// "as good as FL Studio's Parametric EQ 2"). Written from standard analyser
+// technique, nothing copied:
+// - tickSpectrum() reads float dB per FFT bin and runs per-bin ballistics:
+//   a louder frame jumps straight up, a quieter one falls at
+//   SPECTRUM_FALL_DB_PER_S, so peaks stay readable instead of flickering.
+// - Here, each pixel column takes the PEAK of the bins that land in it (the
+//   highs, where many bins share a column), or interpolates between the two
+//   nearest bins (the lows, where one bin spans many columns). Plotting raw
+//   bins drew a jagged comb at the top and a staircase at the bottom.
+// - A tilt of SPECTRUM_TILT_DB_PER_OCT around 1 kHz, since real sounds lose
+//   energy toward the highs; without it the treble looks dead even when
+//   it is clearly audible.
+const SPECTRUM_FALL_DB_PER_S = 36
+const SPECTRUM_TILT_DB_PER_OCT = 4.5
+const SPECTRUM_TILT_PIVOT_HZ = 1000
+const SPECTRUM_FLOOR_DB = -96
+const SPECTRUM_CEIL_DB = -12
+
+export function spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz) {
+  const binCount = binDb.length
+  const binHz = sampleRate / 2 / binCount
+  const cols = Math.max(1, Math.round(width))
+  const out = new Float32Array(cols)
+  for (let x = 0; x < cols; x++) {
+    const loHz = xToFreq(x, cols, viewMinHz, viewMaxHz)
+    const hiHz = xToFreq(x + 1, cols, viewMinHz, viewMaxHz)
+    const centerHz = Math.sqrt(loHz * hiHz)
+    // bin i covers frequency i * binHz (bin 0 = DC)
+    const lo = Math.ceil(loHz / binHz)
+    const hi = Math.min(binCount - 1, Math.floor(hiHz / binHz))
+    let db
+    if (hi >= lo) {
+      db = -Infinity
+      for (let i = lo; i <= hi; i++) if (binDb[i] > db) db = binDb[i]
+    } else {
+      const pos = centerHz / binHz
+      const i0 = Math.min(binCount - 1, Math.max(1, Math.floor(pos)))
+      const i1 = Math.min(binCount - 1, i0 + 1)
+      const t = Math.min(1, Math.max(0, pos - i0))
+      db = binDb[i0] + (binDb[i1] - binDb[i0]) * t
+    }
+    out[x] = db + SPECTRUM_TILT_DB_PER_OCT * Math.log2(centerHz / SPECTRUM_TILT_PIVOT_HZ)
+  }
+  return out
+}
+
+function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, viewMaxHz) {
+  if (!binDb) return
+  const cols = spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz)
+  const top = height * 0.92
+  const yOf = (db) => {
+    const t = (db - SPECTRUM_FLOOR_DB) / (SPECTRUM_CEIL_DB - SPECTRUM_FLOOR_DB)
+    return height - Math.min(1, Math.max(0, t)) * top
+  }
   ctx.beginPath()
   ctx.moveTo(0, height)
-  for (let i = 0; i < freqData.length; i++) {
-    const freqHz = (i + 0.5) * binHz
-    if (freqHz < viewMinHz) continue
-    if (freqHz > viewMaxHz) break
-    const x = freqToX(freqHz, width, viewMinHz, viewMaxHz)
-    const magnitude = freqData[i] / 255
-    const y = height - magnitude * height * 0.92
-    ctx.lineTo(x, y)
-  }
+  for (let x = 0; x < cols.length; x++) ctx.lineTo(x + 0.5, yOf(cols[x]))
   ctx.lineTo(width, height)
   ctx.closePath()
-  ctx.fillStyle = 'rgba(247, 118, 142, 0.4)'
+  const fill = ctx.createLinearGradient(0, height - top, 0, height)
+  fill.addColorStop(0, 'rgba(247, 118, 142, 0.42)')
+  fill.addColorStop(1, 'rgba(247, 118, 142, 0.08)')
+  ctx.fillStyle = fill
   ctx.fill()
+  // A crisp outline on top: the edge is what the eye reads, the fill only
+  // gives it weight.
+  ctx.beginPath()
+  for (let x = 0; x < cols.length; x++) {
+    const y = yOf(cols[x])
+    if (x === 0) ctx.moveTo(x + 0.5, y)
+    else ctx.lineTo(x + 0.5, y)
+  }
+  ctx.strokeStyle = 'rgba(247, 118, 142, 0.95)'
+  ctx.lineWidth = 1.25
+  ctx.lineJoin = 'round'
+  ctx.stroke()
 }
 
 // Shades every contiguous pixel range where the *current* composite EQ
@@ -373,7 +417,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
   // informative once there's real signal to show, matching the FL Studio
   // reference behavior directly rather than leaving the static bars up
   // during playback too.
-  if (liveSpectrum) drawLiveSpectrum(ctx, width, height, liveSpectrum.freqData, liveSpectrum.sampleRate, viewMinHz, viewMaxHz)
+  if (liveSpectrum) drawLiveSpectrum(ctx, width, height, liveSpectrum.binDb, liveSpectrum.sampleRate, viewMinHz, viewMaxHz)
   else if (bandEnergy) drawBandEnergyBackdrop(ctx, width, height, bandEnergy.freqs, bandEnergy.energies, viewMinHz, viewMaxHz)
 
   drawCutOverlay(ctx, width, height, responseCurve)
@@ -475,7 +519,9 @@ export function createEqEditorController(canvas) {
   let lastMouseY = 0
   let bandEnergy = null
   let liveSpectrum = null
-  let freqDataBuffer = null
+  let rawDbBuffer = null
+  let heldDb = null
+  let lastSpectrumTick = 0
   // True while displaying an immutable reference (the A/B Compare "B" slot,
   // see index.js's switchEqCompareView) rather than the live editable bands
   // - every mutating interaction below early-returns while this is set, so
@@ -817,11 +863,25 @@ export function createEqEditorController(canvas) {
     // rather than allocating a fresh one every frame.
     tickSpectrum(analyserNode) {
       if (!analyserNode) return
-      if (!freqDataBuffer || freqDataBuffer.length !== analyserNode.frequencyBinCount) {
-        freqDataBuffer = new Uint8Array(analyserNode.frequencyBinCount)
+      const n = analyserNode.frequencyBinCount
+      if (!rawDbBuffer || rawDbBuffer.length !== n) {
+        rawDbBuffer = new Float32Array(n)
+        heldDb = new Float32Array(n).fill(SPECTRUM_FLOOR_DB)
+        lastSpectrumTick = 0
       }
-      analyserNode.getByteFrequencyData(freqDataBuffer)
-      liveSpectrum = { freqData: freqDataBuffer, sampleRate: analyserNode.context.sampleRate }
+      analyserNode.getFloatFrequencyData(rawDbBuffer)
+      const now = performance.now()
+      // Clamp dt so a stalled tab doesn't drop everything to the floor in
+      // one frame, or a first frame doesn't fall at all.
+      const dt = lastSpectrumTick ? Math.min(0.1, (now - lastSpectrumTick) / 1000) : 1 / 60
+      lastSpectrumTick = now
+      const fall = SPECTRUM_FALL_DB_PER_S * dt
+      for (let i = 0; i < n; i++) {
+        const v = Number.isFinite(rawDbBuffer[i]) ? rawDbBuffer[i] : SPECTRUM_FLOOR_DB - 40
+        const held = heldDb[i] - fall
+        heldDb[i] = v > held ? v : held
+      }
+      liveSpectrum = { binDb: heldDb, sampleRate: analyserNode.context.sampleRate }
       redraw()
     },
     // Falls back to the static band-energy backdrop (if any) - called when
@@ -830,6 +890,8 @@ export function createEqEditorController(canvas) {
     clearSpectrum() {
       if (!liveSpectrum) return
       liveSpectrum = null
+      if (heldDb) heldDb.fill(SPECTRUM_FLOOR_DB)
+      lastSpectrumTick = 0
       redraw()
     },
     getSelectedIndex() {

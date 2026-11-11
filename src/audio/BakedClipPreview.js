@@ -55,7 +55,10 @@ export class BakedClipPreview {
     this.analyserFeedNode.gain.value = 1
     this.inputNode.connect(this.analyserFeedNode)
     this.analyserNode = ctx.createAnalyser()
-    this.analyserNode.fftSize = 2048
+    // 4096 bins and no built-in smoothing: the EQ graph runs its own peak
+    // hold and fall (EqEditor tickSpectrum), and needs the finer lows.
+    this.analyserNode.fftSize = 4096
+    this.analyserNode.smoothingTimeConstant = 0
     this.analyserFeedNode.connect(this.analyserNode)
 
     // variant=clip - see src/main/index.js's sound:// protocol handler. The
