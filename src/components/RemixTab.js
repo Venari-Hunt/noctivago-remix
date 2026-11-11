@@ -11,7 +11,7 @@ import { createWaveformScrollbar } from './WaveformScrollbar.js'
 import { createFluctuationBar } from './FluctuationBar.js'
 import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
-import { mountFilterControls } from './FilterControls.jsx'
+import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
 import { arrangeLayout, arrangeBar } from './layout.js'
@@ -961,7 +961,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.layout = arrangeLayout(container, {
       onView: (view) => {
         if (view === 'seam') this.syncSeamView()
-      }
+      },
+      onCompare: (which) => this.switchCompareView(which)
     })
 
     this.els = {
@@ -1619,6 +1620,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     // labels and values; this class reads/writes them through
     // filterControls.getValues()/setValues() only.
     this.filterControls = mountFilterControls(this.els.filters, {
+      targets: this.layout.filterTargets,
       onChange: () => this.applyFilterControls(),
       onNoiseSampleFromLoop: () => {
         const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
@@ -2226,6 +2228,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   showEmpty() {
+    this.leaveCompareView()
     this.currentEntry = null
     this.disposePreview()
     this.els.panel.classList.add('hidden')
@@ -3264,7 +3267,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
 
   updateSpeedPitchLabels({ speed = 1, pitchSemitones = 0 }) {
     this.els.speedValue.textContent = `${Math.round(speed * 100)}%`
-    this.els.pitchValue.textContent = pitchSemitones === 0 ? 'Off' : `${pitchSemitones > 0 ? '+' : ''}${pitchSemitones} st`
+    this.els.pitchValue.textContent = `${pitchSemitones > 0 ? '+' : ''}${pitchSemitones} st`
   }
 
   applySpeedPitchControls() {
@@ -3447,6 +3450,18 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   updateSaveButtonState() {
+    this.refreshAccordionSummaries()
+    // Last saved on screen: the controls show the saved settings, read-only.
+    // Nothing to save, undo or cancel until the view is back on Now.
+    if (this.compareViewing === 'saved') {
+      this.els.save.disabled = true
+      this.els.saveLabel.textContent = 'Viewing last saved'
+      if (this.els.saveAsCopy) this.els.saveAsCopy.disabled = true
+      if (this.els.cancel) this.els.cancel.disabled = true
+      if (this.els.undo) this.els.undo.disabled = true
+      if (this.els.redo) this.els.redo.disabled = true
+      return
+    }
     // While viewing the read-only B (last saved) reference, currentFilters()
     // reflects B's data rather than A's real live edits (A's own bands are
     // stashed in eqLiveBandsStash, not currently loaded into the graph) - the
@@ -3502,7 +3517,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   async runAutosave() {
-    if (!this.currentEntry || this.eqCompareViewing === 'B' || !this.hasUnsavedChanges()) return
+    if (!this.currentEntry || this.eqCompareViewing === 'B' || this.compareViewing === 'saved' || !this.hasUnsavedChanges()) return
     if (this._saveInProgress) {
       // A manual Save (or a previous autosave) is still mid-render - try
       // again shortly rather than starting a second overlapping bake of the
@@ -3537,7 +3552,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   scheduleHistoryCommit() {
-    if (this._restoringHistory || !this.currentEntry) return
+    if (this._restoringHistory || !this.currentEntry || this.compareViewing === 'saved') return
     clearTimeout(this._historyCommitTimer)
     this._historyCommitTimer = setTimeout(() => this.commitHistoryPoint(), HISTORY_COMMIT_DEBOUNCE_MS)
   }
@@ -3595,7 +3610,71 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.updateUndoRedoButtonsUI()
   }
 
+  // Compare with last saved (the Now / Last saved switch above the canvas).
+  // Last saved stashes every current setting, puts the saved ones on the
+  // controls (so the preview plays them) and locks editing; Now puts the
+  // stash back. Same idea as the EQ's own A/B, for the whole sound. Drift is
+  // left alone: it saves on its own, so it is already the saved drift.
+  switchCompareView(target) {
+    if (!this.currentEntry || !this.loopEditorController || !this.savedSnapshot) return
+    const now = this.compareViewing === 'saved' ? 'saved' : 'now'
+    if (target === now) return
+    if (target === 'saved') {
+      if (this.eqCompareViewing === 'B') this.switchEqCompareView('A')
+      clearTimeout(this._historyCommitTimer)
+      this.commitHistoryPoint()
+      clearTimeout(this._autosaveTimer)
+      this._compareStash = this.captureEditorState()
+      this.compareViewing = 'saved'
+      this.applyEditorState(JSON.parse(this.savedSnapshot))
+      this.eqEditorController?.setReadOnly(true)
+    } else {
+      const stash = this._compareStash
+      this._compareStash = null
+      if (stash) this.applyEditorState(stash)
+      this.compareViewing = 'now'
+      this.eqEditorController?.setReadOnly(false)
+      this.setBarEnabled(true)
+    }
+    this.layout?.setCompare(target)
+    this.updateSaveButtonState()
+    if (target === 'now') this.updateUndoRedoButtonsUI()
+  }
+
+  // Back to Now without fuss: before a load, a leave or Cancel, so stashed
+  // edits are never lost behind the read-only view.
+  leaveCompareView() {
+    if (this.compareViewing === 'saved') this.switchCompareView('now')
+  }
+
+  // Accordion head values, e.g. "100% · +1 st" or "Off" (amber when on).
+  refreshAccordionSummaries() {
+    if (!this.layout?.setSummaries || !this.els?.speed) return
+    const speed = Number(this.els.speed.value)
+    const pitch = Number(this.els.pitch.value)
+    const pitchText = pitch === 0 ? '0 st' : `${pitch > 0 ? '+' : ''}${pitch} st`
+    const reversed = this.els.reverse.checked
+    const speedOn = speed !== 100 || pitch !== 0 || reversed
+    const f = this.filterControls ? filterSummaries(this.filterControls.getValues()) : { tone: 'Off', clean: 'Off', space: 'Off' }
+    const drift = ['Vol', 'Pitch', 'Pan']
+      .map((axis, i) => (this.els[`fluc${axis}Enabled`]?.checked ? ['Volume', 'Pitch', 'Pan'][i] : null))
+      .filter(Boolean)
+    const bands = this.eqEditorController?.getBands?.() ?? []
+    const activeBands = bands.filter((b) => (b.type ?? 'peaking') !== 'off' && !b.muted).length
+    this.layout.setSummaries({
+      speed: [`${speed}% · ${pitchText}${reversed ? ' · Reversed' : ''}`, speedOn],
+      tone: [f.tone, f.tone !== 'Off'],
+      clean: [f.clean, f.clean !== 'Off'],
+      space: [f.space, f.space !== 'Off'],
+      eq: [activeBands ? `${activeBands} band${activeBands === 1 ? '' : 's'}` : 'Off', activeBands > 0],
+      drift: [drift.length ? drift.join(' · ') : 'Off', drift.length > 0],
+      // One-shot looks: applying one sets the knobs, nothing stays selected.
+      looks: ['None', false]
+    })
+  }
+
   undo() {
+    if (this.compareViewing === 'saved') return
     // A pending debounced commit represents an edit that hasn't been
     // recorded yet - flush it first so Ctrl+Z's first press undoes the most
     // recent *real* change instead of silently discarding it unrecorded.
@@ -3607,6 +3686,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   redo() {
+    if (this.compareViewing === 'saved') return
     if (this.historyIndex >= this.historyStack.length - 1) return
     this.historyIndex += 1
     this.applyEditorState(this.historyStack[this.historyIndex])
@@ -3623,6 +3703,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   // that existing path to a button instead of requiring a re-pick.
   cancelEdits() {
     if (!this.currentEntry) return
+    this.leaveCompareView()
     this.selectPickerSound(this.currentEntry.id)
   }
 
@@ -3632,6 +3713,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   // confirm (no unsaved changes, or the user already opted out) resolves
   // true immediately with no dialog shown at all.
   confirmLeaveIfDirty() {
+    this.leaveCompareView()
     if (!this.hasUnsavedChanges() || this.skipLeaveConfirm) return true
     return new Promise((resolve) => {
       this._resolveLeaveConfirm = resolve
@@ -3842,6 +3924,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   async loadSound(id) {
+    this.leaveCompareView()
     clearTimeout(this.detailPeaksDebounceTimer)
     clearTimeout(this._seamDetailPeaksTimer)
     this.seamView?.resetZoom()
@@ -4034,7 +4117,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     // B (see updateSaveButtonState), but currentFilters() would silently
     // read B's read-only data instead of A's real live edits if this ever
     // ran anyway.
-    if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B') return
+    if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B' || this.compareViewing === 'saved') return
     if (this._saveInProgress) return
     this._saveInProgress = true
     try {

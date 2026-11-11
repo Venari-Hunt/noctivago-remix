@@ -32,11 +32,60 @@ function requestRedraw(win) {
 const ACCORDIONS = [
   ['playback', 'Playback'],
   ['speed', 'Speed and pitch'],
-  ['tone', 'Tone and effects'],
+  ['tone', 'Tone'],
   ['eq', 'Parametric EQ'],
+  ['clean', 'Cleanup'],
+  ['space', 'Space'],
   ['drift', 'Drift'],
   ['looks', 'Effect presets']
 ]
+
+// A checkbox label becomes the look's settings row: title and a small line
+// on the left, the switch on the right.
+function toSwitchRow(doc, label, title, sub) {
+  const input = label.querySelector('input')
+  label.className = 'rx-srow'
+  const text = el(doc, 'span', 'rx-sl')
+  text.appendChild(el(doc, 'span', '', title))
+  if (sub) text.appendChild(el(doc, 'small', '', sub))
+  if (!input.getAttribute('aria-label')) input.setAttribute('aria-label', title)
+  label.replaceChildren(text, input)
+  return label
+}
+
+// Drift: each axis is a switch row that opens its range bar, timing and
+// toggles (folded in CSS while the switch is off).
+const DRIFT_AXES = [
+  ['editor-fluc-vol', 'Volume drift', "Rides below the sound's set volume"],
+  ['editor-fluc-pitch', 'Pitch drift', 'Small shifts read as a gentle wobble'],
+  ['editor-fluc-pan', 'Pan drift', 'Wanders left and right from the Pan setting']
+]
+function arrangeDrift(doc, section) {
+  const head = section.querySelector('.editor-fluctuation-head')
+  const note = el(doc, 'p', 'rx-hint rx-hint-l', 'Slow, random drift while the sound loops: wind gusting, rain swelling. Plays in Live edit here and always in the Mixer. Saves on its own.')
+  note.title = head.querySelector('.editor-fluctuation-hint').textContent.trim()
+  head.replaceWith(note)
+  for (const n of section.querySelectorAll(':scope > .editor-fluctuation-hint')) {
+    n.classList.remove('editor-fluctuation-hint')
+    n.classList.add('rx-hint', 'rx-hint-l')
+  }
+  for (const [idp, title, sub] of DRIFT_AXES) {
+    const $ = (id) => section.querySelector(`#${idp}-${id}`)
+    const axis = $('enabled').closest('.editor-fluctuation-axis')
+    axis.className = 'rx-axis rx-drift-axis'
+    const row = toSwitchRow(doc, $('enabled').closest('label'), title, sub)
+    const body = el(doc, 'div', 'rx-axb')
+    // Change every [6] to [14] s, Transition [8] s
+    const changeRow = el(doc, 'div', 'rx-trow', '<span>Change every</span>')
+    changeRow.append($('changemin'), el(doc, 'span', '', 'to'), $('changemax'), el(doc, 'span', '', 's'))
+    const transitionRow = el(doc, 'div', 'rx-trow', '<span>Transition</span>')
+    transitionRow.append($('transition'), el(doc, 'span', '', 's'))
+    const fullRandom = toSwitchRow(doc, $('fullrandom').closest('label'), 'Fully random', 'Ignore the circles and roam the whole range')
+    const bias = toSwitchRow(doc, $('bias').closest('label'), 'Bias', 'The middle circle wins most of the time')
+    body.append($('bar'), changeRow, transitionRow, fullRandom, bias)
+    axis.replaceChildren(row, body)
+  }
+}
 
 const VIEWS = [
   ['trim', 'Trim'],
@@ -47,7 +96,7 @@ const VIEWS = [
 
 // Called once from mount(), right after the markup is written and before any
 // element is looked up or wired.
-export function arrangeLayout(root, { onView } = {}) {
+export function arrangeLayout(root, { onView, onCompare } = {}) {
   const doc = root.ownerDocument
   const win = doc.defaultView
   const $ = (sel) => root.querySelector(sel)
@@ -63,7 +112,8 @@ export function arrangeLayout(root, { onView } = {}) {
     doc,
     'div',
     'rx-tabs',
-    `<div class="rx-seg" role="group" aria-label="View">${VIEWS.map(([k, t]) => `<button type="button" data-rx-view="${k}" aria-pressed="${k === 'trim'}">${t}</button>`).join('')}</div>`
+    `<div class="rx-seg" role="group" aria-label="View">${VIEWS.map(([k, t]) => `<button type="button" data-rx-view="${k}" aria-pressed="${k === 'trim'}">${t}</button>`).join('')}</div>` +
+      '<div class="rx-seg rx-compare" role="group" aria-label="Compare with last saved" title="Last saved shows and plays the settings as they were last saved. Read-only: switch back to Now to keep editing."><button type="button" data-rx-compare="now" aria-pressed="true">Now</button><button type="button" data-rx-compare="saved" aria-pressed="false">Last saved</button></div>'
   )
   const viewTrim = el(doc, 'div', 'rx-view rx-view-trim')
   const viewSeam = el(doc, 'div', 'rx-view rx-view-seam')
@@ -248,17 +298,61 @@ export function arrangeLayout(root, { onView } = {}) {
   }
 
   const fade = $('#editor-fade-section')
+
+  // Speed and pitch: two knobs, then Reverse as a switch row.
   const speedPitch = $('#editor-speed').closest('.editor-speed-pitch')
+  const speedKnobs = el(doc, 'div', 'rx-kgrid')
+  for (const [id, label] of [
+    ['editor-speed', 'Speed'],
+    ['editor-pitch', 'Pitch']
+  ]) {
+    const input = $('#' + id)
+    const row = input.closest('label')
+    const knob = attachKnob(input, { label, valueEl: $(`#${id}-value`) })
+    row.remove()
+    speedKnobs.appendChild(knob.el)
+  }
+  const reverseRow = toSwitchRow(doc, $('#editor-reverse').closest('label'), 'Reverse', 'Plays live for sounds up to 10 minutes')
+  const speedHint = speedPitch.querySelector('.editor-speed-pitch-hint:not(#editor-reverse-status)')
+  speedHint.className = 'rx-hint rx-hint-l'
+  speedHint.textContent = 'Speed applies live. Pitch applies once saved (loops under 10 minutes) and previews roughly while you drag.'
+  const reverseStatus = $('#editor-reverse-status')
+  reverseStatus.classList.remove('editor-speed-pitch-hint')
+  reverseStatus.classList.add('rx-hint', 'rx-hint-l')
+  speedPitch.className = 'rx-speed-body'
+  speedPitch.prepend(speedKnobs, reverseRow)
+
+  // Tone, Cleanup and Space: FilterControls.jsx renders a group into each.
   const filters = $('#editor-filters')
+  const filterTargets = {}
+  for (const key of ['tone', 'clean', 'space']) {
+    filterTargets[key] = el(doc, 'div', 'rx-filter-group')
+    filterTargets[key].id = `rx-filters-${key}`
+  }
+
+  // Effect presets: chips, plus the app's Reset filters (not in the mock).
   const resetFilters = $('#editor-reset-filters').closest('.editor-actions')
+  resetFilters.className = 'rx-srow1'
+  const resetBtn = $('#editor-reset-filters')
+  resetBtn.className = 'rx-b rx-ghost'
+  resetBtn.innerHTML = `${icon('refresh-cw')}<span>Reset filters</span>`
   const looks = [...panel.querySelectorAll('.editor-presets')].find((n) => n.querySelector('[data-preset]'))
+  looks.className = 'rx-looks'
+  looks.querySelector('.editor-presets-label')?.remove()
+  for (const btn of looks.querySelectorAll('[data-preset]')) btn.className = 'rx-chip'
+
+  const driftSection = $('#editor-fluctuation-section')
+  arrangeDrift(doc, driftSection)
+
   const BODIES = {
     playback: [tiles, hintRandom, hintScheduled, loopBody, scatter, schedule, fade],
     speed: [speedPitch],
-    tone: [filters, resetFilters],
+    tone: [filterTargets.tone, filters],
     eq: [eqSide],
-    looks: [looks],
-    drift: [$('#editor-fluctuation-section')]
+    clean: [filterTargets.clean],
+    space: [filterTargets.space],
+    looks: [looks, resetFilters],
+    drift: [driftSection]
   }
   const accordions = new Map()
   const openAccordion = (key) => {
@@ -306,6 +400,22 @@ export function arrangeLayout(root, { onView } = {}) {
   openSeam.addEventListener('click', () => setView('seam'))
   openEq.addEventListener('click', () => setView('eq'))
 
+  // --- Compare with last saved ---
+  // While Last saved is on screen everything that edits is inert; the view
+  // tabs, the compare switch and the transport stay usable.
+  const compareSeg = tabs.querySelector('.rx-compare')
+  const setCompare = (which) => {
+    const saved = which === 'saved'
+    panel.dataset.compare = saved ? 'saved' : 'now'
+    for (const btn of compareSeg.querySelectorAll('[data-rx-compare]')) btn.setAttribute('aria-pressed', String(btn.dataset.rxCompare === which))
+    const locked = [side, viewSeam, viewSpec, eqHeader, ...[...viewTrim.children].filter((n) => n !== transport && n !== seekSlot)]
+    for (const n of locked) n.inert = saved
+  }
+  compareSeg.addEventListener('click', (evt) => {
+    const btn = evt.target.closest('[data-rx-compare]')
+    if (btn && btn.getAttribute('aria-pressed') !== 'true') onCompare?.(btn.dataset.rxCompare)
+  })
+
   // --- Empty state ---
   const oldEmpty = $('#editor-empty')
   const empty = el(
@@ -333,7 +443,17 @@ export function arrangeLayout(root, { onView } = {}) {
     if ((mode === 'scatter' || mode === 'scheduled') && panel.dataset.view === 'seam') setView('trim')
   }
 
-  return { setView, openAccordion, setPlayMode }
+  // Head values ("100% · +1 st", "Off"); `on` lights the value in amber.
+  const setSummaries = (map) => {
+    for (const [key, [text, on]] of Object.entries(map)) {
+      const span = accordions.get(key)?.querySelector('.rx-accv')
+      if (!span) continue
+      if (span.textContent !== text) span.textContent = text
+      span.classList.toggle('rx-on', Boolean(on))
+    }
+  }
+
+  return { setView, openAccordion, setPlayMode, setCompare, setSummaries, filterTargets }
 }
 
 // Called once at the end of mountSticky(): builds the top bar around the

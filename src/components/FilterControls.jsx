@@ -1,4 +1,4 @@
-// Remix's Sound-mode filter sliders (high/low-pass, gain, pan, noise gate,
+// Remix's Sound-mode filter knobs (high/low-pass, gain, pan, noise gate,
 // noise reduction, echo, reverb) - the pilot for moving Remix's UI to React
 // one panel at a time. Built to ../../islands/FilterControls.js by
 // scripts/build-plugins.mjs; index.js imports that and calls
@@ -9,7 +9,11 @@
 // them (setFilterSliders()) - a React render hasn't happened yet at that
 // point. React only renders from the store via useSyncExternalStore.
 import { createRoot } from 'react-dom/client'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { knobFraction, knobValueAt } from './Knob.js'
+import { formatPan } from './filterSummary.js'
+export { filterSummaries } from './filterSummary.js'
 
 const RANGES = {
   highpassHz: { min: 0, max: 2000, step: 10, def: 0 },
@@ -43,39 +47,109 @@ function normalize(key, value) {
   return range ? Math.min(range.max, Math.max(range.min, n)) : n
 }
 
-function formatPan(pan) {
-  return pan === 0 ? 'Center' : `${pan < 0 ? 'L' : 'R'} ${Math.round(Math.abs(pan) * 100)}%`
+const hz = (v) => (v >= 1000 ? `${(v / 1000).toFixed(v % 1000 ? 1 : 0)} kHz` : `${v} Hz`)
+
+const DRAG_PX_FULL_RANGE = 160 // same as Knob.js and the mock
+const WHEEL_PER_STEP = 30
+const sideDelta = (evt) => {
+  if (Math.abs(evt.deltaX) > Math.abs(evt.deltaY)) return evt.deltaX
+  return evt.shiftKey ? evt.deltaY : 0
 }
 
-function Slider({ label, title, field, values, onEdit, format }) {
+// The approved look's knob (same drawing as Knob.js's attachKnob, which wraps
+// plain DOM inputs). A React-controlled range input can't be wrapped that way,
+// so this draws the knob itself; the hidden input keeps keyboard and screen
+// reader use. Drag left/right, side-scroll, or double-click to reset.
+function Knob({ label, title, field, values, onEdit, format, dim = false }) {
   const { min, max, step, def } = RANGES[field]
+  const value = values[field]
+  const id = `editor-filter-${field}`
+  const knobRef = useRef(null)
+  const latest = useRef(null)
+  latest.current = { value, onEdit }
+  const drag = useRef(null)
+  const setFraction = (fraction) => {
+    const next = knobValueAt(fraction, min, max, step)
+    if (next !== latest.current.value) latest.current.onEdit({ [field]: next })
+  }
+
+  useEffect(() => {
+    const node = knobRef.current
+    const onWheel = (evt) => {
+      const d = sideDelta(evt)
+      if (!d) return // the plain wheel still scrolls the panel
+      evt.preventDefault()
+      const unit = evt.deltaMode === 1 ? 40 : 1
+      const byWheel = (d * unit) / WHEEL_PER_STEP / 100
+      const oneStep = (step / (max - min)) * Math.sign(d)
+      const from = knobFraction(latest.current.value, min, max)
+      setFraction(from + (Math.abs(byWheel) > Math.abs(oneStep) ? byWheel : oneStep))
+    }
+    node.addEventListener('wheel', onWheel, { passive: false })
+    return () => node.removeEventListener('wheel', onWheel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
-    <label title={title}>
-      <span>{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={values[field]}
-        onChange={(e) => onEdit({ [field]: Number(e.target.value) })}
+    <div
+      ref={knobRef}
+      className={`rx-kn${dim ? ' rx-kn-disabled' : ''}`}
+      title={title ? `${title} Side-scroll or drag.` : 'Side-scroll or drag'}
+      style={{ '--p': knobFraction(value, min, max) * 100 }}
+    >
+      <div
+        className="rx-ring"
+        onPointerDown={(evt) => {
+          if (evt.button !== 0) return
+          drag.current = { x: evt.clientX, from: knobFraction(latest.current.value, min, max), moved: false }
+          evt.currentTarget.setPointerCapture(evt.pointerId)
+          evt.currentTarget.querySelector('input').focus({ preventScroll: true })
+          evt.preventDefault()
+        }}
+        onPointerMove={(evt) => {
+          const d = drag.current
+          if (!d) return
+          const dx = evt.clientX - d.x
+          if (Math.abs(dx) > 3) d.moved = true
+          if (d.moved) setFraction(d.from + dx / DRAG_PX_FULL_RANGE)
+        }}
+        onPointerUp={() => (drag.current = null)}
+        onPointerCancel={() => (drag.current = null)}
         onDoubleClick={(e) => {
           // The app-wide double-click reset (src/renderer/core/sliderReset.js)
           // reads the input's native defaultValue, which React overwrites on
-          // every render of a controlled input - so this slider resets itself
-          // and keeps the event from reaching that document listener.
+          // every render of a controlled input - so the knob resets itself and
+          // keeps the event from reaching that document listener.
           e.stopPropagation()
           onEdit({ [field]: def })
         }}
-      />
-      <span className="editor-filter-value">{format(values[field])}</span>
-    </label>
+      >
+        <svg viewBox="0 0 72 72" aria-hidden="true">
+          <circle className="rx-trk" cx="36" cy="36" r="31" pathLength="100" />
+          <circle className="rx-val" cx="36" cy="36" r="31" pathLength="100" />
+        </svg>
+        <i className="rx-unity" />
+        <input
+          id={id}
+          className="rx-kn-input"
+          type="range"
+          aria-label={label}
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onEdit({ [field]: Number(e.target.value) })}
+        />
+      </div>
+      <label htmlFor={id}>{label}</label>
+      <output className="editor-filter-value">{format(value)}</output>
+    </div>
   )
 }
 
 // Seconds field. Holds the text as typed ("1." mid-edit) locally and only
 // resyncs from the store when the store's number actually differs, e.g.
-// after "Noise sample from loop start".
+// after "Sample from loop start".
 function SecondsField({ label, title, field, values, onEdit }) {
   const value = values[field]
   const [text, setText] = useState(String(value))
@@ -84,134 +158,99 @@ function SecondsField({ label, title, field, values, onEdit }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
   return (
-    <label title={title}>
-      <span>{label}</span>
-      <input
-        type="number"
-        min="0"
-        step="0.1"
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value)
-          onEdit({ [field]: Number(e.target.value) || 0 })
-        }}
-      />
-      <span className="editor-filter-value">s</span>
-    </label>
+    <input
+      type="number"
+      min="0"
+      step="0.1"
+      aria-label={label}
+      title={title}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value)
+        onEdit({ [field]: Number(e.target.value) || 0 })
+      }}
+    />
   )
 }
 
-function FilterControls({ store, onEdit, onNoiseSampleFromLoop }) {
+// Three settings groups, as in the approved mock: Tone, Cleanup, Space.
+function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
   const values = useSyncExternalStore(store.subscribe, store.get)
   const gateOn = values.gateThresholdDb > -80 && values.gateRangeDb > 0
-  const slider = { values, onEdit }
-  return (
+  const k = { values, onEdit }
+  const tone = (
+    <div className="rx-kgrid">
+      <Knob {...k} label="High-pass" field="highpassHz" title="Cuts rumble below this frequency." format={(v) => (v > 0 ? hz(v) : 'Off')} />
+      <Knob {...k} label="Low-pass" field="lowpassHz" title="Cuts hiss above this frequency." format={(v) => (v < 20000 ? hz(v) : 'Off')} />
+      <Knob {...k} label="Gain" field="gainDb" format={(v) => `${v > 0 ? '+' : ''}${v} dB`} />
+      <Knob {...k} label="Pan" field="pan" title="Stereo pan: move the sound toward the left or right speaker. Double-click to center." format={formatPan} />
+    </div>
+  )
+  const clean = (
     <>
-      <Slider {...slider} label="High-pass" field="highpassHz" format={(v) => (v > 0 ? `${v} Hz` : 'Off')} />
-      <Slider {...slider} label="Low-pass" field="lowpassHz" format={(v) => (v < 20000 ? `${v} Hz` : 'Off')} />
-      <Slider {...slider} label="Gain" field="gainDb" format={(v) => `${v > 0 ? '+' : ''}${v} dB`} />
-      <Slider
-        {...slider}
-        label="Pan"
-        field="pan"
-        title="Stereo pan: move the sound toward the left or right speaker. Double-click to center."
-        format={formatPan}
-      />
-      <Slider
-        {...slider}
-        label="Gate threshold"
-        field="gateThresholdDb"
-        title="Noise gate: quiets the sound whenever it drops below this level, to cut a hissy/rumbly noise floor between events. Left edge = off."
-        format={(v) => (v > -80 ? `${v} dB` : 'Off')}
-      />
-      <Slider
-        {...slider}
-        label="Gate reduction"
-        field="gateRangeDb"
-        title="How much quieter the sound gets while the gate is closed (below the threshold). 0 = off."
-        format={(v) => (v > 0 ? `-${v} dB` : 'Off')}
-      />
-      <Slider
-        {...slider}
-        label="Gate attack"
-        field="gateAttackMs"
-        title="How quickly the gate opens once the sound rises above the threshold."
-        format={(v) => (gateOn ? `${v} ms` : '—')}
-      />
-      <Slider
-        {...slider}
-        label="Gate release"
-        field="gateReleaseMs"
-        title="How quickly the gate closes again once the sound falls back below the threshold. A longer release keeps a fading tail from chattering."
-        format={(v) => (gateOn ? `${v} ms` : '—')}
-      />
-      <label title="Reduce steady background noise (hiss, hum, an air conditioner). Two-step: mark a stretch of the trimmed region that is noise only in the two fields below, then Save. Bake-only — no live preview, switch the preview to Saved audio to hear it.">
-        <span>Noise reduction</span>
-        <input
-          type="checkbox"
-          checked={values.denoiseEnabled}
-          onChange={(e) => onEdit({ denoiseEnabled: e.target.checked })}
-        />
-        <span className="editor-filter-value">{values.denoiseEnabled ? 'On (bake only)' : 'Off'}</span>
+      <div className="rx-kgrid">
+        <Knob {...k} label="Threshold" field="gateThresholdDb" title="Noise gate: quiets the sound whenever it drops below this level, to cut a hissy/rumbly noise floor between events. Left edge = off." format={(v) => (v > -80 ? `${v} dB` : 'Off')} />
+        <Knob {...k} label="Reduction" field="gateRangeDb" title="How much quieter the sound gets while the gate is closed (below the threshold). 0 = off." format={(v) => (v > 0 ? `${v} dB` : 'Off')} />
+        <Knob {...k} label="Attack" field="gateAttackMs" dim={!gateOn} title="How quickly the gate opens once the sound rises above the threshold." format={(v) => `${v} ms`} />
+        <Knob {...k} label="Release" field="gateReleaseMs" dim={!gateOn} title="How quickly the gate closes again once the sound falls back below the threshold. A longer release keeps a fading tail from chattering." format={(v) => `${v} ms`} />
+      </div>
+      <label
+        className="rx-srow rx-nr-row"
+        title="Reduce steady background noise (hiss, hum, an air conditioner). Mark a stretch of the trimmed region that is noise only in the fields below, then Save. Bake only: no live preview, switch the preview to Saved audio to hear it."
+      >
+        <span className="rx-sl">
+          <span>Noise reduction</span>
+          <small>Applies once saved; hear it in Saved audio</small>
+        </span>
+        <input type="checkbox" checked={values.denoiseEnabled} onChange={(e) => onEdit({ denoiseEnabled: e.target.checked })} />
       </label>
-      <Slider
-        {...slider}
-        label="NR strength"
-        field="denoiseStrengthDb"
-        title="How aggressively to subtract the sampled noise profile. Higher removes more but can start to sound watery."
-        format={(v) => (values.denoiseEnabled ? `${v} dB` : '—')}
-      />
-      <SecondsField
-        {...slider}
-        label="Noise from"
-        field="denoiseSampleStartSec"
-        title="Start of the noise-only sample, in seconds into the file. Pick a stretch of the trimmed loop region with only background noise and no events — ideally near its start."
-      />
-      <SecondsField
-        {...slider}
-        label="Noise to"
-        field="denoiseSampleEndSec"
-        title="End of the noise-only sample, in seconds into the file."
-      />
-      <div className="editor-filter-action">
-        <button
-          className="btn btn-small"
-          type="button"
-          title="Set the noise sample to the first ~1.5 seconds of the trimmed loop region"
-          onClick={onNoiseSampleFromLoop}
-        >
-          Noise sample from loop start
+      <div className="rx-kgrid">
+        <Knob {...k} label="Strength" field="denoiseStrengthDb" dim={!values.denoiseEnabled} title="How aggressively to subtract the sampled noise profile. Higher removes more but can start to sound watery." format={(v) => `${v} dB`} />
+      </div>
+      <div className="rx-trow rx-noise-row">
+        <span>Noise from</span>
+        <SecondsField {...k} label="Noise from" field="denoiseSampleStartSec" title="Start of the noise-only sample, in seconds into the file. Pick a stretch of the trimmed loop region with only background noise and no events, ideally near its start." />
+        <span>s to</span>
+        <SecondsField {...k} label="Noise to" field="denoiseSampleEndSec" title="End of the noise-only sample, in seconds into the file." />
+        <span>s</span>
+      </div>
+      <div className="rx-srow1">
+        <button className="rx-b" type="button" title="Set the noise sample to the first ~1.5 seconds of the trimmed loop region" onClick={onNoiseSampleFromLoop}>
+          Sample from loop start
         </button>
       </div>
-      <Slider {...slider} label="Echo delay" field="echoDelayMs" format={(v) => (v > 0 ? `${v} ms` : 'Off')} />
-      <Slider {...slider} label="Echo decay" field="echoDecay" format={(v) => (v > 0 ? v.toFixed(2) : 'Off')} />
-      <Slider
-        {...slider}
-        label="Reverb size"
-        field="reverbSizeMs"
-        format={(v) => (v > 0 ? `${(v / 1000).toFixed(1)}s` : 'Off')}
-      />
-      <Slider
-        {...slider}
-        label="Reverb mix"
-        field="reverbMix"
-        format={(v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off')}
-      />
+    </>
+  )
+  const space = (
+    <div className="rx-kgrid">
+      <Knob {...k} label="Echo delay" field="echoDelayMs" format={(v) => (v > 0 ? `${v} ms` : 'Off')} />
+      <Knob {...k} label="Echo decay" field="echoDecay" format={(v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off')} />
+      <Knob {...k} label="Room size" field="reverbSizeMs" title="How long the reverb rings." format={(v) => (v > 0 ? `${(v / 1000).toFixed(1)} s` : 'Off')} />
+      <Knob {...k} label="Reverb mix" field="reverbMix" format={(v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off')} />
+    </div>
+  )
+  if (!targets) return <>{tone}{clean}{space}</>
+  return (
+    <>
+      {createPortal(tone, targets.tone)}
+      {createPortal(clean, targets.clean)}
+      {createPortal(space, targets.space)}
     </>
   )
 }
 
 /**
- * Renders the filter sliders into `container`.
+ * Renders the filter knobs.
  *
  * @param {HTMLElement} container
- * @param {{ onChange: () => void, onNoiseSampleFromLoop: () => void }} callbacks
+ * @param {{ onChange: () => void, onNoiseSampleFromLoop: () => void, targets?: { tone: HTMLElement, clean: HTMLElement, space: HTMLElement } }} callbacks
  *   onChange fires after every user edit, once the new values are readable
- *   through getValues().
+ *   through getValues(). targets: where each settings group renders
+ *   (portals); without it all three render into `container`.
  * @returns {{ getValues: () => object, setValues: (patch: object) => void, unmount: () => void }}
  *   setValues never calls onChange - same as setting a DOM input's .value.
  */
-export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop }) {
+export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop, targets }) {
   let values = { ...DEFAULTS }
   const listeners = new Set()
   const store = {
@@ -235,6 +274,6 @@ export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop
   }
 
   const root = createRoot(container)
-  root.render(<FilterControls store={store} onEdit={onEdit} onNoiseSampleFromLoop={onNoiseSampleFromLoop} />)
+  root.render(<FilterControls store={store} onEdit={onEdit} onNoiseSampleFromLoop={onNoiseSampleFromLoop} targets={targets} />)
   return { getValues: () => values, setValues, unmount: () => root.unmount() }
 }

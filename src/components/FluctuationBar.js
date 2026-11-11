@@ -27,9 +27,10 @@ import { PALETTE } from '../domain/palette.js'
 // with accelerated 2D canvases; willReadFrequently keeps these tiny canvases
 // on the CPU rasterizer, so there is no GPU texture to flip.
 
-const HANDLE_RADIUS = 7
+const HANDLE_RADIUS = 8
 const GRAB_SLOP = 11
-const TRACK_PAD = 14
+const TRACK_PAD = 8
+const TRACK_Y = 10 // mock .dbar: 8 px padding above a 4 px track
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v))
@@ -74,59 +75,55 @@ export function createFluctuationBar(canvas, { valueMin, valueMax, defaults, for
     return v || fallback
   }
 
+  // The approved look's range bar (mock .dbar): a 4 px track, the range in
+  // amber, filled amber end circles, the middle circle in ink, and the three
+  // values in a row under the track (lowest left, middle centered, highest
+  // right).
   function draw() {
     resizeForDisplay()
-    const cy = Math.round(cssH * 0.42)
+    const cy = TRACK_Y
     ctx.clearRect(0, 0, cssW, cssH)
 
     const accent = styleColor('--accent', PALETTE.accent)
-    const biasColor = '#bb9af7'
+    const track = styleColor('--surface-hover', 'rgba(255,255,255,0.16)')
+    const ink = styleColor('--text', '#ece9e2')
+    const mute = styleColor('--text-dim', 'rgba(255,255,255,0.7)')
     const dim = enabled ? 1 : 0.4
     ctx.globalAlpha = dim
 
-    // base track
-    ctx.strokeStyle = 'rgba(255,255,255,0.16)'
-    ctx.lineWidth = 4
-    ctx.lineCap = 'round'
-    ctx.beginPath()
-    ctx.moveTo(TRACK_PAD, cy)
-    ctx.lineTo(cssW - TRACK_PAD, cy)
-    ctx.stroke()
-
-    // active span (min..max)
-    ctx.strokeStyle = accent
-    ctx.beginPath()
-    ctx.moveTo(xFor(values.min), cy)
-    ctx.lineTo(xFor(values.max), cy)
-    ctx.stroke()
-
-    // handles
-    const drawHandle = (v, color, filled) => {
-      const x = xFor(v)
-      ctx.beginPath()
-      ctx.arc(x, cy, HANDLE_RADIUS, 0, Math.PI * 2)
-      ctx.fillStyle = filled ? color : PALETTE.surface
-      ctx.fill()
-      ctx.lineWidth = 2
+    const line = (x0, x1, color) => {
       ctx.strokeStyle = color
+      ctx.lineWidth = 4
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      ctx.moveTo(x0, cy)
+      ctx.lineTo(x1, cy)
       ctx.stroke()
     }
-    drawHandle(values.min, accent, false)
-    drawHandle(values.max, accent, false)
-    if (biasOn) drawHandle(values.bias, biasColor, true)
+    line(TRACK_PAD, cssW - TRACK_PAD, track)
+    line(xFor(values.min), xFor(values.max), accent)
 
-    // value labels under each handle
-    ctx.globalAlpha = dim
-    ctx.fillStyle = 'rgba(255,255,255,0.7)'
-    ctx.font = '10px system-ui, sans-serif'
+    const drawHandle = (v, color) => {
+      ctx.beginPath()
+      ctx.arc(xFor(v), cy, HANDLE_RADIUS, 0, Math.PI * 2)
+      ctx.fillStyle = color
+      ctx.fill()
+    }
+    drawHandle(values.min, accent)
+    drawHandle(values.max, accent)
+    if (biasOn) drawHandle(values.bias, ink)
+
+    ctx.fillStyle = mute
+    ctx.font = `12px ${getComputedStyle(canvas).fontFamily || 'system-ui, sans-serif'}`
     ctx.textBaseline = 'top'
-    const labelY = cy + HANDLE_RADIUS + 4
-    ctx.textAlign = 'center'
-    ctx.fillText(fmt(values.min), clamp(xFor(values.min), 12, cssW - 12), labelY)
-    ctx.fillText(fmt(values.max), clamp(xFor(values.max), 12, cssW - 12), labelY)
+    const labelY = cy + 2 + 12
+    ctx.textAlign = 'left'
+    ctx.fillText(fmt(values.min), TRACK_PAD, labelY)
+    ctx.textAlign = 'right'
+    ctx.fillText(fmt(values.max), cssW - TRACK_PAD, labelY)
     if (biasOn) {
-      ctx.fillStyle = biasColor
-      ctx.fillText(fmt(values.bias), clamp(xFor(values.bias), 12, cssW - 12), cy - HANDLE_RADIUS - 13)
+      ctx.textAlign = 'center'
+      ctx.fillText(fmt(values.bias), cssW / 2, labelY)
     }
     ctx.globalAlpha = 1
   }

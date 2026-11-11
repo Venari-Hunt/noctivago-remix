@@ -1549,3 +1549,29 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 .rx-accb .editor-gap-range input[type='number'] { width: 100%; min-width: 0; }
 .rx-accb .editor-gap-range .editor-filter-value { width: auto; min-width: 0; }
 .rx-fader::-webkit-slider-thumb { border: 0; box-shadow: none; }
+
+/* Step 12: settings column (Speed and pitch, Tone, Cleanup, Space, Drift,
+   Effect presets) and the compare switch. */
+.rx-accb input[type='checkbox'] { appearance: none; -webkit-appearance: none; position: relative; flex: none; width: 36px; height: 20px; margin: 0; border: 0; border-radius: 10px; background: var(--surface-hover); cursor: pointer; }
+.rx-accb input[type='checkbox']::after { content: ''; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-dim); transition: transform 120ms; }
+.rx-accb input[type='checkbox']:checked { background: var(--tint); }
+.rx-accb input[type='checkbox']:checked::after { transform: translateX(16px); background: var(--tint-ink); }
+.rx-accb input[type='checkbox']:disabled { opacity: .5; cursor: not-allowed; }
+.rx-accb .rx-srow { min-height: 36px; font-size: 13px; color: var(--text); }
+.rx-speed-body, .rx-filter-group { display: flex; flex-direction: column; gap: 8px; }
+.rx-accb > #editor-filters { display: none; }
+.rx-accb .rx-trow > span:first-child { flex: 1; }
+.rx-accb .rx-trow input[type='number'] { width: 56px; }
+/* Drift: the switch opens the axis. */
+.rx-axb { display: flex; flex-direction: column; gap: 8px; }
+.rx-drift-axis:has(> .rx-srow input:not(:checked)) > .rx-axb { display: none; }
+.rx-drift-axis .rx-srow { min-height: 28px; }
+.rx-accb .editor-fluctuation-bar { height: 40px; }
+.rx-accb > .editor-fluctuation { display: flex; flex-direction: column; gap: 8px; }
+.rx-accb .editor-fluctuation .rx-hint.hidden { display: none; }
+/* Effect presets: chips (mock .chips.big .cwrap). */
+.rx-looks { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 0; }
+.rx-chip { height: 28px; padding-inline: 12px; border: 0; border-radius: 8px; background: var(--surface-hover); color: var(--text); font: inherit; font-size: 13px; line-height: 28px; cursor: pointer; white-space: nowrap; }
+.rx-chip:hover { background: #36363d; }
+/* View tabs and the compare switch share the row above the canvas. */
+.rx-tabs { display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
