@@ -2,7 +2,7 @@
   "id": "remix",
   "name": "Remix",
   "version": "1.3.0",
-  "minAppVersion": "0.1.277",
+  "minAppVersion": "2.0.0-nightly.0",
   "description": "Trim, filter, and EQ a single sound, a whole preset's mix, or a Sound Group - with live preview, in one tab with a Sound/Preset/Group mode switch.",
   "author": "Noctívago",
   "main": "main.js",
