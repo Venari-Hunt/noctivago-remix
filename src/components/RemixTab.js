@@ -332,7 +332,7 @@ export default class EditorPlugin {
 
         <div id="editor-mode-panel-preset" class="editor-mode-panel hidden">
           <div id="editor-mix-preset-controls" class="editor-mix-controls editor-mix-disabled">
-            <p class="editor-mix-status">Live loudness (last ~10s) - hit Play above to hear and see this preset.</p>
+            <p class="editor-mix-status">Live loudness (last ~10s) - hit Play in the preview to hear and see this preset.</p>
             <canvas id="editor-mix-preset-waveform" class="editor-mix-waveform-canvas"></canvas>
             <div class="editor-filters">
               <label>
@@ -449,7 +449,7 @@ export default class EditorPlugin {
               </button>
             </div>
 ${mixFluctuationMarkup('preset')}
-            <p id="editor-mix-preset-hint" class="editor-mix-status">Pick a preset above. These settings are saved on it and heard live on the whole mix whenever it's loaded in the Mixer.</p>
+            <p id="editor-mix-preset-hint" class="editor-mix-status">Pick a preset in the list. These settings are saved on it and heard live on the whole mix whenever it's loaded in the Mixer.</p>
           </div>
         </div>
 
@@ -459,7 +459,7 @@ ${mixFluctuationMarkup('preset')}
               <span>Name</span>
               <input id="editor-mix-group-name" type="text" />
             </div>
-            <p class="editor-mix-status">Live loudness (last ~10s) - hit Play above to hear and see just this group.</p>
+            <p class="editor-mix-status">Live loudness (last ~10s) - hit Play in the preview to hear and see just this group.</p>
             <canvas id="editor-mix-group-waveform" class="editor-mix-waveform-canvas"></canvas>
             <p class="editor-mix-status">Sounds in this preset's mix:</p>
             <ul id="editor-mix-group-members" class="editor-mix-group-members"></ul>
@@ -579,7 +579,7 @@ ${mixFluctuationMarkup('preset')}
             </div>
 ${mixFluctuationMarkup('group')}
           </div>
-          <p id="editor-mix-group-empty" class="editor-mix-status">Pick a preset above, then create or pick a group to EQ some of its sounds together (e.g. crickets + toads to sound like they're outside).</p>
+          <p id="editor-mix-group-empty" class="editor-mix-status">Pick a preset under the chips, then make or pick a group to EQ some of its sounds together (e.g. crickets + toads to sound like they're outside).</p>
         </div>
 
         <div id="editor-mode-panel-sound">
@@ -963,7 +963,9 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
         if (view === 'seam') this.syncSeamView()
       },
       onCompare: (which) => this.switchCompareView(which),
-      getBands: (kind) => (kind === 'preset' ? this.presetEq : this.groupEq)?.getBands?.()
+      getBands: (kind) => (kind === 'preset' ? this.presetEq : this.groupEq)?.getBands?.(),
+      getStudio: () => this.studioState(),
+      onPick: (kind, id) => this.pickFromLibrary(kind, id)
     })
 
     this.els = {
@@ -2141,10 +2143,58 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       else if (!updated) this.els.soundSearch.value = ''
     }
     if (!this.els.soundOptions.classList.contains('hidden')) this.renderPickerOptions()
+    this.layout?.refreshStudio?.()
   }
 
   editableSounds() {
     return this.library.filter((s) => s.status !== 'missing')
+  }
+
+  // Step 13d: what the library pane lists and what the center head says,
+  // for the mode on screen (layout.js buildStudio draws it).
+  studioState() {
+    const mode = this.mode ?? 'sound'
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+    if (mode === 'sound') {
+      const MODE = { loop: 'loop', scatter: 'random', scheduled: 'scheduled' }
+      const ICON = { loop: 'audio-waveform', scatter: 'shuffle', scheduled: 'clock' }
+      const length = (e) => {
+        const start = Number(e.loopStart) || 0
+        const end = e.loopEnd == null ? Number(e.durationSeconds) : Number(e.loopEnd)
+        return Number.isFinite(end) && end > start ? end - start : null
+      }
+      const metaOf = (e, playMode = e.playMode) => [length(e) != null ? formatDuration(length(e)) : null, MODE[playMode] ?? 'loop', e.included ? 'in mix' : null].filter(Boolean).join(' · ')
+      const items = (this.library ?? []).filter((s) => s.status !== 'missing').map((e) => ({ id: e.id, name: e.name, meta: metaOf(e), icon: ICON[e.playMode] ?? ICON.loop, dot: Boolean(e.included), dotTitle: 'in the mix' }))
+      const entry = this.currentEntry
+      const radio = this.root?.querySelector('.rx-tiles3 input:checked')?.value
+      const head = entry ? { name: entry.name, meta: metaOf(entry, radio ?? entry.playMode) } : { name: 'No sound open', meta: 'Pick a sound from the list' }
+      return { mode, items, currentId: entry?.id ?? null, head }
+    }
+    const presetLive = this.selectedPresetId && this.selectedPresetId === this.activePresetId
+    if (mode === 'preset') {
+      const items = (this.presets ?? []).map((p) => ({ id: p.id, name: p.name, meta: `whole mix · ${plural(p.sounds?.length ?? 0, 'sound')}`, icon: 'bookmark', dot: p.id === this.activePresetId, dotTitle: 'playing in the Mixer' }))
+      const preset = items.find((p) => p.id === this.selectedPresetId)
+      const head = preset ? { name: preset.name, meta: preset.meta + (preset.dot ? ' · in the Mixer' : '') } : { name: 'No preset open', meta: 'Save a preset in the Mixer first' }
+      return { mode, items, currentId: preset?.id ?? null, head }
+    }
+    const presetName = this.presets?.find((p) => p.id === this.selectedPresetId)?.name
+    const items = (this.groups ?? []).map((g) => ({ id: g.id, name: g.name, meta: `group · ${plural(g.soundIds?.length ?? 0, 'sound')}`, icon: 'layers', dot: Boolean(presetLive), dotTitle: 'its preset plays in the Mixer' }))
+    const group = items.find((g) => g.id === this.selectedGroupId)
+    const head = group
+      ? { name: group.name, meta: `${group.meta}${presetName ? ` · in ${presetName}` : ''}` }
+      : { name: 'No group open', meta: presetName ? `Pick or make a group in ${presetName}` : 'Pick a preset first' }
+    return { mode, items, currentId: group?.id ?? null, head }
+  }
+
+  pickFromLibrary(kind, id) {
+    if (kind === 'sound') {
+      if (id !== this.currentEntry?.id) this.selectPickerSound(id)
+      return
+    }
+    const select = kind === 'preset' ? this.els.mixPresetSelect : this.els.mixGroupSelect
+    if (select.value === id && (kind === 'preset' ? this.selectedPresetId : this.selectedGroupId) === id) return
+    select.value = id
+    select.dispatchEvent(new Event('change', { bubbles: true }))
   }
 
   filteredPickerSounds() {
@@ -2252,6 +2302,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.historyIndex = -1
     this.updateUndoRedoButtonsUI()
     this.setBarEnabled(false)
+    this.layout?.refreshStudio?.()
   }
 
   // With nothing open there is nothing to cancel or save (mock: remix-empty).
@@ -3964,6 +4015,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.setBarEnabled(true)
     this.els.soundName.textContent = entry.name
     this.els.soundName.title = entry.name
+    this.layout?.refreshStudio?.()
     this.setPlayPauseIcon(false)
     this.els.saveStatus.textContent = ''
 
@@ -4803,12 +4855,13 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixCopyGroupTo.classList.toggle('hidden', mode !== 'group' || !this.selectedGroupId)
     if (mode === 'preset') {
       this.els.mixSave.disabled = !this.selectedPresetId || wholeMixEqual(this.wholeMixCurrent, this.wholeMixSaved)
-      this.els.mixStatus.textContent = this.selectedPresetId ? '' : 'Pick a preset above.'
+      this.els.mixStatus.textContent = '' // the head's meta line says what to pick
     } else if (mode === 'group') {
       const dirty = this.selectedGroupId && (this.els.mixGroupName.value.trim() !== this.groups.find((g) => g.id === this.selectedGroupId)?.name || !groupFiltersEqual(this.groupCurrent, this.groupSaved))
       this.els.mixSave.disabled = !this.selectedGroupId || !dirty
-      this.els.mixStatus.textContent = this.selectedGroupId ? '' : 'Pick or create a group above.'
+      this.els.mixStatus.textContent = ''
     }
+    this.layout?.refreshStudio?.()
   }
 
   // --- Live spectrogram (Preset/Group only) ---
@@ -5308,6 +5361,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixGroupSelect.innerHTML = this.groups.length
       ? this.groups.map((g) => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)} (${g.soundIds.length})</option>`).join('')
       : '<option value="">No groups yet</option>'
+    this.layout?.refreshStudio?.()
   }
 
   // "Copy to preset…" (owner inbox, 2026-09-13: a "crowd speaking" ambience

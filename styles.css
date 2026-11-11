@@ -1620,3 +1620,148 @@ select.rx-field { padding-right: 8px; appearance: auto; color-scheme: dark; }
 /* Step 13b: rulers above the EQ graph (SUB to TREBLE, then C notes); same
    width as the graph so the zoom lines up. */
 .rx-eq-ruler { display: block; flex: none; width: 100%; height: 36px; margin-bottom: 4px; }
+
+/* ==========================================================================
+   Step 13d: the studio layout (Global Management design-system/mocks/
+   noctivago-remix-studio.mjs, v2). Three panes on the darkest ground with
+   8 px gaps: library + preview left, the thing you edit center, settings
+   right. layout.js buildStudio() builds it; the mode panels and .rx-grid
+   are display: contents so each mode's columns land in the cells.
+   ========================================================================== */
+body:has(.tab-panel:not(.hidden) .editor-tab.rx) { background: #0f0f12; }
+.tab-sticky-bar:has(> .rx-bar-host:not(.hidden)) { display: none; }
+main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: hidden; }
+
+.editor-tab.rx { display: grid; grid-template-columns: 264px minmax(0, 1fr) 320px; grid-template-rows: auto minmax(0, 1fr); gap: 0 8px; height: 100%; min-height: 0; }
+.rx #editor-mode-panel-sound:not(.hidden), .rx #editor-mode-panel-preset:not(.hidden), .rx #editor-mode-panel-group:not(.hidden), .rx-grid:not(.hidden) { display: contents; }
+.rx-pane { background: var(--bg); border-radius: 12px; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+/* Left column: library over the preview module. */
+.rx-lcol { grid-column: 1; grid-row: 1 / -1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.rx-lib { flex: 1; padding: 16px 12px 12px; gap: 12px; }
+.rx-lib-h { display: flex; align-items: center; justify-content: space-between; margin: 0 4px; }
+.rx-lib-h h3 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 700; color: var(--text); }
+.rx-ib { width: 36px; height: 36px; border-radius: 10px; }
+.rx-ib:hover { background: var(--surface); }
+.rx-chips { display: flex; gap: 8px; padding: 0 4px; }
+.rx-chips > button.rx-mchip { height: 32px; padding: 0 14px; border: 0; border-radius: 16px; background: var(--surface-alt); color: var(--text); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+.rx-chips > button.rx-mchip.editor-mode-pill-active { background: var(--text); color: #141417; }
+.rx-in-preset { display: none; align-items: center; gap: 8px; margin: 0 4px; font-size: 12px; color: var(--text-dim); }
+.rx[data-rx-mode='group'] .rx-in-preset { display: flex; }
+.rx-in-preset .rx-field { flex: 1; width: auto; height: 32px; font-size: 13px; }
+.rx-search { display: flex; align-items: center; gap: 8px; height: 36px; margin: 0 4px; padding: 0 12px; border-radius: 10px; background: var(--surface); color: var(--text-dim); }
+.rx-search input { flex: 1; min-width: 0; height: 100%; padding: 0; background: none; border: 0; outline: 0; color: var(--text); font: inherit; }
+.rx-search:has(input:focus-visible) { outline: 2px solid #8db8ff; outline-offset: 2px; }
+.rx-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; }
+.rx-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.rx-item:hover, .rx-item.rx-item-hl { background: var(--surface); }
+.rx-item[aria-current='true'] { background: var(--surface-alt); }
+.rx-thumb { width: 40px; height: 40px; border-radius: 8px; background: var(--surface-alt); display: grid; place-items: center; color: var(--text-dim); flex: none; }
+.rx-item[aria-current='true'] .rx-thumb { background: var(--tint); color: var(--tint-ink); }
+.rx-txt { min-width: 0; flex: 1; }
+.rx-txt b { display: block; font-weight: 600; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rx-txt small { display: block; color: var(--text-dim); font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.rx-list-empty { margin: 8px; color: var(--text-dim); font-size: 13px; line-height: 20px; }
+
+/* Preview module: one row, then the seek bar with its times. */
+.rx-prev { flex: none; gap: 4px; padding: 10px 12px 8px; }
+.rx-prow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rx-slot { display: contents; }
+.rx-pplay { width: 32px; height: 32px; flex: none; border: 0; border-radius: 50%; padding: 0; background: var(--text); color: #141417; display: grid; place-items: center; cursor: pointer; }
+.rx-pplay:hover { transform: scale(1.04); }
+.rx-pplay:disabled { opacity: .38; cursor: not-allowed; transform: none; }
+.rx-now { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rx-prow .rx-i { width: 28px; height: 28px; border-radius: 10px; }
+.rx-prow .rx-i.editor-loop-icon-btn[aria-pressed='true'] { background: transparent; color: var(--accent); }
+.rx-prow .rx-i.editor-loop-icon-btn[aria-pressed='true']:hover { background: var(--surface-hover); }
+.rx-pseek { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.rx-pseek .rx-seek-slot { flex: 1; min-width: 0; }
+.rx-pseek .editor-sticky-progress { min-width: 0; height: 16px; }
+.rx-pseek .editor-sticky-progress-track { height: 4px; border-radius: 2px; background: var(--surface-hover); }
+.rx-pseek .editor-sticky-progress-fill { background: var(--text); }
+.rx-pseek .editor-sticky-progress:hover .editor-sticky-progress-fill { background: var(--accent); }
+.rx-pseek .editor-sticky-progress-thumb { width: 12px; height: 12px; background: var(--text); box-shadow: none; opacity: 0; }
+.rx-pseek .editor-sticky-progress:hover .editor-sticky-progress-thumb, .rx-pseek .editor-sticky-progress:active .editor-sticky-progress-thumb { opacity: 1; }
+.rx-pvol { display: flex; align-items: center; gap: 8px; }
+.rx-pvol .rx-volume { flex: 1; width: auto; }
+.rx-pvol .rx-i { width: 28px; height: 28px; border-radius: 10px; }
+.rx[data-rx-mode='sound'] .rx-only-mix, .rx:not([data-rx-mode='sound']) .rx-only-sound { display: none; }
+.rx:not([data-rx-mode='sound']) .rx-pseek, .rx:not([data-rx-mode='sound']) .rx-pvol { display: none; }
+
+/* Center: the head, then the mode's canvas column, as one pane. */
+.rx-head { grid-column: 2; grid-row: 1; flex-direction: row; align-items: flex-end; gap: 16px; padding: 20px 24px 0; border-radius: 12px 12px 0 0; overflow: visible; }
+.rx-ht { flex: 1; min-width: 0; }
+.rx-kind { color: var(--text-dim); font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.rx-title { margin: 2px 0 0; font-size: 28px; line-height: 36px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rx-meta { color: var(--text-dim); font-size: 13px; line-height: 20px; }
+.rx-acts { display: flex; align-items: center; gap: 4px; flex: none; }
+.rx-acts .editor-sticky-mode-group { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+.rx-acts .editor-sticky-mode-group.hidden { display: none; }
+.rx-acts .rx-i { width: 36px; height: 36px; border-radius: 10px; }
+.rx-acts .rx-b { height: 36px; padding-inline: 14px; border-radius: 10px; }
+.rx-acts .rx-b:not(.rx-ghost):not(.rx-pri) { background: var(--surface-alt); }
+.rx-acts .rx-b.rx-pri { background: var(--accent); color: #1a1500; }
+.rx-acts .rx-b.rx-pri:hover { background: #e9c563; }
+.rx-acts .rx-b.rx-pri:active { background: #cda63e; }
+.rx-acts .rx-b.rx-pri:disabled { background: var(--surface-alt); color: var(--text-dim); opacity: 1; }
+.rx-acts .editor-sticky-save { margin-left: 0; }
+.rx-acts .editor-sticky-time { font-size: 13px; color: var(--text-dim); }
+.rx-canvas { grid-column: 2; grid-row: 2; background: var(--bg); border-radius: 0 0 12px 12px; padding: 16px 24px 16px; gap: 16px; }
+.rx-side { grid-column: 3; grid-row: 1 / -1; background: var(--bg); border-radius: 12px; padding: 16px 12px; gap: 4px; }
+.rx-side-h { margin: 0 4px 8px; font-size: 15px; line-height: 20px; font-weight: 700; color: var(--text); }
+/* Nothing open: the empty state takes the center and the right. */
+.rx .rx-empty:not(.hidden) { grid-column: 2 / -1; grid-row: 1 / -1; background: var(--bg); border-radius: 12px; }
+.rx[data-rx-mode='sound']:has(#editor-empty:not(.hidden)) .rx-head { display: none; }
+.rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-head { grid-column: 2 / -1; }
+.rx #editor-mix-group-empty:not(.hidden) { grid-column: 2 / -1; grid-row: 2; margin: 0; padding: 48px 24px; max-width: none; background: var(--bg); border-radius: 0 0 12px 12px; }
+
+/* Underlined view tabs, Now / Last saved at the right end. */
+.rx-tabs { justify-content: flex-start; gap: 24px; flex-wrap: nowrap; border-bottom: 1px solid var(--border); }
+.rx-scope .rx-tabs { min-height: 0; }
+.rx-vtabs { display: flex; gap: 24px; }
+.rx-vtabs button { position: relative; height: 40px; padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.rx-vtabs button:hover { color: var(--text); }
+.rx-vtabs button[aria-pressed='true'] { color: var(--text); }
+.rx-vtabs button[aria-pressed='true']::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 1px; background: var(--accent); }
+.rx-vtabs button:focus-visible { outline: 2px solid #8db8ff; outline-offset: 2px; border-radius: 4px; }
+.rx-tabs .rx-compare { margin-left: auto; }
+
+/* The canvas takes the room left in the pane (mock .canvas: flex 1, 200 min). */
+.rx-canvas > .rx-view { flex: 1 0 auto; }
+.rx-view #editor-canvas, .rx-view #editor-eq-canvas, .rx-view .editor-spectral-canvas, .rx-view-seam .editor-seam-canvas, .rx-scope .editor-mix-eq-canvas { flex: 1 1 220px; min-height: 200px; height: auto; aspect-ratio: auto; background: #0b0b0d; }
+.rx-view > .editor-eq, .rx-view > .editor-spectral, .rx-view-seam .editor-crossfade:not(.hidden), .rx-scope .rx-scope-eq { flex: 1 0 auto; }
+
+/* Tools row under the canvas (mock .tools). */
+.rx-tools { display: flex; align-items: center; justify-content: flex-start; gap: 8px; flex-wrap: wrap; margin: 0; }
+.rx-tools .rx-b { height: 36px; padding-inline: 14px; border-radius: 10px; }
+.rx-tools .rx-b:not(.rx-ghost):not(.editor-eq-mute-active):not(.editor-eq-solo-active) { background: var(--surface-alt); }
+.rx-tools .rx-i { width: 36px; height: 36px; border-radius: 10px; }
+.rx-tools .rx-i:hover { background: var(--surface); }
+.rx-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--border); flex: none; }
+.rx-tools-end { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+/* Settings accordions (mock .acc). */
+.rx-acc { background: transparent; border-radius: 10px; }
+.rx-acc[data-open='true'] { background: var(--surface); }
+.rx-acch { height: auto; min-height: 48px; padding: 0 12px; border-radius: 10px; }
+.rx-acch:hover { background: var(--surface); }
+.rx-acc[data-open='true'] > .rx-acch { border-radius: 10px 10px 0 0; }
+.rx-acch b { font-size: 14px; }
+.rx-accv { font-size: 13px; }
+.rx-accb { padding: 4px 12px 16px; }
+
+@media (max-width: 900px) {
+  main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { overflow-y: auto; }
+  .editor-tab.rx { display: flex; flex-direction: column; gap: 8px; height: auto; }
+  .rx-lcol { flex: none; }
+  .rx-lib { max-height: 360px; }
+  .rx-head, .rx-canvas, .rx-side, .rx .rx-empty:not(.hidden) { border-radius: 12px; }
+  .rx-head { flex-wrap: wrap; padding-bottom: 16px; }
+  .rx-canvas, .rx-side { overflow: visible; }
+}
+
+/* The list is the only part of the library that shrinks. */
+.rx-lib > :not(.rx-list) { flex: none; }
+.rx-side > h3.rx-side-h, .rx-lib-h h3 { flex: none; margin: 0 4px 8px; font-size: 15px; font-weight: 700; overflow: visible; }
+.rx-lib-h h3 { margin: 0; }

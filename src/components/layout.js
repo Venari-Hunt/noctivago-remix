@@ -171,8 +171,13 @@ function arrangeEqTools(eq, p) {
     b.setAttribute('aria-pressed', String(mode === 'after'))
     tap.appendChild(b)
   }
-  header.className = 'rx-under rx-eq-tools'
-  header.replaceChildren(add, del, invert, zoomOut, zoomIn, mute, solo, tap, spec)
+  // Step 13d: the mock's tools row, left-aligned with hairline separators;
+  // the two display switches sit together at the end (they wrap as a pair).
+  header.className = 'rx-tools rx-eq-tools'
+  const sep = () => el(doc, 'span', 'rx-sep')
+  const segs = el(doc, 'span', 'rx-tools-end')
+  segs.append(tap, spec)
+  header.replaceChildren(add, del, invert, sep(), zoomOut, zoomIn, sep(), mute, solo, segs)
   // Rulers above the graph: SUB to TREBLE, then the C of each octave.
   const ruler = doc.createElement('canvas')
   ruler.className = 'rx-eq-ruler'
@@ -199,6 +204,7 @@ function buildAccordions(side, list, bodies) {
   const doc = side.ownerDocument
   const win = doc.defaultView
   const accordions = new Map()
+  side.appendChild(el(doc, 'h3', 'rx-side-h', 'Settings'))
   const openAccordion = (key) => {
     for (const [k, acc] of accordions) {
       const open = k === key
@@ -268,7 +274,8 @@ function arrangeScope(root, kind, getBands) {
 
   // --- Left: the EQ, then the loudness strip (not in the mock, kept) ---
   const canvasCol = el(doc, 'div', 'rx-canvas')
-  const tabs = el(doc, 'div', 'rx-tabs', `<span class="rx-dim">EQ for ${kind === 'group' ? 'this group' : 'the whole mix'}</span>`)
+  // One view (the EQ), drawn as the same underlined tab row as Sound.
+  const tabs = el(doc, 'div', 'rx-tabs', `<div class="rx-vtabs" role="group" aria-label="View"><button type="button" aria-pressed="true" title="EQ for ${kind === 'group' ? 'this group' : 'the whole mix'}">EQ</button></div>`)
   const eqCanvas = $(`#${p}-eq-canvas`)
   const eq = eqCanvas.closest('.editor-eq')
   eq.classList.add('rx-scope-eq')
@@ -420,7 +427,7 @@ const VIEWS = [
 
 // Called once from mount(), right after the markup is written and before any
 // element is looked up or wired.
-export function arrangeLayout(root, { onView, onCompare, getBands } = {}) {
+export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, onPick } = {}) {
   const doc = root.ownerDocument
   const win = doc.defaultView
   const $ = (sel) => root.querySelector(sel)
@@ -436,7 +443,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands } = {}) {
     doc,
     'div',
     'rx-tabs',
-    `<div class="rx-seg" role="group" aria-label="View">${VIEWS.map(([k, t]) => `<button type="button" data-rx-view="${k}" aria-pressed="${k === 'trim'}">${t}</button>`).join('')}</div>` +
+    `<div class="rx-vtabs" role="group" aria-label="View">${VIEWS.map(([k, t]) => `<button type="button" data-rx-view="${k}" aria-pressed="${k === 'trim'}">${t}</button>`).join('')}</div>` +
       '<div class="rx-seg rx-compare" role="group" aria-label="Compare with last saved" title="Last saved shows and plays the settings as they were last saved. Read-only: switch back to Now to keep editing."><button type="button" data-rx-compare="now" aria-pressed="true">Now</button><button type="button" data-rx-compare="saved" aria-pressed="false">Last saved</button></div>'
   )
   const viewTrim = el(doc, 'div', 'rx-view rx-view-trim')
@@ -500,7 +507,9 @@ export function arrangeLayout(root, { onView, onCompare, getBands } = {}) {
   const transport = el(doc, 'div', 'rx-under rx-transport')
   transport.id = 'rx-transport'
 
-  viewTrim.append($('.editor-name-row'), $('#editor-canvas'), $('#editor-scrollbar'), $('#editor-waveform-status'), seekSlot, transport, times, options, dopplerHint, envelopeHint)
+  // Step 13d: the transport and the seek bar live in the preview module under
+  // the library (buildStudio), not under the Trim canvas.
+  viewTrim.append($('.editor-name-row'), $('#editor-canvas'), $('#editor-scrollbar'), $('#editor-waveform-status'), times, options, dopplerHint, envelopeHint)
 
   // Loop seam view: what is left of the crossfade section.
   const seamCanvas = $('#editor-seam-canvas')
@@ -718,7 +727,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands } = {}) {
     const saved = which === 'saved'
     panel.dataset.compare = saved ? 'saved' : 'now'
     for (const btn of compareSeg.querySelectorAll('[data-rx-compare]')) btn.setAttribute('aria-pressed', String(btn.dataset.rxCompare === which))
-    const locked = [side, viewSeam, viewSpec, eqHeader, eqTools.fields, ...[...viewTrim.children].filter((n) => n !== transport && n !== seekSlot)]
+    const locked = [side, viewSeam, viewSpec, eqHeader, eqTools.fields, ...viewTrim.children]
     for (const n of locked) n.inert = saved
   }
   compareSeg.addEventListener('click', (evt) => {
@@ -736,7 +745,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands } = {}) {
   )
   empty.id = 'editor-empty'
   oldEmpty.replaceWith(empty)
-  empty.querySelector('#rx-pick-sound').addEventListener('click', () => doc.getElementById('editor-sound-search')?.focus())
+  empty.querySelector('#rx-pick-sound').addEventListener('click', () => doc.getElementById('rx-lib-search')?.focus())
 
   if (win.ResizeObserver) {
     const ro = new win.ResizeObserver(() => requestRedraw(win))
@@ -760,73 +769,267 @@ export function arrangeLayout(root, { onView, onCompare, getBands } = {}) {
     scopes.group.refresh()
   }
 
-  return { setView, openAccordion, setPlayMode, setCompare, setSummaries, filterTargets, refreshScopes }
+  const studio = buildStudio(root, { getStudio, onPick, seekSlot, transport })
+
+  return { setView, openAccordion, setPlayMode, setCompare, setSummaries, filterTargets, refreshScopes, refreshStudio: studio.refresh }
 }
 
-// Called once at the end of mountSticky(): builds the top bar around the
-// controls mountSticky() made and moves the transport under the Trim canvas.
+// Step 13d (mock-noctivago-remix-studio v2): three panes on the darkest
+// ground. Left: the library (title, New group, Sound / Group / Preset chips,
+// search, the list) over a small preview module. Center: kind, big name,
+// meta and the save actions over the view tabs and the canvas. Right: the
+// settings accordions. The tab element is the grid; the mode panels and
+// their .rx-grid are display: contents, so each mode's canvas column and
+// settings column land in the center and right cells.
+const KIND = { sound: 'Sound', group: 'Group', preset: 'Preset' }
+const SEARCH = { sound: 'Search sounds', group: 'Search groups', preset: 'Search presets' }
+const NONE = { sound: 'No sounds match.', group: 'No groups yet. Make one with New group.', preset: 'No presets saved yet.' }
+
+function buildStudio(root, { getStudio, onPick, seekSlot, transport }) {
+  const doc = root.ownerDocument
+  const win = doc.defaultView
+  const tab = root.querySelector('.editor-tab')
+
+  const lcol = el(doc, 'div', 'rx-lcol')
+  const lib = el(
+    doc,
+    'aside',
+    'rx-pane rx-lib',
+    `<div class="rx-lib-h"><h3>Remix</h3><button id="rx-new-group" class="rx-i rx-ib" type="button" title="New group" aria-label="New group">${icon('plus')}</button></div>` +
+      '<div id="rx-chips" class="rx-chips" role="group" aria-label="What you remix"></div>' +
+      '<label id="rx-in-preset" class="rx-in-preset"><span>In preset</span></label>' +
+      `<label class="rx-search">${icon('search')}<input id="rx-lib-search" type="text" placeholder="Search sounds" aria-label="Search" autocomplete="off" /></label>` +
+      '<div id="rx-lib-list" class="rx-list"></div>'
+  )
+  lib.setAttribute('aria-label', 'Library')
+  const prev = el(
+    doc,
+    'section',
+    'rx-pane rx-prev',
+    '<div class="rx-prow"><span id="rx-pplay-slot" class="rx-slot"></span><b id="rx-now-name" class="rx-now"></b><span id="rx-prow-end" class="rx-slot"></span></div>' +
+      '<div class="rx-pseek"><span id="rx-cur">0:00</span><span id="rx-total">0:00</span></div>' +
+      '<div id="rx-pvol" class="rx-pvol"></div>'
+  )
+  prev.setAttribute('aria-label', 'Preview')
+  prev.querySelector('#rx-total').before(seekSlot)
+  prev.appendChild(transport) // emptied into the rows by arrangeBar
+  lcol.append(lib, prev)
+
+  const head = el(
+    doc,
+    'div',
+    'rx-pane rx-head',
+    '<div class="rx-ht"><div id="rx-kind" class="rx-kind">Sound</div><h2 id="rx-title" class="rx-title"></h2><div id="rx-meta" class="rx-meta"></div></div><div id="rx-acts" class="rx-acts"></div>'
+  )
+  // Controls the library replaces stay in the DOM (the tab still reads and
+  // writes them), out of sight.
+  const holder = el(doc, 'div', 'rx-holder')
+  holder.hidden = true
+  tab.prepend(lcol, head)
+  tab.appendChild(holder)
+
+  const search = lib.querySelector('#rx-lib-search')
+  const list = lib.querySelector('#rx-lib-list')
+  let state = null
+  let highlight = -1
+  let lastKey = ''
+  const query = () => search.value.trim().toLowerCase()
+  const shown = () => (state?.items ?? []).filter((it) => it.name.toLowerCase().includes(query()))
+
+  const renderList = () => {
+    const items = shown()
+    const key = JSON.stringify([state?.mode, state?.currentId, highlight, items])
+    if (key === lastKey) return
+    lastKey = key
+    list.replaceChildren()
+    if (!items.length) {
+      list.appendChild(el(doc, 'p', 'rx-list-empty', query() ? `No ${state.mode}s match.` : NONE[state?.mode ?? 'sound']))
+      return
+    }
+    items.forEach((it, i) => {
+      const b = el(doc, 'button', 'rx-item' + (i === highlight ? ' rx-item-hl' : ''), `<span class="rx-thumb">${icon(it.icon)}</span><span class="rx-txt"><b></b><small></small></span>${it.dot ? '<i class="rx-dot"></i>' : ''}`)
+      b.type = 'button'
+      b.querySelector('b').textContent = it.name
+      b.querySelector('small').textContent = it.meta
+      b.title = it.dot ? `${it.name} (${it.dotTitle})` : it.name
+      if (it.id === state.currentId) b.setAttribute('aria-current', 'true')
+      b.addEventListener('click', () => onPick?.(state.mode, it.id))
+      list.appendChild(b)
+    })
+  }
+
+  const refresh = () => {
+    state = getStudio?.()
+    if (!state) return
+    tab.dataset.rxMode = state.mode
+    search.placeholder = SEARCH[state.mode]
+    head.querySelector('#rx-kind').textContent = KIND[state.mode]
+    const title = head.querySelector('#rx-title')
+    if (title.textContent !== state.head.name) {
+      title.textContent = state.head.name
+      title.title = state.head.name
+    }
+    head.querySelector('#rx-meta').textContent = state.head.meta
+    const now = prev.querySelector('#rx-now-name')
+    now.textContent = state.head.playing ?? state.head.name
+    now.title = now.textContent
+    renderList()
+  }
+
+  let lastMode = null
+  search.addEventListener('input', () => {
+    highlight = -1
+    renderList()
+  })
+  search.addEventListener('keydown', (evt) => {
+    const items = shown()
+    if (evt.key === 'ArrowDown' || evt.key === 'ArrowUp') {
+      evt.preventDefault()
+      if (!items.length) return
+      highlight = (highlight + (evt.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+      renderList()
+      list.querySelector('.rx-item-hl')?.scrollIntoView({ block: 'nearest' })
+    } else if (evt.key === 'Enter') {
+      evt.preventDefault()
+      const picked = items[highlight] ?? items[0]
+      if (picked) onPick?.(state.mode, picked.id)
+    } else if (evt.key === 'Escape') {
+      search.value = ''
+      highlight = -1
+      renderList()
+    }
+  })
+  // A new mode starts with an empty search.
+  const syncMode = () => {
+    if (state && state.mode !== lastMode) {
+      if (lastMode) search.value = ''
+      lastMode = state.mode
+      highlight = -1
+      lastKey = ''
+      renderList()
+    }
+  }
+  const refreshAll = () => {
+    refresh()
+    syncMode()
+  }
+  // Play mode radios, preset and group selects and the like change the list
+  // and the head; one coalesced refresh covers them. A microtask, not a
+  // frame: frames pause while the window is in the background.
+  let queued = false
+  const queue = () => {
+    if (queued) return
+    queued = true
+    win.queueMicrotask(() => {
+      queued = false
+      refreshAll()
+    })
+  }
+  tab.addEventListener('change', queue)
+
+  return { refresh: queue, refreshNow: refreshAll, lib, prev, head, holder }
+}
+
+// Called once at the end of mountSticky(): moves the controls mountSticky()
+// made into the studio panes (buildStudio). Nothing is left in the app's
+// sticky bar, so it is hidden while Remix shows.
 export function arrangeBar(bar, root) {
   const doc = bar.ownerDocument
+  const win = doc.defaultView
   const $ = (sel) => bar.querySelector(sel) || root.querySelector(sel)
   bar.classList.add('rx-bar-host')
+  const tab = root.querySelector('.editor-tab')
+  const holder = tab.querySelector('.rx-holder')
+  const lib = tab.querySelector('.rx-lib')
 
-  const left = bar.querySelector('#rx-bar-left')
+  // The old search-and-dropdown picker: the library list replaces it.
   const picker = root.querySelector('.editor-picker')
-  if (picker) {
-    picker.classList.add('rx-pick')
-    picker.insertAdjacentHTML('beforeend', icon('chevron-down'))
-    left.appendChild(picker)
-  }
-  // Group and Preset: the pickers, then Solo, Copy to preset and Delete group
-  // (mock remix-group puts them right after the picker).
-  const mixPickers = $('#editor-mix-picker-row')
-  mixPickers.classList.add('rx-mix-pickers')
-  // The bar is tight, so the "Preset" / "Group" captions become the
-  // selects' labels and New group is an icon button.
-  for (const select of mixPickers.querySelectorAll('select')) select.classList.add('rx-field')
-  const captions = [...mixPickers.children].filter((n) => n.tagName === 'SPAN')
-  $('#editor-mix-preset-select').setAttribute('aria-label', 'Preset')
-  $('#editor-mix-group-select').setAttribute('aria-label', 'Group')
-  for (const caption of captions) caption.classList.add('rx-visually-hidden')
-  const newGroup = $('#editor-mix-group-new')
-  newGroup.className = `rx-i${newGroup.classList.contains('hidden') ? ' hidden' : ''}`
-  newGroup.innerHTML = icon('plus')
-  newGroup.title = 'New group'
-  newGroup.setAttribute('aria-label', 'New group')
-  left.append(mixPickers, $('#rx-group-actions'))
+  if (picker) holder.appendChild(picker)
 
-  // Sound, Group, Preset: the mock's order.
-  const modeSwitch = root.querySelector('.editor-mode-switch')
-  modeSwitch.classList.add('rx-seg')
-  modeSwitch.setAttribute('role', 'group')
-  modeSwitch.setAttribute('aria-label', 'What to edit')
-  modeSwitch.append($('#editor-mode-sound'), $('#editor-mode-group'), $('#editor-mode-preset'))
-  bar.querySelector('#rx-bar-center').appendChild(modeSwitch)
-  // The hint under the old switch becomes the switch's tooltip.
+  // Sound, Group, Preset (the mock's order) as chips. The tab toggles
+  // editor-mode-pill-active on them; CSS reads that.
+  const chips = lib.querySelector('#rx-chips')
+  for (const id of ['#editor-mode-sound', '#editor-mode-group', '#editor-mode-preset']) {
+    const b = $(id)
+    b.classList.remove('editor-mode-pill')
+    b.classList.add('rx-mchip')
+    chips.appendChild(b)
+  }
   const hint = root.querySelector('#editor-mode-hint')
-  const row = root.querySelector('.editor-mode-switch-row')
-  if (hint && row) {
-    hint.classList.add('rx-visually-hidden')
-    modeSwitch.appendChild(hint)
+  if (hint) {
     const syncTitle = () => {
-      modeSwitch.title = hint.textContent
+      chips.title = hint.textContent
     }
-    new doc.defaultView.MutationObserver(syncTitle).observe(hint, { childList: true, characterData: true, subtree: true })
+    new win.MutationObserver(syncTitle).observe(hint, { childList: true, characterData: true, subtree: true })
     syncTitle()
-    row.remove()
+    holder.appendChild(hint)
   }
+  root.querySelector('.editor-mode-switch-row')?.remove()
 
-  // Transport: under the Trim canvas, inside #editor-panel, so it hides with it.
-  const transport = root.querySelector('#rx-transport')
-  const liveEdit = el(doc, 'span', 'rx-lrow2')
-  liveEdit.appendChild($('#editor-preview-mode-toggle'))
+  // Group mode lists the groups of one preset: that preset's select sits
+  // under the chips. The group select itself is replaced by the list.
+  const mixPickers = $('#editor-mix-picker-row')
+  const presetSelect = $('#editor-mix-preset-select')
+  presetSelect.classList.add('rx-field')
+  presetSelect.setAttribute('aria-label', 'Preset')
+  lib.querySelector('#rx-in-preset').appendChild(presetSelect)
+  $('#editor-mix-group-select').setAttribute('aria-label', 'Group')
+  const newGroup = $('#editor-mix-group-new')
+  holder.appendChild(mixPickers)
+  // New group sits by the library title in every mode, as in the mock; from
+  // Sound or Preset it opens Group first.
+  lib.querySelector('#rx-new-group').addEventListener('click', () => {
+    if (!$('#editor-mode-group').classList.contains('editor-mode-pill-active')) $('#editor-mode-group').click()
+    win.setTimeout(() => newGroup.click(), 0)
+  })
+
+  // Center head: Undo, Redo, Cancel, Save as copy, Save (Sound) or the
+  // status and Save (Group, Preset), then Copy to preset and Delete group.
+  const acts = tab.querySelector('#rx-acts')
+  const mixControls = $('#editor-sticky-mix-controls')
+  const groupActions = $('#rx-group-actions')
+  const soloGroup = $('#editor-mix-solo-group')
+  acts.append($('#editor-sticky-sound-controls'), mixControls, groupActions)
+
+  // Preview module: Play, the name, S, Loop; the seek bar with its times;
+  // then preview volume and Live edit (not in the mock, kept).
+  const playSlot = tab.querySelector('#rx-pplay-slot')
+  const endSlot = tab.querySelector('#rx-prow-end')
+  const play = $('#editor-play-pause')
+  play.className = 'rx-pplay rx-only-sound'
+  const mixPlay = $('#editor-mix-play-pause')
+  mixPlay.className = 'rx-pplay rx-only-mix'
+  playSlot.append(play, mixPlay)
+  const solo = $('#editor-sticky-solo')
+  solo.classList.add('rx-only-sound')
+  const loop = $('#editor-loop-toggle')
+  loop.classList.add('rx-only-sound')
+  soloGroup.classList.add('rx-only-mix')
+  endSlot.append(solo, loop, soloGroup)
+
+  const time = $('#editor-sticky-time')
+  const cur = tab.querySelector('#rx-cur')
+  const total = tab.querySelector('#rx-total')
+  const syncTime = () => {
+    const [a, b] = time.textContent.split('/').map((t) => t.trim())
+    cur.textContent = a || '0:00'
+    total.textContent = b || '0:00'
+  }
+  new win.MutationObserver(syncTime).observe(time, { childList: true, characterData: true, subtree: true })
+  syncTime()
+  holder.appendChild(time)
+  tab.querySelector('#rx-seek-slot').appendChild($('#editor-sticky-progress'))
+
+  const vol = tab.querySelector('#rx-pvol')
   const volume = $('#editor-sticky-volume')
   const volumeWrap = el(doc, 'div', 'rx-volume')
   volumeWrap.appendChild(volume)
   const syncVolume = () => volume.style.setProperty('--p', `${volume.value}%`)
   volume.addEventListener('input', syncVolume)
   syncVolume()
-  transport.append($('#editor-play-pause'), $('#editor-loop-toggle'), $('#editor-sticky-solo'), $('#editor-sticky-time'), liveEdit, $('#editor-sticky-mute'), volumeWrap)
-  root.querySelector('#rx-seek-slot').appendChild($('#editor-sticky-progress'))
+  vol.append($('#editor-sticky-mute'), volumeWrap, $('#editor-preview-mode-toggle'))
+
+  tab.querySelector('#rx-transport')?.remove()
   bar.querySelector('#rx-transport-src')?.remove()
+  bar.querySelector('.rx-bar')?.remove()
 }
