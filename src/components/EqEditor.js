@@ -235,7 +235,10 @@ const SPECTRUM_TILT_PIVOT_HZ = 1000
 const SPECTRUM_FLOOR_DB = -96
 const SPECTRUM_CEIL_DB = -12
 
-export function spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz) {
+// reduce: 'peak' for the live line (step 13a), 'mean' (power average) for
+// the heatmap - a peak over the many bins of a treble column inflates steady
+// hiss by several dB, which read as solid amber across the highs.
+export function spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz, reduce = 'peak') {
   const binCount = binDb.length
   const binHz = sampleRate / 2 / binCount
   const cols = Math.max(1, Math.round(width))
@@ -249,8 +252,14 @@ export function spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz) 
     const hi = Math.min(binCount - 1, Math.floor(hiHz / binHz))
     let db
     if (hi >= lo) {
-      db = -Infinity
-      for (let i = lo; i <= hi; i++) if (binDb[i] > db) db = binDb[i]
+      if (reduce === 'mean') {
+        let power = 0
+        for (let i = lo; i <= hi; i++) power += Math.pow(10, binDb[i] / 10)
+        db = 10 * Math.log10(power / (hi - lo + 1) || 1e-30)
+      } else {
+        db = -Infinity
+        for (let i = lo; i <= hi; i++) if (binDb[i] > db) db = binDb[i]
+      }
     } else {
       const pos = centerHz / binHz
       const i0 = Math.min(binCount - 1, Math.max(1, Math.floor(pos)))
@@ -266,10 +275,12 @@ export function spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz) 
 // Step 13b: the heatmap (mock screen remix-eq). Each frequency column glows
 // with its LONG-TERM level, so where a sound lives reads at a glance even
 // between bursts. The level is the live held spectrum smoothed per bin at
-// HEAT_RATE_PER_S (about a 0.7 s time constant), the mock's own rate. Colors
+// HEAT_RATE_PER_S, about a 4 s time constant. The mock's 1.5/s drives its
+// simulated motion only; on real rain it swung with every gust. Colors
 // and the curve that spreads them are the mock's heatColor, cold to hot:
 // near black, violet, red, then the app's amber.
-const HEAT_RATE_PER_S = 1.5
+const HEAT_RATE_PER_S = 0.25
+const HEAT_BLUR_PX = 4
 const HEAT_STOPS = [[15, 15, 17], [46, 22, 70], [132, 34, 72], [205, 72, 52], [224, 184, 76]]
 export const SPECTRUM_MODES = ['spectrum', 'both', 'heat']
 const SPECTRUM_MODE_KEY = 'noctivago-remix.spectrumMode'
@@ -283,18 +294,34 @@ export function heatColor(h) {
   return `rgb(${a.map((n, k) => Math.round(n + (b[k] - n) * f)).join(',')})`
 }
 
-// Tilted dB -> 0..1 heat, through the mock's curve (level 0..1 in the mock is
-// the same floor-to-ceiling span the spectrum line uses here).
-export function heatLevel(db) {
-  const v = Math.min(1, Math.max(0, (db - SPECTRUM_FLOOR_DB) / (SPECTRUM_CEIL_DB - SPECTRUM_FLOOR_DB)))
+// Tilted dB -> heat color position, relative to the loudest visible column:
+// that one reads amber, HEAT_RANGE_DB below it near black. Real sounds sit
+// far below the mock's simulated levels, so an absolute scale left the whole
+// graph one dark violet. The middle goes through the mock's own curve.
+const HEAT_RANGE_DB = 30
+export function heatLevel(db, maxDb) {
+  const rel = Math.min(1, Math.max(0, 1 - (maxDb - db) / HEAT_RANGE_DB))
+  const v = 0.22 + 0.62 * rel
   const h = Math.max(0, v - 0.22) / 0.62
   return h * h * 1.1 + 0.08
 }
 
 function drawHeatmap(ctx, width, height, heatDb, sampleRate, viewMinHz, viewMaxHz) {
-  const cols = spectrumColumns(width, heatDb, sampleRate, viewMinHz, viewMaxHz)
+  const raw = spectrumColumns(width, heatDb, sampleRate, viewMinHz, viewMaxHz, 'mean')
+  // A soft blur across neighbor columns (HEAT_BLUR_PX each side): the heat is
+  // a picture of where the sound lives, not bin-by-bin noise, which drew
+  // hard vertical stripes.
+  const cols = new Float32Array(raw.length)
+  for (let x = 0; x < raw.length; x++) {
+    let sum = 0
+    let n = 0
+    for (let k = Math.max(0, x - HEAT_BLUR_PX); k <= Math.min(raw.length - 1, x + HEAT_BLUR_PX); k++) { sum += raw[k]; n++ }
+    cols[x] = sum / n
+  }
+  let maxDb = -Infinity
+  for (let x = 0; x < cols.length; x++) if (cols[x] > maxDb) maxDb = cols[x]
   for (let x = 0; x < cols.length; x++) {
-    ctx.fillStyle = heatColor(heatLevel(cols[x]))
+    ctx.fillStyle = heatColor(heatLevel(cols[x], maxDb))
     ctx.fillRect(x, 0, 1.5, height)
   }
 }
@@ -351,6 +378,7 @@ function drawRulers(canvas, viewMinHz, viewMaxHz) {
     ctx.moveTo(x, row + 3)
     ctx.lineTo(x, height - 3)
     ctx.stroke()
+    if (x + 3 + ctx.measureText(label).width > width) continue // no clipped label at the edge
     ctx.fillStyle = PALETTE.textDim
     ctx.fillText(label, x + 3, row + row / 2)
   }
