@@ -4,7 +4,8 @@
 // 'change' events a slider drag would, so no wiring changes.
 //   attachKnob(input, { label, valueEl })
 // Drag left/right, or side-scroll (Shift + wheel without a side wheel).
-// Arrow keys work too, because the hidden input keeps the focus.
+// Arrow keys work too, because the hidden input keeps the focus. Double-click
+// resets it to its default.
 
 const DRAG_PX_FULL_RANGE = 160 // same as the mock: 160 px of drag = the whole range
 const WHEEL_PER_STEP = 30
@@ -98,6 +99,18 @@ export function attachKnob(input, { label, valueEl } = {}) {
   }
   ring.addEventListener('pointerup', endDrag)
   ring.addEventListener('pointercancel', endDrag)
+
+  // Double-click resets to the markup default (the input's defaultValue), as
+  // sliders did before 2.0. The app-wide reset (core/sliderReset.js) never
+  // sees it: pointer capture sends the dblclick to the ring, not the input.
+  // 'change' follows 'input', the same commit a drag ends with (undo, save).
+  ring.addEventListener('dblclick', (evt) => {
+    evt.stopPropagation()
+    if (input.disabled || input.value === input.defaultValue) return
+    input.value = input.defaultValue
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
 
   let wheelTimer = null
   knob.addEventListener(
