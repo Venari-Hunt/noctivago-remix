@@ -142,8 +142,27 @@ function arrangeEqTools(eq, p) {
   solo.classList.add('rx-ghost')
   mute.textContent = 'Mute band'
   solo.textContent = 'Solo band'
+  // Step 13b: Spectrum / Both / Heatmap, as in the mock (EqEditor wires it).
+  const doc = eq.ownerDocument
+  const spec = doc.createElement('div')
+  spec.className = 'rx-seg'
+  spec.setAttribute('role', 'group')
+  spec.setAttribute('aria-label', 'Spectrum display')
+  for (const [mode, label] of [['spectrum', 'Spectrum'], ['both', 'Both'], ['heat', 'Heatmap']]) {
+    const b = doc.createElement('button')
+    b.type = 'button'
+    b.dataset.spec = mode
+    b.textContent = label
+    b.setAttribute('aria-pressed', String(mode === 'both'))
+    spec.appendChild(b)
+  }
   header.className = 'rx-under rx-eq-tools'
-  header.replaceChildren(add, del, invert, zoomOut, zoomIn, mute, solo)
+  header.replaceChildren(add, del, invert, zoomOut, zoomIn, mute, solo, spec)
+  // Rulers above the graph: SUB to TREBLE, then the C of each octave.
+  const ruler = doc.createElement('canvas')
+  ruler.className = 'rx-eq-ruler'
+  ruler.setAttribute('aria-hidden', 'true')
+  $('canvas').before(ruler)
 
   const fields = eq.querySelector('.editor-eq-band-controls, .editor-mix-eq-fields')
   fields.className = 'rx-under rx-eq-fields'

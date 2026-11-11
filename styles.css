@@ -1616,3 +1616,7 @@ select.rx-field { padding-right: 8px; appearance: auto; color-scheme: dark; }
 .rx-copy-wrap > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .rx-copy-wrap:has(> select:focus-visible) { outline: 2px solid #8db8ff; outline-offset: 2px; }
 .rx-scope.editor-mix-group-editor, .rx-scope.editor-mix-controls { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+
+/* Step 13b: rulers above the EQ graph (SUB to TREBLE, then C notes); same
+   width as the graph so the zoom lines up. */
+.rx-eq-ruler { display: block; flex: none; width: 100%; height: 36px; margin-bottom: 4px; }

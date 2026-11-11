@@ -263,7 +263,100 @@ export function spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz) 
   return out
 }
 
-function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, viewMaxHz) {
+// Step 13b: the heatmap (mock screen remix-eq). Each frequency column glows
+// with its LONG-TERM level, so where a sound lives reads at a glance even
+// between bursts. The level is the live held spectrum smoothed per bin at
+// HEAT_RATE_PER_S (about a 0.7 s time constant), the mock's own rate. Colors
+// and the curve that spreads them are the mock's heatColor, cold to hot:
+// near black, violet, red, then the app's amber.
+const HEAT_RATE_PER_S = 1.5
+const HEAT_STOPS = [[15, 15, 17], [46, 22, 70], [132, 34, 72], [205, 72, 52], [224, 184, 76]]
+export const SPECTRUM_MODES = ['spectrum', 'both', 'heat']
+const SPECTRUM_MODE_KEY = 'noctivago-remix.spectrumMode'
+
+export function heatColor(h) {
+  const p = Math.max(0, Math.min(0.999, h)) * 4
+  const i = Math.floor(p)
+  const f = p - i
+  const a = HEAT_STOPS[i]
+  const b = HEAT_STOPS[i + 1]
+  return `rgb(${a.map((n, k) => Math.round(n + (b[k] - n) * f)).join(',')})`
+}
+
+// Tilted dB -> 0..1 heat, through the mock's curve (level 0..1 in the mock is
+// the same floor-to-ceiling span the spectrum line uses here).
+export function heatLevel(db) {
+  const v = Math.min(1, Math.max(0, (db - SPECTRUM_FLOOR_DB) / (SPECTRUM_CEIL_DB - SPECTRUM_FLOOR_DB)))
+  const h = Math.max(0, v - 0.22) / 0.62
+  return h * h * 1.1 + 0.08
+}
+
+function drawHeatmap(ctx, width, height, heatDb, sampleRate, viewMinHz, viewMaxHz) {
+  const cols = spectrumColumns(width, heatDb, sampleRate, viewMinHz, viewMaxHz)
+  for (let x = 0; x < cols.length; x++) {
+    ctx.fillStyle = heatColor(heatLevel(cols[x]))
+    ctx.fillRect(x, 0, 1.5, height)
+  }
+}
+
+// Rulers above the graph (owner, 2026-11-10): the named ranges from SUB to
+// TREBLE (the usual mixing-guide split) and the C of every octave, both
+// following the graph's zoom.
+export const RULER_RANGES = [
+  ['SUB', 20, 60], ['BASS', 60, 250], ['LOW MID', 250, 500], ['MID', 500, 2000],
+  ['HIGH MID', 2000, 4000], ['PRESENCE', 4000, 6000], ['TREBLE', 6000, 20000]
+]
+// C0 = 16.35 Hz (A4 = 440 Hz). Returns [label, hz] for each C in the window.
+export function noteTicks(viewMinHz, viewMaxHz) {
+  const out = []
+  for (let octave = 0; octave <= 10; octave++) {
+    const hz = 440 * Math.pow(2, (octave * 12 - 57) / 12)
+    if (hz >= viewMinHz && hz <= viewMaxHz) out.push([`C${octave}`, hz])
+  }
+  return out
+}
+
+function drawRulers(canvas, viewMinHz, viewMaxHz) {
+  const { width, height, dpr } = resizeCanvasForDisplay(canvas)
+  const ctx = canvas.getContext('2d')
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, width, height)
+  ctx.font = '11px "Segoe UI", sans-serif'
+  ctx.textBaseline = 'middle'
+  const row = height / 2
+  // Row 1: named ranges, a divider at each inner edge, the name centered in
+  // the visible part of the range (dropped when it does not fit).
+  ctx.strokeStyle = PALETTE.border
+  ctx.lineWidth = 1
+  for (const [name, lo, hi] of RULER_RANGES) {
+    if (hi <= viewMinHz || lo >= viewMaxHz) continue
+    const x0 = Math.max(0, freqToX(lo, width, viewMinHz, viewMaxHz))
+    const x1 = Math.min(width, freqToX(Math.min(hi, viewMaxHz), width, viewMinHz, viewMaxHz))
+    if (lo > viewMinHz) {
+      ctx.beginPath()
+      ctx.moveTo(Math.round(x0) + 0.5, 3)
+      ctx.lineTo(Math.round(x0) + 0.5, row - 3)
+      ctx.stroke()
+    }
+    if (x1 - x0 < ctx.measureText(name).width + 8) continue
+    ctx.fillStyle = PALETTE.textDim
+    ctx.textAlign = 'center'
+    ctx.fillText(name, (x0 + x1) / 2, row / 2)
+  }
+  // Row 2: a tick and label at each C.
+  ctx.textAlign = 'left'
+  for (const [label, hz] of noteTicks(viewMinHz, viewMaxHz)) {
+    const x = Math.round(freqToX(hz, width, viewMinHz, viewMaxHz)) + 0.5
+    ctx.beginPath()
+    ctx.moveTo(x, row + 3)
+    ctx.lineTo(x, height - 3)
+    ctx.stroke()
+    ctx.fillStyle = PALETTE.textDim
+    ctx.fillText(label, x + 3, row + row / 2)
+  }
+}
+
+function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, viewMaxHz, overHeat = false) {
   if (!binDb) return
   const cols = spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz)
   const top = height * 0.92
@@ -276,10 +369,16 @@ function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, view
   for (let x = 0; x < cols.length; x++) ctx.lineTo(x + 0.5, yOf(cols[x]))
   ctx.lineTo(width, height)
   ctx.closePath()
-  const fill = ctx.createLinearGradient(0, height - top, 0, height)
-  fill.addColorStop(0, 'rgba(247, 118, 142, 0.42)')
-  fill.addColorStop(1, 'rgba(247, 118, 142, 0.08)')
-  ctx.fillStyle = fill
+  // Over the heatmap the line is the mock's ink (pink over red would vanish);
+  // alone it keeps step 13a's pink.
+  if (overHeat) {
+    ctx.fillStyle = 'rgba(236, 233, 226, 0.1)'
+  } else {
+    const fill = ctx.createLinearGradient(0, height - top, 0, height)
+    fill.addColorStop(0, 'rgba(247, 118, 142, 0.42)')
+    fill.addColorStop(1, 'rgba(247, 118, 142, 0.08)')
+    ctx.fillStyle = fill
+  }
   ctx.fill()
   // A crisp outline on top: the edge is what the eye reads, the fill only
   // gives it weight.
@@ -289,8 +388,8 @@ function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, view
     if (x === 0) ctx.moveTo(x + 0.5, y)
     else ctx.lineTo(x + 0.5, y)
   }
-  ctx.strokeStyle = 'rgba(247, 118, 142, 0.95)'
-  ctx.lineWidth = 1.25
+  ctx.strokeStyle = overHeat ? 'rgba(236, 233, 226, 0.5)' : 'rgba(247, 118, 142, 0.95)'
+  ctx.lineWidth = overHeat ? 1 : 1.25
   ctx.lineJoin = 'round'
   ctx.stroke()
 }
@@ -380,11 +479,15 @@ function computeResponseCurve(bands, width, soloIndex, viewMinHz, viewMaxHz) {
   return totalDb
 }
 
-function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, responseCurve, hoveredIndex = -1, viewMinHz = FREQ_MIN, viewMaxHz = FREQ_MAX) {
+function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, responseCurve, hoveredIndex = -1, viewMinHz = FREQ_MIN, viewMaxHz = FREQ_MAX, display = {}) {
   const { width, height, dpr } = resizeCanvasForDisplay(canvas)
   const ctx = canvas.getContext('2d')
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, width, height)
+  const mode = display.mode ?? 'both'
+  // The heatmap is the graph's background, so grid and labels sit on it.
+  const showHeat = mode !== 'spectrum' && display.heat
+  if (showHeat) drawHeatmap(ctx, width, height, display.heat.binDb, display.heat.sampleRate, viewMinHz, viewMaxHz)
 
   ctx.font = '11px "Segoe UI", sans-serif' // mock axis labels
   ctx.textBaseline = 'middle'
@@ -417,8 +520,11 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
   // informative once there's real signal to show, matching the FL Studio
   // reference behavior directly rather than leaving the static bars up
   // during playback too.
-  if (liveSpectrum) drawLiveSpectrum(ctx, width, height, liveSpectrum.binDb, liveSpectrum.sampleRate, viewMinHz, viewMaxHz)
-  else if (bandEnergy) drawBandEnergyBackdrop(ctx, width, height, bandEnergy.freqs, bandEnergy.energies, viewMinHz, viewMaxHz)
+  if (liveSpectrum) {
+    if (mode !== 'heat') drawLiveSpectrum(ctx, width, height, liveSpectrum.binDb, liveSpectrum.sampleRate, viewMinHz, viewMaxHz, Boolean(showHeat))
+  } else if (showHeat) {
+    // stopped: the heatmap stays as the last long-term picture of the sound
+  } else if (bandEnergy) drawBandEnergyBackdrop(ctx, width, height, bandEnergy.freqs, bandEnergy.energies, viewMinHz, viewMaxHz)
 
   drawCutOverlay(ctx, width, height, responseCurve)
 
@@ -522,6 +628,32 @@ export function createEqEditorController(canvas) {
   let rawDbBuffer = null
   let heldDb = null
   let lastSpectrumTick = 0
+  // Step 13b: per-bin long-term level for the heatmap, kept after playback
+  // stops (it is the sound's picture), cleared when a new sound loads.
+  let heatDb = null
+  let heatSampleRate = 48000
+  let spectrumMode = 'both'
+  try {
+    const saved = window.localStorage.getItem(SPECTRUM_MODE_KEY)
+    if (SPECTRUM_MODES.includes(saved)) spectrumMode = saved
+  } catch {}
+  // Layout (layout.js) runs before this controller is made and puts the
+  // ruler canvas and the Spectrum / Both / Heatmap switch next to the graph.
+  const eqRoot = canvas.closest('.editor-eq')
+  const rulerCanvas = eqRoot?.querySelector('.rx-eq-ruler') ?? null
+  const modeButtons = eqRoot ? [...eqRoot.querySelectorAll('[data-spec]')] : []
+  function showMode() {
+    for (const b of modeButtons) b.setAttribute('aria-pressed', String(b.dataset.spec === spectrumMode))
+  }
+  for (const b of modeButtons) {
+    b.addEventListener('click', () => {
+      spectrumMode = b.dataset.spec
+      try { window.localStorage.setItem(SPECTRUM_MODE_KEY, spectrumMode) } catch {}
+      showMode()
+      redraw()
+    })
+  }
+  showMode()
   // True while displaying an immutable reference (the A/B Compare "B" slot,
   // see index.js's switchEqCompareView) rather than the live editable bands
   // - every mutating interaction below early-returns while this is set, so
@@ -572,7 +704,9 @@ export function createEqEditorController(canvas) {
 
   function redraw() {
     const { width } = canvas.getBoundingClientRect()
-    drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, getResponseCurve(width), hoveredIndex, viewMinHz, viewMaxHz)
+    const heat = heatDb ? { binDb: heatDb, sampleRate: heatSampleRate } : null
+    drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, getResponseCurve(width), hoveredIndex, viewMinHz, viewMaxHz, { mode: spectrumMode, heat })
+    if (rulerCanvas) drawRulers(rulerCanvas, viewMinHz, viewMaxHz)
   }
 
   // Zooms the visible frequency window in/out around centerHz (defaults to
@@ -838,6 +972,7 @@ export function createEqEditorController(canvas) {
       // showing stale data until the new one resolves.
       bandEnergy = null
       liveSpectrum = null
+      heatDb = null
       // Solo is scoped to "the arrangement currently being edited" - any
       // fresh load (a new sound, Reset EQ, an A/B Compare slot switch) is a
       // new arrangement, so carrying a stale solo forward would silently
@@ -881,6 +1016,13 @@ export function createEqEditorController(canvas) {
         const held = heldDb[i] - fall
         heldDb[i] = v > held ? v : held
       }
+      // Heat eases toward the held level; a fresh sound starts from it.
+      if (!heatDb || heatDb.length !== n) heatDb = Float32Array.from(heldDb)
+      else {
+        const k = Math.min(1, dt * HEAT_RATE_PER_S)
+        for (let i = 0; i < n; i++) heatDb[i] += (heldDb[i] - heatDb[i]) * k
+      }
+      heatSampleRate = analyserNode.context.sampleRate
       liveSpectrum = { binDb: heldDb, sampleRate: analyserNode.context.sampleRate }
       redraw()
     },
@@ -893,6 +1035,9 @@ export function createEqEditorController(canvas) {
       if (heldDb) heldDb.fill(SPECTRUM_FLOOR_DB)
       lastSpectrumTick = 0
       redraw()
+    },
+    getSpectrumMode() {
+      return spectrumMode
     },
     getSelectedIndex() {
       return selectedIndex
