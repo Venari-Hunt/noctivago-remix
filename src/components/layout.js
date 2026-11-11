@@ -156,8 +156,23 @@ function arrangeEqTools(eq, p) {
     b.setAttribute('aria-pressed', String(mode === 'both'))
     spec.appendChild(b)
   }
+  // Step 13c: which signal the spectrum reads, like Pro-Q's Pre / Post /
+  // Pre+Post. After (what you hear) is the default; EqEditor wires it.
+  const tap = doc.createElement('div')
+  tap.className = 'rx-seg'
+  tap.setAttribute('role', 'group')
+  tap.setAttribute('aria-label', 'Spectrum signal')
+  for (const [mode, label, title] of [['before', 'Before', 'Spectrum before the EQ'], ['after', 'After', 'Spectrum after the EQ (what you hear)'], ['both', 'Both', 'Before dimmed behind After']]) {
+    const b = doc.createElement('button')
+    b.type = 'button'
+    b.dataset.tap = mode
+    b.textContent = label
+    b.title = title
+    b.setAttribute('aria-pressed', String(mode === 'after'))
+    tap.appendChild(b)
+  }
   header.className = 'rx-under rx-eq-tools'
-  header.replaceChildren(add, del, invert, zoomOut, zoomIn, mute, solo, spec)
+  header.replaceChildren(add, del, invert, zoomOut, zoomIn, mute, solo, tap, spec)
   // Rulers above the graph: SUB to TREBLE, then the C of each octave.
   const ruler = doc.createElement('canvas')
   ruler.className = 'rx-eq-ruler'

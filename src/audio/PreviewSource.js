@@ -425,16 +425,31 @@ export class PreviewSource {
     // arguments clears *every* outgoing connection from a node. Re-connecting
     // an already-connected pair is a harmless no-op, so this stays correct
     // whether or not a rebuild actually happened on a given call.
+    // Step 13c: that pre-EQ tap is now the "Before" analyser
+    // (preAnalyserNode). analyserNode reads the end of the chain instead
+    // (each voice's crossfadeGain: EQ, gain, echo and reverb applied, before
+    // the volume slider), so the spectrum reacts to EQ edits; the graph's
+    // Before / After / Both switch picks which one it draws.
     this.analyserFeedNode = engine.context.createGain()
     this.analyserFeedNode.gain.value = 1
-    for (const voice of this.voices) voice.analyserFeed = this.analyserFeedNode
+    this.postFeedNode = engine.context.createGain()
+    this.postFeedNode.gain.value = 1
+    for (const voice of this.voices) {
+      voice.analyserFeed = this.analyserFeedNode
+      voice.crossfadeGain.connect(this.postFeedNode)
+    }
 
-    this.analyserNode = engine.context.createAnalyser()
     // 4096 bins and no built-in smoothing: the EQ graph runs its own peak
     // hold and fall (EqEditor tickSpectrum), and needs the finer lows.
-    this.analyserNode.fftSize = 4096
-    this.analyserNode.smoothingTimeConstant = 0
-    this.analyserFeedNode.connect(this.analyserNode)
+    const makeAnalyser = (feed) => {
+      const node = engine.context.createAnalyser()
+      node.fftSize = 4096
+      node.smoothingTimeConstant = 0
+      feed.connect(node)
+      return node
+    }
+    this.preAnalyserNode = makeAnalyser(this.analyserFeedNode)
+    this.analyserNode = makeAnalyser(this.postFeedNode)
 
     // A sound saved with Reverse on opens reversed. Deferred one task so the
     // caller can set onReverseStateChange first.
@@ -897,6 +912,8 @@ export class PreviewSource {
     this.driftPanStage.dispose()
     this.outputGainNode.disconnect()
     this.analyserFeedNode.disconnect()
+    this.postFeedNode.disconnect()
+    this.preAnalyserNode.disconnect()
     this.analyserNode.disconnect()
   }
 }

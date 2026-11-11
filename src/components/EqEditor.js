@@ -284,6 +284,9 @@ const HEAT_BLUR_PX = 4
 const HEAT_STOPS = [[15, 15, 17], [46, 22, 70], [132, 34, 72], [205, 72, 52], [224, 184, 76]]
 export const SPECTRUM_MODES = ['spectrum', 'both', 'heat']
 const SPECTRUM_MODE_KEY = 'noctivago-remix.spectrumMode'
+// Step 13c: which signal the spectrum reads (Pro-Q's Pre / Post / Pre+Post).
+export const TAP_MODES = ['before', 'after', 'both']
+const TAP_MODE_KEY = 'noctivago-remix.spectrumTap'
 
 export function heatColor(h) {
   const p = Math.max(0, Math.min(0.999, h)) * 4
@@ -384,7 +387,7 @@ function drawRulers(canvas, viewMinHz, viewMaxHz) {
   }
 }
 
-function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, viewMaxHz, overHeat = false) {
+function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, viewMaxHz, overHeat = false, dim = false) {
   if (!binDb) return
   const cols = spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz)
   const top = height * 0.92
@@ -398,8 +401,11 @@ function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, view
   ctx.lineTo(width, height)
   ctx.closePath()
   // Over the heatmap the line is the mock's ink (pink over red would vanish);
-  // alone it keeps step 13a's pink.
-  if (overHeat) {
+  // alone it keeps step 13a's pink. Dim (step 13c, Before under After in
+  // Both): a faint gray outline, so the EQ's change reads as the gap.
+  if (dim) {
+    ctx.fillStyle = 'rgba(236, 233, 226, 0.05)'
+  } else if (overHeat) {
     ctx.fillStyle = 'rgba(236, 233, 226, 0.1)'
   } else {
     const fill = ctx.createLinearGradient(0, height - top, 0, height)
@@ -416,8 +422,8 @@ function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, view
     if (x === 0) ctx.moveTo(x + 0.5, y)
     else ctx.lineTo(x + 0.5, y)
   }
-  ctx.strokeStyle = overHeat ? 'rgba(236, 233, 226, 0.5)' : 'rgba(247, 118, 142, 0.95)'
-  ctx.lineWidth = overHeat ? 1 : 1.25
+  ctx.strokeStyle = dim ? 'rgba(236, 233, 226, 0.32)' : overHeat ? 'rgba(236, 233, 226, 0.5)' : 'rgba(247, 118, 142, 0.95)'
+  ctx.lineWidth = dim || overHeat ? 1 : 1.25
   ctx.lineJoin = 'round'
   ctx.stroke()
 }
@@ -549,7 +555,16 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
   // reference behavior directly rather than leaving the static bars up
   // during playback too.
   if (liveSpectrum) {
-    if (mode !== 'heat') drawLiveSpectrum(ctx, width, height, liveSpectrum.binDb, liveSpectrum.sampleRate, viewMinHz, viewMaxHz, Boolean(showHeat))
+    if (mode !== 'heat') {
+      const { binDb, preBinDb, sampleRate } = liveSpectrum
+      const tap = preBinDb ? (display.tap ?? 'after') : 'after'
+      const draw = (db, dim) => drawLiveSpectrum(ctx, width, height, db, sampleRate, viewMinHz, viewMaxHz, Boolean(showHeat), dim)
+      if (tap === 'before') draw(preBinDb, false)
+      else {
+        if (tap === 'both') draw(preBinDb, true)
+        draw(binDb, false)
+      }
+    }
   } else if (showHeat) {
     // stopped: the heatmap stays as the last long-term picture of the sound
   } else if (bandEnergy) drawBandEnergyBackdrop(ctx, width, height, bandEnergy.freqs, bandEnergy.energies, viewMinHz, viewMaxHz)
@@ -655,6 +670,7 @@ export function createEqEditorController(canvas) {
   let liveSpectrum = null
   let rawDbBuffer = null
   let heldDb = null
+  let heldPreDb = null
   let lastSpectrumTick = 0
   // Step 13b: per-bin long-term level for the heatmap, kept after playback
   // stops (it is the sound's picture), cleared when a new sound loads.
@@ -682,6 +698,33 @@ export function createEqEditorController(canvas) {
     })
   }
   showMode()
+  // Step 13c: Before / After / Both. Saved audio has only After (the clip
+  // has the EQ baked in): Before and Both are disabled while it plays.
+  let tapMode = 'after'
+  try {
+    const saved = window.localStorage.getItem(TAP_MODE_KEY)
+    if (TAP_MODES.includes(saved)) tapMode = saved
+  } catch {}
+  let preAvailable = true
+  const tapButtons = eqRoot ? [...eqRoot.querySelectorAll('[data-tap]')] : []
+  for (const b of tapButtons) b.dataset.title = b.title
+  function showTap() {
+    for (const b of tapButtons) {
+      const off = !preAvailable && b.dataset.tap !== 'after'
+      b.disabled = off
+      b.title = off ? 'Saved audio has the EQ baked in: After only' : b.dataset.title
+      b.setAttribute('aria-pressed', String(b.dataset.tap === (preAvailable ? tapMode : 'after')))
+    }
+  }
+  for (const b of tapButtons) {
+    b.addEventListener('click', () => {
+      tapMode = b.dataset.tap
+      try { window.localStorage.setItem(TAP_MODE_KEY, tapMode) } catch {}
+      showTap()
+      redraw()
+    })
+  }
+  showTap()
   // True while displaying an immutable reference (the A/B Compare "B" slot,
   // see index.js's switchEqCompareView) rather than the live editable bands
   // - every mutating interaction below early-returns while this is set, so
@@ -733,7 +776,7 @@ export function createEqEditorController(canvas) {
   function redraw() {
     const { width } = canvas.getBoundingClientRect()
     const heat = heatDb ? { binDb: heatDb, sampleRate: heatSampleRate } : null
-    drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, getResponseCurve(width), hoveredIndex, viewMinHz, viewMaxHz, { mode: spectrumMode, heat })
+    drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, getResponseCurve(width), hoveredIndex, viewMinHz, viewMaxHz, { mode: spectrumMode, heat, tap: tapMode })
     if (rulerCanvas) drawRulers(rulerCanvas, viewMinHz, viewMaxHz)
   }
 
@@ -1024,34 +1067,48 @@ export function createEqEditorController(canvas) {
     // AnalyserNode tapped off PreviewSource's combined output (see
     // PreviewSource.js) and redraws. Reuses a single Uint8Array across calls
     // rather than allocating a fresh one every frame.
-    tickSpectrum(analyserNode) {
+    // Step 13c: analyserNode is the end of the chain (After), preAnalyserNode
+    // the pre-EQ tap (Before); null for saved audio.
+    tickSpectrum(analyserNode, preAnalyserNode = null) {
       if (!analyserNode) return
       const n = analyserNode.frequencyBinCount
       if (!rawDbBuffer || rawDbBuffer.length !== n) {
         rawDbBuffer = new Float32Array(n)
         heldDb = new Float32Array(n).fill(SPECTRUM_FLOOR_DB)
+        heldPreDb = new Float32Array(n).fill(SPECTRUM_FLOOR_DB)
         lastSpectrumTick = 0
       }
-      analyserNode.getFloatFrequencyData(rawDbBuffer)
+      const hasPre = Boolean(preAnalyserNode) && preAnalyserNode.frequencyBinCount === n
+      if (hasPre !== preAvailable) {
+        preAvailable = hasPre
+        showTap()
+      }
       const now = performance.now()
       // Clamp dt so a stalled tab doesn't drop everything to the floor in
       // one frame, or a first frame doesn't fall at all.
       const dt = lastSpectrumTick ? Math.min(0.1, (now - lastSpectrumTick) / 1000) : 1 / 60
       lastSpectrumTick = now
       const fall = SPECTRUM_FALL_DB_PER_S * dt
-      for (let i = 0; i < n; i++) {
-        const v = Number.isFinite(rawDbBuffer[i]) ? rawDbBuffer[i] : SPECTRUM_FLOOR_DB - 40
-        const held = heldDb[i] - fall
-        heldDb[i] = v > held ? v : held
+      const hold = (node, held) => {
+        node.getFloatFrequencyData(rawDbBuffer)
+        for (let i = 0; i < n; i++) {
+          const v = Number.isFinite(rawDbBuffer[i]) ? rawDbBuffer[i] : SPECTRUM_FLOOR_DB - 40
+          const h = held[i] - fall
+          held[i] = v > h ? v : h
+        }
       }
-      // Heat eases toward the held level; a fresh sound starts from it.
-      if (!heatDb || heatDb.length !== n) heatDb = Float32Array.from(heldDb)
+      hold(analyserNode, heldDb)
+      if (hasPre) hold(preAnalyserNode, heldPreDb)
+      // Heat follows the signal on show (Before when picked, else After),
+      // easing toward the held level; a fresh sound starts from it.
+      const heatSource = hasPre && tapMode === 'before' ? heldPreDb : heldDb
+      if (!heatDb || heatDb.length !== n) heatDb = Float32Array.from(heatSource)
       else {
         const k = Math.min(1, dt * HEAT_RATE_PER_S)
-        for (let i = 0; i < n; i++) heatDb[i] += (heldDb[i] - heatDb[i]) * k
+        for (let i = 0; i < n; i++) heatDb[i] += (heatSource[i] - heatDb[i]) * k
       }
       heatSampleRate = analyserNode.context.sampleRate
-      liveSpectrum = { binDb: heldDb, sampleRate: analyserNode.context.sampleRate }
+      liveSpectrum = { binDb: heldDb, preBinDb: hasPre ? heldPreDb : null, sampleRate: analyserNode.context.sampleRate }
       redraw()
     },
     // Falls back to the static band-energy backdrop (if any) - called when
@@ -1061,6 +1118,7 @@ export function createEqEditorController(canvas) {
       if (!liveSpectrum) return
       liveSpectrum = null
       if (heldDb) heldDb.fill(SPECTRUM_FLOOR_DB)
+      if (heldPreDb) heldPreDb.fill(SPECTRUM_FLOOR_DB)
       lastSpectrumTick = 0
       redraw()
     },

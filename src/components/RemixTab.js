@@ -857,7 +857,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
               <button id="editor-eq-mute" class="editor-eq-toggle-btn" type="button" title="Mute this band (keeps its settings, just stops applying it)">Mute</button>
               <button id="editor-eq-solo" class="editor-eq-toggle-btn" type="button" title="Solo this band (hear only its effect, for auditioning while tuning)">Solo</button>
             </div>
-            <p class="editor-eq-hint">Click + to add a band, drag it to shape it (hold Ctrl while dragging for finer control), or type exact values above for the selected (highlighted) band. Scroll over a node to adjust its Q. Double-click resets just its gain; Alt+click fully resets it. The trash button (or dragging a node onto it) deletes the selected band. Mute silences a band without losing its settings; Solo hears only that band while tuning. The spectrum line (live) and heatmap glow (long-term level, brightest where the sound is loudest) show the sound's own content and don't change as you drag bands; the red-shaded regions show which frequencies your current bands would actually cut.</p>
+            <p class="editor-eq-hint">Click + to add a band, drag it to shape it (hold Ctrl while dragging for finer control), or type exact values above for the selected (highlighted) band. Scroll over a node to adjust its Q. Double-click resets just its gain; Alt+click fully resets it. The trash button (or dragging a node onto it) deletes the selected band. Mute silences a band without losing its settings; Solo hears only that band while tuning. The spectrum line (live) and heatmap glow (long-term level, brightest where the sound is loudest) show After the EQ by default, so they react as you drag bands; Before shows the sound as it arrives, Both draws Before dimmed behind After. The red-shaded regions show which frequencies your current bands cut.</p>
           </div>
           <div id="editor-spectral-section" class="editor-spectral">
             <div class="editor-eq-header">
@@ -3786,7 +3786,9 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     // specifically so this can stay a single unconditional call rather than
     // one more mode branch - the spectrogram should track whichever engine
     // is actually audible either way.
-    this.eqEditorController.tickSpectrum(active.analyserNode)
+    // Saved audio has no preAnalyserNode (the clip has the EQ baked in), so
+    // the graph draws After only there.
+    this.eqEditorController.tickSpectrum(active.analyserNode, active.preAnalyserNode)
     this.previewRafId = requestAnimationFrame(() => this.tickPreviewPlayhead())
   }
 
