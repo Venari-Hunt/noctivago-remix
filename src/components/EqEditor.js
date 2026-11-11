@@ -342,7 +342,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, width, height)
 
-  ctx.font = '10px sans-serif'
+  ctx.font = '11px "Segoe UI", sans-serif' // mock axis labels
   ctx.textBaseline = 'middle'
 
   for (const g of [-24, -12, 0, 12, 24]) {
@@ -395,7 +395,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
     ctx.textAlign = 'center'
     ctx.fillText('Click + to add a band', width / 2, height / 2)
     ctx.textAlign = 'left'
-    ctx.font = '10px sans-serif'
+    ctx.font = '11px "Segoe UI", sans-serif' // mock axis labels
   }
 
   // A band renders dimmed whenever it's not actually contributing to the
@@ -451,7 +451,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
       ctx.textAlign = 'center'
       ctx.fillText(initials, x, y + 0.5)
       ctx.textAlign = 'left'
-      ctx.font = '10px sans-serif'
+      ctx.font = '11px "Segoe UI", sans-serif' // mock axis labels
     }
   })
 }

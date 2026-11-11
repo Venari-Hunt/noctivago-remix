@@ -962,7 +962,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       onView: (view) => {
         if (view === 'seam') this.syncSeamView()
       },
-      onCompare: (which) => this.switchCompareView(which)
+      onCompare: (which) => this.switchCompareView(which),
+      getBands: (kind) => (kind === 'preset' ? this.presetEq : this.groupEq)?.getBands?.()
     })
 
     this.els = {
@@ -1251,8 +1252,19 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.applyFilterControls()
     })
     this.spectralView.onSelect(() => this.updateSpectralControls())
+    // A number field now: half-typed values wait, change clamps to 6-80 dB.
+    const reductionDb = () => {
+      const v = Number(this.els.spectralReduction.value)
+      return Number.isFinite(v) ? Math.min(80, Math.max(6, Math.round(v))) : null
+    }
     this.els.spectralReduction.addEventListener('input', () => {
-      this.spectralView.setSelectedReduction(Number(this.els.spectralReduction.value))
+      const v = Number(this.els.spectralReduction.value)
+      if (Number.isFinite(v) && v >= 6 && v <= 80) this.spectralView.setSelectedReduction(Math.round(v))
+    })
+    this.els.spectralReduction.addEventListener('change', () => {
+      const db = reductionDb() ?? 40
+      this.els.spectralReduction.value = String(db)
+      this.spectralView.setSelectedReduction(db)
     })
     this.els.spectralDelete.addEventListener('click', () => this.spectralView.removeSelected())
     this.els.spectralClear.addEventListener('click', () => this.spectralView.clear())
@@ -1826,14 +1838,16 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
             <button id="editor-save" class="rx-b rx-pri editor-sticky-save" type="button">${icon('save')}<span id="editor-save-label">Save</span></button>
           </div>
           <div id="editor-sticky-mix-controls" class="editor-sticky-mode-group hidden">
-            <button id="editor-mix-play-pause" class="btn btn-svg-icon" type="button" title="Play">${PLAY_ICON_SVG}</button>
-            <button id="editor-mix-solo-group" class="editor-sticky-solo hidden" type="button">Solo group</button>
-            <span id="editor-mix-status" class="editor-sticky-time"></span>
-            <select id="editor-mix-copy-group-to" class="hidden" title="Copy this group's name, filters/EQ and members into another preset - it's governed entirely by whichever preset it ends up in from then on">
+            <button id="editor-mix-play-pause" class="rx-i" type="button" title="Play" aria-label="Play">${PLAY_ICON_SVG}</button>
+            <span id="editor-mix-status" class="editor-sticky-time rx-num"></span>
+            <button id="editor-mix-save" class="rx-b rx-pri editor-sticky-save" type="button">${icon('save')}<span>Save</span></button>
+          </div>
+          <div id="rx-group-actions" class="rx-group-actions">
+            <button id="editor-mix-solo-group" class="rx-i editor-sticky-solo hidden" type="button" title="Solo group" aria-label="Solo group">S</button>
+            <span class="rx-i rx-copy-wrap" title="Copy this group to another preset">${icon('copy')}<select id="editor-mix-copy-group-to" class="hidden" aria-label="Copy this group to another preset" title="Copy this group's name, filters/EQ and members into another preset - it's governed entirely by whichever preset it ends up in from then on">
               <option value="" selected disabled>Copy to preset…</option>
-            </select>
-            <button id="editor-mix-delete-group" class="btn btn-danger btn-icon-text hidden" type="button">Delete group</button>
-            <button id="editor-mix-save" class="btn btn-primary btn-icon-text editor-sticky-save" type="button">Save</button>
+            </select></span>
+            <button id="editor-mix-delete-group" class="rx-i hidden" type="button" title="Delete group" aria-label="Delete group">${icon('trash-2')}</button>
           </div>
         </div>
       </div>
@@ -4763,6 +4777,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
 
   updateModeUI() {
     const mode = this.mode
+    this.layout?.refreshScopes?.()
     this.els.modeSound.classList.toggle('editor-mode-pill-active', mode === 'sound')
     this.els.modePreset.classList.toggle('editor-mode-pill-active', mode === 'preset')
     this.els.modeGroup.classList.toggle('editor-mode-pill-active', mode === 'group')
@@ -4879,7 +4894,10 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.els.mixSoloGroup.classList.remove('hidden')
       this.els.mixSoloGroup.disabled = !this.selectedGroupId
       this.els.mixSoloGroup.classList.toggle('editor-sticky-solo-active', soloed)
-      this.els.mixSoloGroup.textContent = soloed ? 'Unsolo group' : 'Solo group'
+      // An "S" icon button (mock remix-group); the state is in its label.
+      this.els.mixSoloGroup.title = soloed ? 'Unsolo group' : 'Solo group'
+      this.els.mixSoloGroup.setAttribute('aria-label', this.els.mixSoloGroup.title)
+      this.els.mixSoloGroup.setAttribute('aria-pressed', String(soloed))
     } else {
       this.els.mixSoloGroup.classList.add('hidden')
     }

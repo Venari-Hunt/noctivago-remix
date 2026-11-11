@@ -1575,3 +1575,44 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 .rx-chip:hover { background: #36363d; }
 /* View tabs and the compare switch share the row above the canvas. */
 .rx-tabs { display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Step 13: EQ and Spectrum tools (mock remix-eq, remix-spectral) and the
+   Group and Preset scopes (remix-group, remix-preset). */
+.rx-field { height: 32px; min-width: 0; padding: 0 12px; border: 0; border-radius: 12px; background: var(--surface-alt); color: var(--text); font: inherit; font-size: 14px; }
+select.rx-field { padding-right: 8px; appearance: auto; color-scheme: dark; }
+.rx-fl { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 96px; margin: 0; font-size: 12px; line-height: 16px; color: var(--text-dim); }
+.rx-fl > span { width: auto; }
+.rx-fl .rx-field { width: 100%; }
+.rx-fl.hidden { display: none; }
+.rx-under.rx-eq-fields { margin: 0; font-size: 12px; }
+.rx-b.editor-eq-mute-active, .rx-b.editor-eq-solo-active { background: var(--tint); color: var(--tint-ink); }
+.rx-seg .editor-eq-compare-btn { min-width: 0; }
+.rx-seg button.editor-eq-compare-btn-active, .rx-seg button.editor-eq-compare-btn-active:hover { background: var(--surface-hover); color: var(--text); }
+.rx-numf { width: 72px; height: 28px; padding: 0 4px; text-align: center; font-size: 13px; }
+.rx-unit, .rx-dim { color: var(--text-dim); font-size: 13px; }
+.rx-view .editor-spectral-controls .rx-lrow2 { gap: 8px; color: var(--text); }
+
+/* Scopes: the same grid as Sound, the EQ graph drawn like the Sound one. */
+.rx #editor-mode-panel-preset:not(.hidden), .rx #editor-mode-panel-group:not(.hidden) { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0; }
+.rx-scope .rx-scope-eq { display: flex; flex-direction: column; gap: 12px; flex: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.rx-scope .editor-mix-eq-canvas { flex: none; width: 100%; height: auto; aspect-ratio: 880 / 280; margin: 0; border: 0; border-radius: 12px; background: #0f0f11; }
+.rx-scope .editor-mix-waveform-canvas { flex: none; height: 48px; margin: 0; border: 0; border-radius: 12px; background: var(--surface); }
+.rx-scope .rx-canvas > .rx-hint { margin: 0; }
+.rx-scope .rx-tabs { min-height: 32px; }
+#editor-mix-group-empty { margin: 48px auto 0; max-width: 440px; text-align: center; font-size: 13px; line-height: 20px; }
+.rx-accb .rx-name-row { gap: 8px; }
+.rx-accb .rx-name-row > span:first-child { flex: none; width: auto; }
+.rx-accb .rx-name-row .rx-field { flex: 1; width: auto; }
+.rx-accb .editor-mix-group-members { max-height: 240px; margin: 0; gap: 0; }
+.rx-accb .editor-mix-group-member { flex-direction: row-reverse; justify-content: space-between; min-height: 36px; padding: 0; font-size: 13px; color: var(--text); }
+
+/* Scope bar: pickers, then Solo, Copy to preset, Delete group. */
+.rx-bar .rx-mix-pickers { gap: 8px; }
+.rx-bar .rx-mix-pickers select.rx-field { width: 140px; min-width: 0; padding: 0 8px 0 12px; border: 0; font-size: 14px; }
+.rx-group-actions { display: flex; align-items: center; gap: 4px; }
+.rx-group-actions > .hidden, .rx-mix-pickers > .hidden { display: none; }
+.rx-copy-wrap { position: relative; overflow: hidden; }
+.rx-copy-wrap:has(> select.hidden) { display: none; }
+.rx-copy-wrap > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.rx-copy-wrap:has(> select:focus-visible) { outline: 2px solid #8db8ff; outline-offset: 2px; }
+.rx-scope.editor-mix-group-editor, .rx-scope.editor-mix-controls { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }

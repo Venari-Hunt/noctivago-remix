@@ -8,6 +8,7 @@
 // data-open, canvas views with data-view on the panel.
 import { icon } from './icons.js'
 import { attachKnob } from './Knob.js'
+import { filterSummaries } from './filterSummary.js'
 
 const el = (doc, tag, className, html) => {
   const node = doc.createElement(tag)
@@ -60,16 +61,33 @@ const DRIFT_AXES = [
   ['editor-fluc-pitch', 'Pitch drift', 'Small shifts read as a gentle wobble'],
   ['editor-fluc-pan', 'Pan drift', 'Wanders left and right from the Pan setting']
 ]
-function arrangeDrift(doc, section) {
+const SOUND_DRIFT_NOTE = 'Slow, random drift while the sound loops: wind gusting, rain swelling. Plays in Live edit here and always in the Mixer. Saves on its own.'
+// Group and Preset drift (mock screens remix-group and remix-preset). The
+// fourth item is the "Each sound on its own" line, group axes only.
+const SCOPE_DRIFT = {
+  group: {
+    note: "Slow, random drift on this group's sounds. Applies live in the Mixer and is baked into exports.",
+    axes: [
+      ['editor-mix-group-fluc', 'Volume drift', 'Only ever dips below the current level', "Every sound drifts separately, so they don't move together"],
+      ['editor-mix-group-flucpitch', 'Pitch drift', 'Small shifts read as a gentle wobble', 'Always on for pitch'],
+      ['editor-mix-group-flucpan', 'Pan drift', 'The whole group wanders together', 'Every sound wanders separately']
+    ]
+  },
+  preset: {
+    note: 'Slow, random drift on the whole mix: weather rolling through. Applies live in the Mixer and is baked into exports.',
+    axes: [['editor-mix-preset-fluc', 'Volume drift', 'Only ever dips below the current level']]
+  }
+}
+function arrangeDrift(doc, section, axes = DRIFT_AXES, noteText = SOUND_DRIFT_NOTE) {
   const head = section.querySelector('.editor-fluctuation-head')
-  const note = el(doc, 'p', 'rx-hint rx-hint-l', 'Slow, random drift while the sound loops: wind gusting, rain swelling. Plays in Live edit here and always in the Mixer. Saves on its own.')
+  const note = el(doc, 'p', 'rx-hint rx-hint-l', noteText)
   note.title = head.querySelector('.editor-fluctuation-hint').textContent.trim()
   head.replaceWith(note)
   for (const n of section.querySelectorAll(':scope > .editor-fluctuation-hint')) {
     n.classList.remove('editor-fluctuation-hint')
     n.classList.add('rx-hint', 'rx-hint-l')
   }
-  for (const [idp, title, sub] of DRIFT_AXES) {
+  for (const [idp, title, sub, perSoundSub] of axes) {
     const $ = (id) => section.querySelector(`#${idp}-${id}`)
     const axis = $('enabled').closest('.editor-fluctuation-axis')
     axis.className = 'rx-axis rx-drift-axis'
@@ -82,9 +100,281 @@ function arrangeDrift(doc, section) {
     transitionRow.append($('transition'), el(doc, 'span', '', 's'))
     const fullRandom = toSwitchRow(doc, $('fullrandom').closest('label'), 'Fully random', 'Ignore the circles and roam the whole range')
     const bias = toSwitchRow(doc, $('bias').closest('label'), 'Bias', 'The middle circle wins most of the time')
-    body.append($('bar'), changeRow, transitionRow, fullRandom, bias)
+    body.append($('bar'))
+    if (perSoundSub && $('persound')) body.append(toSwitchRow(doc, $('persound').closest('label'), 'Each sound on its own', perSoundSub))
+    body.append(changeRow, transitionRow, fullRandom, bias)
     axis.replaceChildren(row, body)
   }
+}
+
+// EQ tools under the graph, as in the mock: Add band, Delete band, Invert,
+// zoom, Mute band, Solo band, then the selected band's fields. Sound, Group
+// and Preset share the markup, only the id prefix differs. A/B and Reset are
+// settings, so they are handed back for the side column.
+function arrangeEqTools(eq, p) {
+  const $ = (id) => eq.querySelector(`#${p}-${id}`)
+  const header = eq.querySelector('.editor-eq-header')
+  const compare = header.querySelector('.editor-eq-compare')
+  compare.classList.add('rx-seg')
+  const reset = $('reset')
+  reset.className = 'rx-b rx-ghost'
+  reset.textContent = 'Reset'
+  reset.title = 'Remove every band'
+  const set = (node, className, html, label) => {
+    node.className = className
+    node.innerHTML = html
+    if (label) node.setAttribute('aria-label', label)
+    return node
+  }
+  const add = set($('add-band'), 'rx-b', `${icon('plus')}<span>Add band</span>`)
+  const del = set($('remove-band'), 'rx-b rx-ghost', `${icon('trash-2')}<span>Delete band</span>`)
+  del.title = 'Delete the selected band, or drag a node here'
+  const invert = set($('invert'), 'rx-b rx-ghost', '<span>Invert</span>')
+  invert.title = 'Boosts become cuts and vice versa'
+  const zoomOut = set($('zoom-out'), 'rx-i', icon('minus'), 'Zoom out')
+  const zoomIn = set($('zoom-in'), 'rx-i', icon('plus'), 'Zoom in')
+  // The tab toggles editor-eq-mute-active / editor-eq-solo-active on these.
+  const mute = $('mute')
+  const solo = $('solo')
+  mute.classList.replace('editor-eq-toggle-btn', 'rx-b')
+  solo.classList.replace('editor-eq-toggle-btn', 'rx-b')
+  mute.classList.add('rx-ghost')
+  solo.classList.add('rx-ghost')
+  mute.textContent = 'Mute band'
+  solo.textContent = 'Solo band'
+  header.className = 'rx-under rx-eq-tools'
+  header.replaceChildren(add, del, invert, zoomOut, zoomIn, mute, solo)
+
+  const fields = eq.querySelector('.editor-eq-band-controls, .editor-mix-eq-fields')
+  fields.className = 'rx-under rx-eq-fields'
+  for (const label of fields.querySelectorAll('label')) {
+    label.classList.add('rx-fl')
+    label.querySelector('.editor-filter-value')?.remove() // "Hz", "dB": the mock's fields carry no unit
+    label.querySelector('select, input')?.classList.add('rx-field')
+  }
+  const type = $('type')
+  const peaking = type.querySelector('option[value="peaking"]')
+  if (peaking) type.prepend(peaking) // the mock lists Peaking first
+  eq.querySelector('.editor-eq-hint')?.classList.add('rx-hint')
+  return { toolbar: header, fields, compare, reset }
+}
+
+// The settings column: one card per [key, title], the body nodes from
+// bodies[key]. One card is open at a time.
+function buildAccordions(side, list, bodies) {
+  const doc = side.ownerDocument
+  const win = doc.defaultView
+  const accordions = new Map()
+  const openAccordion = (key) => {
+    for (const [k, acc] of accordions) {
+      const open = k === key
+      acc.dataset.open = String(open)
+      acc.firstElementChild.setAttribute('aria-expanded', String(open))
+    }
+    requestRedraw(win)
+  }
+  for (const [key, title] of list) {
+    const acc = el(doc, 'div', 'rx-acc')
+    acc.dataset.acc = key
+    acc.dataset.open = 'false'
+    const head = el(doc, 'button', 'rx-acch', `<b>${title}</b><span class="rx-accv"></span>${icon('chevron-down')}`)
+    head.type = 'button'
+    head.setAttribute('aria-expanded', 'false')
+    head.addEventListener('click', () => openAccordion(acc.dataset.open === 'true' ? null : key))
+    const body = el(doc, 'div', 'rx-accb')
+    body.append(...bodies[key])
+    acc.append(head, body)
+    accordions.set(key, acc)
+    side.appendChild(acc)
+  }
+  // Head values ("100% · +1 st", "Off"); `on` lights the value in amber.
+  const setSummaries = (map) => {
+    for (const [key, [text, on]] of Object.entries(map)) {
+      const span = accordions.get(key)?.querySelector('.rx-accv')
+      if (!span) continue
+      if (span.textContent !== text) span.textContent = text
+      span.classList.toggle('rx-on', Boolean(on))
+    }
+  }
+  return { accordions, openAccordion, setSummaries }
+}
+
+const SCOPE_ACCORDIONS = {
+  // "Sounds in this group" (name and members) is not in the mock; the group
+  // cannot work without it, so it leads the column.
+  group: [
+    ['members', 'Sounds in this group'],
+    ['tone', 'Tone'],
+    ['eq', 'Parametric EQ'],
+    ['space', 'Space'],
+    ['occl', 'Occlusion'],
+    ['drift', 'Drift'],
+    ['looks', 'Effect presets']
+  ],
+  // The mock also shows Occlusion here; the engine has no whole-mix
+  // occlusion yet (Board: mock features to decide in step 20).
+  preset: [
+    ['tone', 'Tone'],
+    ['eq', 'Parametric EQ'],
+    ['space', 'Space'],
+    ['drift', 'Drift'],
+    ['looks', 'Effect presets']
+  ]
+}
+
+// Group and Preset (mock screens remix-group, remix-preset): the EQ graph is
+// the only canvas view, the settings column holds knobs as in Sound.
+function arrangeScope(root, kind, getBands) {
+  const doc = root.ownerDocument
+  const win = doc.defaultView
+  const p = `editor-mix-${kind}`
+  const $ = (sel) => root.querySelector(sel)
+  const host = $(kind === 'preset' ? '#editor-mix-preset-controls' : '#editor-mix-group-editor')
+  host.classList.add('rx-grid', 'rx-scope')
+
+  // --- Left: the EQ, then the loudness strip (not in the mock, kept) ---
+  const canvasCol = el(doc, 'div', 'rx-canvas')
+  const tabs = el(doc, 'div', 'rx-tabs', `<span class="rx-dim">EQ for ${kind === 'group' ? 'this group' : 'the whole mix'}</span>`)
+  const eqCanvas = $(`#${p}-eq-canvas`)
+  const eq = eqCanvas.closest('.editor-eq')
+  eq.classList.add('rx-scope-eq')
+  const eqTools = arrangeEqTools(eq, `${p}-eq`)
+  eqCanvas.after(eqTools.toolbar)
+  const loudness = $(`#${p}-waveform`)
+  const loudnessNote = loudness.previousElementSibling
+  loudnessNote.classList.add('rx-hint')
+  canvasCol.append(tabs, eq, loudnessNote, loudness)
+  const presetHint = $('#editor-mix-preset-hint')
+  if (kind === 'preset' && presetHint) {
+    presetHint.classList.add('rx-hint')
+    canvasCol.appendChild(presetHint)
+  }
+
+  // --- Right: settings ---
+  const knobs = (list) => {
+    const grid = el(doc, 'div', 'rx-kgrid')
+    for (const [id, label] of list) {
+      const input = $(`#${p}-${id}`)
+      const row = input.closest('label')
+      grid.appendChild(attachKnob(input, { label, valueEl: $(`#${p}-${id}-value`) }).el)
+      row.remove()
+    }
+    return grid
+  }
+  const tone = el(doc, 'div', 'rx-filter-group')
+  tone.appendChild(
+    knobs([
+      ['highpass', 'High-pass'],
+      ['lowpass', 'Low-pass'],
+      ['gain', 'Gain']
+    ])
+  )
+  if (kind === 'preset') {
+    // Fade in is not in the mock; it sits under Tone as a time row.
+    const fade = $('#editor-mix-preset-fadein')
+    const fadeLabel = fade.closest('label')
+    const fadeRow = el(doc, 'div', 'rx-trow', '<span>Fade in when the preset loads</span>')
+    fade.setAttribute('aria-label', 'Fade in')
+    fadeRow.append(fade, el(doc, 'span', '', 's'))
+    fadeRow.title = 'Eases the whole mix up when the preset loads'
+    fadeLabel.remove()
+    tone.appendChild(fadeRow)
+  }
+  const space = el(doc, 'div', 'rx-filter-group')
+  space.appendChild(
+    knobs([
+      ['echo-delay', 'Echo delay'],
+      ['echo-decay', 'Echo decay'],
+      ['reverb-size', 'Room size'],
+      ['reverb-mix', 'Reverb mix']
+    ])
+  )
+  let occl = null
+  if (kind === 'group') {
+    occl = el(doc, 'div', 'rx-filter-group', '<p class="rx-hint rx-hint-l">Sounds like this group is behind a wall or a door.</p>')
+    occl.appendChild(knobs([['occlusion', 'Amount']]))
+  }
+  host.querySelector('.editor-filters')?.remove() // emptied above
+
+  const openEq = el(doc, 'button', 'rx-b', '<span>Open EQ</span>')
+  openEq.type = 'button'
+  openEq.title = 'Show the EQ graph on the left'
+  openEq.addEventListener('click', () => eqCanvas.scrollIntoView({ block: 'nearest' }))
+  const eqSide = el(doc, 'div', 'rx-srow1 rx-eq-side')
+  eqSide.append(eqTools.compare, openEq, eqTools.reset)
+
+  const drift = host.querySelector('.editor-fluctuation')
+  arrangeDrift(doc, drift, SCOPE_DRIFT[kind].axes, SCOPE_DRIFT[kind].note)
+
+  const looks = host.querySelector(`.editor-presets:has([data-mix-${kind}-effect])`)
+  looks.className = 'rx-looks'
+  looks.querySelector('.editor-presets-label')?.remove()
+  for (const btn of looks.querySelectorAll(`[data-mix-${kind}-effect]`)) btn.className = 'rx-chip'
+  const resetFilters = $(`#${p}-reset-filters`)
+  const resetRow = resetFilters.closest('.editor-actions')
+  resetRow.className = 'rx-srow1'
+  resetFilters.className = 'rx-b rx-ghost'
+  resetFilters.innerHTML = `${icon('refresh-cw')}<span>Reset filters</span>`
+
+  const bodies = { tone: [tone], eq: [eqSide], space: [space], drift: [drift], looks: [looks, resetRow] }
+  let members = null
+  if (kind === 'group') {
+    const nameRow = host.querySelector('.editor-mix-row')
+    nameRow.className = 'rx-trow rx-name-row'
+    const nameInput = $('#editor-mix-group-name')
+    nameInput.classList.add('rx-field')
+    nameInput.setAttribute('aria-label', 'Group name')
+    members = $('#editor-mix-group-members')
+    const membersNote = members.previousElementSibling
+    membersNote.className = 'rx-hint rx-hint-l'
+    bodies.members = [nameRow, membersNote, members]
+    bodies.occl = [occl]
+  }
+
+  const side = el(doc, 'aside', 'rx-side')
+  side.setAttribute('aria-label', 'Settings')
+  const { openAccordion, setSummaries } = buildAccordions(side, SCOPE_ACCORDIONS[kind], bodies)
+  host.replaceChildren(canvasCol, side)
+  openAccordion(kind === 'group' ? 'members' : 'tone')
+
+  // Head values, read from the controls (the tab sets them without events).
+  const num = (id) => Number($(`#${p}-${id}`)?.value ?? 0)
+  const refresh = () => {
+    const f = filterSummaries({
+      highpassHz: num('highpass'),
+      lowpassHz: num('lowpass'),
+      gainDb: num('gain'),
+      pan: 0,
+      gateThresholdDb: -80,
+      gateRangeDb: 0,
+      denoiseEnabled: false,
+      echoDelayMs: num('echo-delay'),
+      echoDecay: num('echo-decay'),
+      reverbSizeMs: num('reverb-size'),
+      reverbMix: num('reverb-mix')
+    })
+    const bands = getBands?.(kind) ?? []
+    const activeBands = bands.filter((b) => (b.type ?? 'peaking') !== 'off' && !b.muted).length
+    const axes = SCOPE_DRIFT[kind].axes.filter(([idp]) => $(`#${idp}-enabled`)?.checked).map(([, title]) => title.replace(' drift', ''))
+    const map = {
+      tone: [f.tone, f.tone !== 'Off'],
+      eq: [activeBands ? `${activeBands} band${activeBands === 1 ? '' : 's'}` : 'Off', activeBands > 0],
+      space: [f.space, f.space !== 'Off'],
+      drift: [axes.length ? axes.join(' · ') : 'Off', axes.length > 0],
+      looks: ['None', false]
+    }
+    if (kind === 'group') {
+      const occlusion = num('occlusion')
+      map.occl = [occlusion > 0 ? `${Math.round(occlusion * 100)}%` : 'Off', occlusion > 0]
+      const count = members.querySelectorAll('input:checked').length
+      map.members = [count ? `${count} sound${count === 1 ? '' : 's'}` : 'None', false]
+    }
+    setSummaries(map)
+  }
+  for (const type of ['input', 'change', 'pointerup']) host.addEventListener(type, () => win.requestAnimationFrame(refresh))
+  if (win.ResizeObserver) new win.ResizeObserver(() => requestRedraw(win)).observe(canvasCol)
+  refresh()
+  return { refresh }
 }
 
 const VIEWS = [
@@ -96,7 +386,7 @@ const VIEWS = [
 
 // Called once from mount(), right after the markup is written and before any
 // element is looked up or wired.
-export function arrangeLayout(root, { onView, onCompare } = {}) {
+export function arrangeLayout(root, { onView, onCompare, getBands } = {}) {
   const doc = root.ownerDocument
   const win = doc.defaultView
   const $ = (sel) => root.querySelector(sel)
@@ -200,25 +490,35 @@ export function arrangeLayout(root, { onView, onCompare } = {}) {
   // EQ view: the graph, then its tools and the selected band's fields under
   // it. A/B compare and Reset are settings, so they stay in the side column.
   const eq = $('#editor-eq-canvas').closest('.editor-eq')
-  const eqHeader = eq.querySelector('.editor-eq-header')
-  const eqCompare = eqHeader.querySelector('.editor-eq-compare')
-  const eqReset = $('#editor-eq-reset')
-  eqHeader.classList.add('rx-under')
+  const eqTools = arrangeEqTools(eq, 'editor-eq')
+  const eqHeader = eqTools.toolbar
   $('#editor-eq-canvas').after(eqHeader)
-  eq.querySelector('.editor-eq-hint').classList.add('rx-hint')
   viewEq.appendChild(eq)
   const openEq = el(doc, 'button', 'rx-b', '<span>Open EQ</span>')
   openEq.type = 'button'
   openEq.id = 'rx-open-eq'
   openEq.title = 'Show the EQ graph on the left'
   const eqSide = el(doc, 'div', 'rx-srow1 rx-eq-side')
-  eqSide.append(eqCompare, openEq, eqReset)
+  eqSide.append(eqTools.compare, openEq, eqTools.reset)
 
-  // Spectrum view: the spectrogram, then Reduce by, Delete box and Clear all.
+  // Spectrum view: the spectrogram, then Reduce by, Delete box and Clear all boxes.
   const spectral = $('#editor-spectral-section')
   const spectralControls = spectral.querySelector('.editor-spectral-controls')
   spectralControls.classList.add('rx-under')
-  spectralControls.append($('#editor-spectral-delete'), $('#editor-spectral-clear'))
+  const reduction = $('#editor-spectral-reduction')
+  const reductionLabel = reduction.closest('label')
+  reduction.type = 'number' // the mock's small number field; the tab clamps it
+  reduction.classList.add('rx-field', 'rx-numf')
+  reductionLabel.className = 'rx-lrow2'
+  $('#editor-spectral-reduction-value').classList.add('rx-visually-hidden')
+  reductionLabel.appendChild(el(doc, 'span', 'rx-unit', 'dB'))
+  const spectralDelete = $('#editor-spectral-delete')
+  spectralDelete.className = 'rx-b rx-ghost'
+  spectralDelete.innerHTML = `${icon('trash-2')}<span>Delete box</span>`
+  const spectralClear = $('#editor-spectral-clear')
+  spectralClear.className = 'rx-b rx-ghost'
+  spectralClear.innerHTML = '<span>Clear all boxes</span>'
+  spectralControls.append(spectralDelete, spectralClear)
   spectral.querySelector('.editor-eq-header').remove()
   spectral.querySelector('.editor-eq-hint').classList.add('rx-hint')
   viewSpec.appendChild(spectral)
@@ -354,33 +654,9 @@ export function arrangeLayout(root, { onView, onCompare } = {}) {
     looks: [looks, resetFilters],
     drift: [driftSection]
   }
-  const accordions = new Map()
-  const openAccordion = (key) => {
-    for (const [k, acc] of accordions) {
-      const open = k === key
-      acc.dataset.open = String(open)
-      acc.firstElementChild.setAttribute('aria-expanded', String(open))
-    }
-    requestRedraw(win)
-  }
-  for (const [key, title] of ACCORDIONS) {
-    const acc = el(doc, 'div', 'rx-acc')
-    acc.dataset.acc = key
-    acc.dataset.open = 'false'
-    const value =
-      key === 'playback'
-        ? '<span class="rx-accv rx-on">Loop</span>'
-        : '<span class="rx-accv"></span>'
-    const head = el(doc, 'button', 'rx-acch', `<b>${title}</b>${value}${icon('chevron-down')}`)
-    head.type = 'button'
-    head.setAttribute('aria-expanded', 'false')
-    head.addEventListener('click', () => openAccordion(acc.dataset.open === 'true' ? null : key))
-    const body = el(doc, 'div', 'rx-accb')
-    body.append(...BODIES[key])
-    acc.append(head, body)
-    accordions.set(key, acc)
-    side.appendChild(acc)
-  }
+  const { accordions, openAccordion, setSummaries } = buildAccordions(side, ACCORDIONS, BODIES)
+  accordions.get('playback').querySelector('.rx-accv').classList.add('rx-on')
+  accordions.get('playback').querySelector('.rx-accv').textContent = 'Loop'
 
   panel.replaceChildren(canvasCol, side)
   openAccordion('playback')
@@ -408,7 +684,7 @@ export function arrangeLayout(root, { onView, onCompare } = {}) {
     const saved = which === 'saved'
     panel.dataset.compare = saved ? 'saved' : 'now'
     for (const btn of compareSeg.querySelectorAll('[data-rx-compare]')) btn.setAttribute('aria-pressed', String(btn.dataset.rxCompare === which))
-    const locked = [side, viewSeam, viewSpec, eqHeader, ...[...viewTrim.children].filter((n) => n !== transport && n !== seekSlot)]
+    const locked = [side, viewSeam, viewSpec, eqHeader, eqTools.fields, ...[...viewTrim.children].filter((n) => n !== transport && n !== seekSlot)]
     for (const n of locked) n.inert = saved
   }
   compareSeg.addEventListener('click', (evt) => {
@@ -443,17 +719,14 @@ export function arrangeLayout(root, { onView, onCompare } = {}) {
     if ((mode === 'scatter' || mode === 'scheduled') && panel.dataset.view === 'seam') setView('trim')
   }
 
-  // Head values ("100% · +1 st", "Off"); `on` lights the value in amber.
-  const setSummaries = (map) => {
-    for (const [key, [text, on]] of Object.entries(map)) {
-      const span = accordions.get(key)?.querySelector('.rx-accv')
-      if (!span) continue
-      if (span.textContent !== text) span.textContent = text
-      span.classList.toggle('rx-on', Boolean(on))
-    }
+  // Group and Preset get the same canvas + settings layout.
+  const scopes = { preset: arrangeScope(root, 'preset', getBands), group: arrangeScope(root, 'group', getBands) }
+  const refreshScopes = () => {
+    scopes.preset.refresh()
+    scopes.group.refresh()
   }
 
-  return { setView, openAccordion, setPlayMode, setCompare, setSummaries, filterTargets }
+  return { setView, openAccordion, setPlayMode, setCompare, setSummaries, filterTargets, refreshScopes }
 }
 
 // Called once at the end of mountSticky(): builds the top bar around the
@@ -470,7 +743,23 @@ export function arrangeBar(bar, root) {
     picker.insertAdjacentHTML('beforeend', icon('chevron-down'))
     left.appendChild(picker)
   }
-  left.appendChild($('#editor-mix-picker-row'))
+  // Group and Preset: the pickers, then Solo, Copy to preset and Delete group
+  // (mock remix-group puts them right after the picker).
+  const mixPickers = $('#editor-mix-picker-row')
+  mixPickers.classList.add('rx-mix-pickers')
+  // The bar is tight, so the "Preset" / "Group" captions become the
+  // selects' labels and New group is an icon button.
+  for (const select of mixPickers.querySelectorAll('select')) select.classList.add('rx-field')
+  const captions = [...mixPickers.children].filter((n) => n.tagName === 'SPAN')
+  $('#editor-mix-preset-select').setAttribute('aria-label', 'Preset')
+  $('#editor-mix-group-select').setAttribute('aria-label', 'Group')
+  for (const caption of captions) caption.classList.add('rx-visually-hidden')
+  const newGroup = $('#editor-mix-group-new')
+  newGroup.className = `rx-i${newGroup.classList.contains('hidden') ? ' hidden' : ''}`
+  newGroup.innerHTML = icon('plus')
+  newGroup.title = 'New group'
+  newGroup.setAttribute('aria-label', 'New group')
+  left.append(mixPickers, $('#rx-group-actions'))
 
   // Sound, Group, Preset: the mock's order.
   const modeSwitch = root.querySelector('.editor-mode-switch')
