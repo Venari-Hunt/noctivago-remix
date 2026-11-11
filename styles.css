@@ -1377,7 +1377,21 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 .rx-side { grid-area: side; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin; }
 .rx-tabs { display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; flex: none; }
 .rx-view { display: none; flex-direction: column; gap: 12px; flex: none; }
-.rx-grid[data-view='trim'] .rx-view-trim, .rx-grid[data-view='seam'] .rx-view-seam { display: flex; }
+.rx-grid[data-view='trim'] .rx-view-trim, .rx-grid[data-view='seam'] .rx-view-seam, .rx-grid[data-view='eq'] .rx-view-eq, .rx-grid[data-view='spec'] .rx-view-spec { display: flex; }
+/* Spectrum needs the app's spectrogram call; without it the section is hidden, and so is its view button. */
+.rx-grid:has(#editor-spectral-section.hidden) [data-rx-view='spec'] { display: none; }
+
+/* EQ and Spectrum views: the old section boxes sit flat, their canvases drawn like the Trim one. */
+.rx-view > .editor-eq, .rx-view > .editor-spectral { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.rx-view > .editor-eq > .editor-eq-header { margin: 0; justify-content: center; }
+.rx-view .editor-eq-header > .editor-eq-label { display: none; }
+.rx-view #editor-eq-canvas, .rx-view .editor-spectral-canvas { flex: none; width: 100%; height: auto; aspect-ratio: 880 / 280; border: 0; border-radius: 12px; background: #0f0f11; }
+.rx-view .editor-eq-band-controls { justify-content: center; margin: 0; }
+.rx-view .editor-spectral-controls { margin: 0; align-items: center; }
+.rx-view .editor-spectral-selection { flex: none; }
+.rx-view .editor-eq-hint { margin: 0; }
+.rx-eq-side { align-items: center; }
+.rx-eq-side .editor-eq-compare { margin: 0; }
 /* Loop seam is a loop-only view. */
 .rx-grid:has(#editor-playmode-loop:not(:checked)) [data-rx-view='seam'] { display: none; }
 

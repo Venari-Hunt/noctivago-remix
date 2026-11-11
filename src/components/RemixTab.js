@@ -3795,7 +3795,11 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
 
   async getWaveformPeaks(id) {
     if (this.waveformPeaksCache.has(id)) return this.waveformPeaksCache.get(id)
-    const peaks = await this.api.audio.getWaveformPeaks(id, this.els.canvas.width)
+    // A sound opened while another view (EQ, Spectrum, Loop seam) is showing
+    // has a hidden Trim canvas, which resizeCanvasForDisplay shrinks to 1 px;
+    // peaks fetched at that width are cached and draw as a flat band.
+    const width = this.els.canvas.width > 1 ? this.els.canvas.width : 2048
+    const peaks = await this.api.audio.getWaveformPeaks(id, width)
     this.waveformPeaksCache.set(id, peaks)
     return peaks
   }

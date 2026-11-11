@@ -27,14 +27,22 @@ function requestRedraw(win) {
   })
 }
 
+// The side column holds settings only; anything with a big drawing (EQ graph,
+// spectrogram) is a canvas view on the left, as in the approved mock.
 const ACCORDIONS = [
   ['playback', 'Playback'],
   ['speed', 'Speed and pitch'],
   ['tone', 'Tone and effects'],
   ['eq', 'Parametric EQ'],
-  ['spectral', 'Spectral repair'],
-  ['looks', 'Effect presets'],
-  ['drift', 'Drift']
+  ['drift', 'Drift'],
+  ['looks', 'Effect presets']
+]
+
+const VIEWS = [
+  ['trim', 'Trim'],
+  ['seam', 'Loop seam'],
+  ['eq', 'EQ'],
+  ['spec', 'Spectrum']
 ]
 
 // Called once from mount(), right after the markup is written and before any
@@ -55,10 +63,12 @@ export function arrangeLayout(root, { onView } = {}) {
     doc,
     'div',
     'rx-tabs',
-    '<div class="rx-seg" role="group" aria-label="View"><button type="button" data-rx-view="trim" aria-pressed="true">Trim</button><button type="button" data-rx-view="seam" aria-pressed="false">Loop seam</button></div>'
+    `<div class="rx-seg" role="group" aria-label="View">${VIEWS.map(([k, t]) => `<button type="button" data-rx-view="${k}" aria-pressed="${k === 'trim'}">${t}</button>`).join('')}</div>`
   )
   const viewTrim = el(doc, 'div', 'rx-view rx-view-trim')
   const viewSeam = el(doc, 'div', 'rx-view rx-view-seam')
+  const viewEq = el(doc, 'div', 'rx-view rx-view-eq')
+  const viewSpec = el(doc, 'div', 'rx-view rx-view-spec')
 
   // Looked up before anything is detached: $ only sees nodes still under root.
   const syncRow = $('#editor-sync-group-row')
@@ -137,8 +147,34 @@ export function arrangeLayout(root, { onView } = {}) {
   crossfadeSection.querySelector('.editor-crossfade-hint').className = 'rx-hint'
   viewSeam.appendChild(crossfadeSection)
 
+  // EQ view: the graph, then its tools and the selected band's fields under
+  // it. A/B compare and Reset are settings, so they stay in the side column.
+  const eq = $('#editor-eq-canvas').closest('.editor-eq')
+  const eqHeader = eq.querySelector('.editor-eq-header')
+  const eqCompare = eqHeader.querySelector('.editor-eq-compare')
+  const eqReset = $('#editor-eq-reset')
+  eqHeader.classList.add('rx-under')
+  $('#editor-eq-canvas').after(eqHeader)
+  eq.querySelector('.editor-eq-hint').classList.add('rx-hint')
+  viewEq.appendChild(eq)
+  const openEq = el(doc, 'button', 'rx-b', '<span>Open EQ</span>')
+  openEq.type = 'button'
+  openEq.id = 'rx-open-eq'
+  openEq.title = 'Show the EQ graph on the left'
+  const eqSide = el(doc, 'div', 'rx-srow1 rx-eq-side')
+  eqSide.append(eqCompare, openEq, eqReset)
+
+  // Spectrum view: the spectrogram, then Reduce by, Delete box and Clear all.
+  const spectral = $('#editor-spectral-section')
+  const spectralControls = spectral.querySelector('.editor-spectral-controls')
+  spectralControls.classList.add('rx-under')
+  spectralControls.append($('#editor-spectral-delete'), $('#editor-spectral-clear'))
+  spectral.querySelector('.editor-eq-header').remove()
+  spectral.querySelector('.editor-eq-hint').classList.add('rx-hint')
+  viewSpec.appendChild(spectral)
+
   const saveStatus = $('#editor-save-status')
-  canvasCol.append(tabs, viewTrim, viewSeam, saveStatus)
+  canvasCol.append(tabs, viewTrim, viewSeam, viewEq, viewSpec, saveStatus)
 
   // --- Right: the settings column ---
   const side = el(doc, 'aside', 'rx-side')
@@ -213,7 +249,6 @@ export function arrangeLayout(root, { onView } = {}) {
 
   const fade = $('#editor-fade-section')
   const speedPitch = $('#editor-speed').closest('.editor-speed-pitch')
-  const eq = $('#editor-eq-canvas').closest('.editor-eq')
   const filters = $('#editor-filters')
   const resetFilters = $('#editor-reset-filters').closest('.editor-actions')
   const looks = [...panel.querySelectorAll('.editor-presets')].find((n) => n.querySelector('[data-preset]'))
@@ -221,8 +256,7 @@ export function arrangeLayout(root, { onView } = {}) {
     playback: [tiles, hintRandom, hintScheduled, loopBody, scatter, schedule, fade],
     speed: [speedPitch],
     tone: [filters, resetFilters],
-    eq: [eq],
-    spectral: [$('#editor-spectral-section')],
+    eq: [eqSide],
     looks: [looks],
     drift: [$('#editor-fluctuation-section')]
   }
@@ -270,6 +304,7 @@ export function arrangeLayout(root, { onView } = {}) {
     if (btn) setView(btn.dataset.rxView)
   })
   openSeam.addEventListener('click', () => setView('seam'))
+  openEq.addEventListener('click', () => setView('eq'))
 
   // --- Empty state ---
   const oldEmpty = $('#editor-empty')
@@ -295,7 +330,7 @@ export function arrangeLayout(root, { onView } = {}) {
   const setPlayMode = (mode) => {
     playbackValue.textContent = MODE_LABEL[mode] ?? MODE_LABEL.loop
     // The Loop seam view only exists for loops (its tab hides in CSS).
-    if (mode === 'scatter' || mode === 'scheduled') setView('trim')
+    if ((mode === 'scatter' || mode === 'scheduled') && panel.dataset.view === 'seam') setView('trim')
   }
 
   return { setView, openAccordion, setPlayMode }
