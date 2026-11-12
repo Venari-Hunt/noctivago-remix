@@ -1254,6 +1254,16 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.applyFilterControls()
     })
     this.spectralView.onSelect(() => this.updateSpectralControls())
+    // Dragging the needle seeks the preview (playing or paused).
+    this.spectralView.onSeek((sec) => {
+      const active = this.activePreview()
+      if (!active) return
+      const t = this.previewMode === 'saved' ? this.sourceTimeToClip(sec) : sec
+      active.scrubTo(t)
+      this.spectralView.setPlayhead(sec)
+      this.loopEditorController?.setPlayhead(sec)
+      this.updateStickyProgress(t)
+    })
     // A number field now: half-typed values wait, change clamps to 6-80 dB.
     const reductionDb = () => {
       const v = Number(this.els.spectralReduction.value)

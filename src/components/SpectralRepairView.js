@@ -48,6 +48,9 @@ export function createSpectralRepairController(canvas) {
   let playheadX = null
   const changeListeners = []
   const selectListeners = []
+  const seekListeners = []
+  // The needle is 2px wide; grab it from this far either side.
+  const NEEDLE_GRAB_PX = 8
 
   const size = () => canvas.getBoundingClientRect()
 
@@ -105,10 +108,23 @@ export function createSpectralRepairController(canvas) {
     for (const cb of changeListeners) cb(getRegions())
   }
 
+  const nearNeedle = (p) => playheadX !== null && Math.abs(p.x - playheadX) <= NEEDLE_GRAB_PX
+
+  function seekTo(p) {
+    const sec = Math.min(Math.max(p.sec, view.start), view.end)
+    for (const cb of seekListeners) cb(sec)
+  }
+
   function onPointerDown(event) {
     if (event.button !== 0) return
     canvas.focus()
     const p = pointAt(event)
+    if (nearNeedle(p)) {
+      canvas.setPointerCapture(event.pointerId)
+      drag = { kind: 'seek' }
+      seekTo(p)
+      return
+    }
     const hit = hitTest(p)
     canvas.setPointerCapture(event.pointerId)
     if (hit) {
@@ -124,7 +140,11 @@ export function createSpectralRepairController(canvas) {
   function onPointerMove(event) {
     const p = pointAt(event)
     if (!drag) {
-      canvas.style.cursor = cursorFor(hitTest(p))
+      canvas.style.cursor = nearNeedle(p) ? 'ew-resize' : cursorFor(hitTest(p))
+      return
+    }
+    if (drag.kind === 'seek') {
+      seekTo(p)
       return
     }
     if (drag.kind === 'create') {
@@ -154,6 +174,7 @@ export function createSpectralRepairController(canvas) {
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
     const finished = drag
     drag = null
+    if (finished.kind === 'seek') return
     if (finished.kind === 'create') {
       const region = regionFromCorners(finished.from, finished.to, view)
       if (isUsableRegion(region)) {
@@ -345,6 +366,10 @@ export function createSpectralRepairController(canvas) {
     },
     onSelect(cb) {
       selectListeners.push(cb)
+    },
+    // Fired with absolute file seconds while the needle is dragged.
+    onSeek(cb) {
+      seekListeners.push(cb)
     },
     redraw: draw,
     destroy() {
