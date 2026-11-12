@@ -3748,6 +3748,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     const bands = this.eqEditorController?.getBands?.() ?? []
     const activeBands = bands.filter((b) => (b.type ?? 'peaking') !== 'off' && !b.muted).length
     this.layout.setSummaries({
+      envelope: this.els.envelopeEnabled?.checked ? ['On', true] : ['Off', false],
       speed: [`${speed}% · ${pitchText}${reversed ? ' · Reversed' : ''}`, speedOn],
       tone: [f.tone, f.tone !== 'Off'],
       clean: [f.clean, f.clean !== 'Off'],

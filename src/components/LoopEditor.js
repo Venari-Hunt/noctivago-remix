@@ -1,14 +1,14 @@
-import { drawWaveform } from '../audio/waveform.js'
+import { drawWaveform, envelopeY, envelopeGainAtY, envelopeX } from '../audio/waveform.js'
 
 const HANDLE_HIT_PX = 8
 const SNAP_PX = 12
 const MIN_LOOP_SECONDS = 0.05
-// Volume envelope points (drawn/hit-tested across the full waveform height,
-// gain 1 = top/y0, gain 0 = bottom - unlike every other draggable here,
+// Volume envelope points (drawn/hit-tested across the waveform height, inset
+// from its edges, gain 1 = top, gain 0 = bottom - unlike every other draggable here,
 // which is purely horizontal/time-based) need real 2D (x AND y) distance for
 // hit-testing, not just x - see pointerDown's own comment on why this can
 // coincide with the trim handles' x position at the two boundary points.
-const ENVELOPE_HIT_PX = 10
+const ENVELOPE_HIT_PX = 14
 // The minimum position gap a middle envelope point is kept away from its
 // immediate neighbors while being dragged (the neighbor positions are
 // captured once at drag-start as fixed bounds, see pointerDown) - purely to
@@ -237,17 +237,14 @@ export function createLoopEditorController(canvas) {
     envelopePoints.sort((a, b) => a.position - b.position)
   }
 
-  // gain 1 -> y 0 (canvas top, "full level"), gain 0 -> y rect.height (canvas
-  // bottom, "silent") - a plain linear map across the whole waveform height,
-  // matching waveform.js's own drawing (see its comment for why this is a
-  // simplified, non-mirrored line rather than a literal Audacity-style
-  // symmetric envelope).
+  // gain 1 -> near the top ("full level"), gain 0 -> near the bottom
+  // ("silent"), inset like waveform.js draws it (envelopeY there).
   function envelopeYForGain(gain, rect) {
-    return (1 - gain) * rect.height
+    return envelopeY(gain, rect.height)
   }
 
   function envelopeGainForY(y, rect) {
-    return 1 - Math.min(Math.max(y / rect.height, 0), 1)
+    return envelopeGainAtY(y, rect.height)
   }
 
   // Closest envelope point within ENVELOPE_HIT_PX of (x, y), or -1. Real 2D
@@ -257,7 +254,7 @@ export function createLoopEditorController(canvas) {
     let closestIdx = -1
     let closestDist = Infinity
     for (let i = 0; i < envelopePoints.length; i++) {
-      const px = timeToX(envelopePointTime(envelopePoints[i]), rect.width)
+      const px = envelopeX(timeToX(envelopePointTime(envelopePoints[i]), rect.width), rect.width)
       const py = envelopeYForGain(envelopePoints[i].gain, rect)
       const dist = Math.hypot(x - px, y - py)
       if (dist < closestDist) {

@@ -32,6 +32,7 @@ function requestRedraw(win) {
 // spectrogram) is a canvas view on the left, as in the approved mock.
 const ACCORDIONS = [
   ['playback', 'Playback'],
+  ['envelope', 'Volume envelope'],
   ['speed', 'Speed and pitch'],
   ['tone', 'Tone'],
   ['eq', 'Parametric EQ'],
@@ -482,21 +483,23 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const dopplerOpt = el(doc, 'div', 'rx-opt2')
   dopplerOpt.append(dopplerLabel, dopplerOptions)
 
-  // The volume envelope is drawn on the trim waveform in every play mode, so
-  // its switch leaves the loop-only crossfade section.
+  // The volume envelope has its own accordion (owner, 2026-11-11: under the
+  // trim controls it was hard to find and Reset sat badly under the switch):
+  // a switch row, then Reset and the how-to line while it is on.
   const crossfadeSection = $('#editor-crossfade-section')
-  const envelopeLabel = $('#editor-envelope-enabled').closest('label')
   const envelopeReset = $('#editor-envelope-reset')
   const envelopeHint = envelopeReset.nextElementSibling
+  const envelopeRow = toSwitchRow(doc, $('#editor-envelope-enabled').closest('label'), 'Shape the volume over time', 'With points on the Trim waveform')
   envelopeReset.className = 'rx-b rx-ghost'
   envelopeReset.innerHTML = `${icon('refresh-cw')}<span>Reset envelope</span>`
-  envelopeHint.className = 'rx-hint rx-envelope-hint'
-  const envelopeGrid = el(doc, 'div', 'rx-kgrid rx-envelope-grid')
-  envelopeGrid.appendChild(envelopeReset)
-  const envelopeOpt = el(doc, 'div', 'rx-opt2')
-  envelopeOpt.append(envelopeLabel, envelopeGrid)
+  envelopeHint.className = 'rx-hint rx-hint-l rx-envelope-hint'
+  envelopeHint.textContent = 'Drag a point to change the volume there. Double-click the line to add a point, double-click a point to reset it to full, right-click a point to remove it. Only lowers the volume, never boosts it.'
+  const envelopeActions = el(doc, 'div', 'rx-srow1 rx-envelope-actions')
+  envelopeActions.appendChild(envelopeReset)
+  const envelopeBody = el(doc, 'div', 'rx-envelope-body')
+  envelopeBody.append(envelopeRow, envelopeActions, envelopeHint)
   const options = el(doc, 'div', 'rx-under rx-wrap2')
-  options.append(dopplerOpt, envelopeOpt)
+  options.append(dopplerOpt)
 
   const dopplerHint = $('#editor-doppler-hint')
   dopplerHint.classList.remove('editor-speed-pitch-hint')
@@ -509,7 +512,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
 
   // Step 13d: the transport and the seek bar live in the preview module under
   // the library (buildStudio), not under the Trim canvas.
-  viewTrim.append($('.editor-name-row'), $('#editor-canvas'), $('#editor-scrollbar'), $('#editor-waveform-status'), times, options, dopplerHint, envelopeHint)
+  viewTrim.append($('.editor-name-row'), $('#editor-canvas'), $('#editor-scrollbar'), $('#editor-waveform-status'), times, options, dopplerHint)
 
   // Loop seam view: what is left of the crossfade section.
   const seamCanvas = $('#editor-seam-canvas')
@@ -689,6 +692,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
 
   const BODIES = {
     playback: [tiles, hintRandom, hintScheduled, loopBody, scatter, schedule, fade],
+    envelope: [envelopeBody],
     speed: [speedPitch],
     tone: [filterTargets.tone, filters],
     eq: [eqSide],

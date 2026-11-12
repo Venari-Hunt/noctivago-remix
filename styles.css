@@ -1440,8 +1440,10 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 .rx-opt2 > label, .rx-kgrid > label.editor-reverse-toggle { display: inline-flex; flex-direction: row-reverse; align-items: center; gap: 8px; min-height: 32px; font-size: 13px; color: var(--text); cursor: pointer; }
 .rx-kgrid { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px 8px; }
 .rx-kgrid.hidden { display: none; }
-.rx-opt2:has(#editor-envelope-enabled:not(:checked)) .rx-envelope-grid { display: none; }
-.rx-view-trim:has(#editor-envelope-enabled:not(:checked)) .rx-envelope-hint { display: none; }
+.rx-envelope-body { display: flex; flex-direction: column; gap: 12px; }
+.rx-envelope-body:has(#editor-envelope-enabled:not(:checked)) :is(.rx-envelope-actions, .rx-envelope-hint) { display: none; }
+/* The envelope is drawn and edited in Loop mode only (setEnvelopeUiVisible). */
+.rx-grid:has(#editor-playmode-loop:not(:checked)) .rx-acc[data-acc='envelope'] { display: none; }
 .rx-hint { margin: 0; color: var(--text-dim); text-align: center; font-size: 13px; line-height: 20px; }
 .rx-hint.rx-hint-l, .rx-view .rx-hint { font-size: 12px; line-height: 16px; }
 .rx-hint.rx-hint-l { text-align: left; }

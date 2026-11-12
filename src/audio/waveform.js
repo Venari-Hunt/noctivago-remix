@@ -67,6 +67,25 @@ export function resizeCanvasForDisplay(canvas) {
 // fetch (see waveformPeaks.js) covers just a narrow zoomed window instead,
 // so the caller passes that window's own bounds here rather than this
 // function assuming peaks always covers the whole file.
+// Volume envelope geometry, shared with LoopEditor's hit test so a point is
+// grabbed where it is drawn. The gain axis is inset from the top and bottom
+// and point x is kept off the canvas edges, so a point at full level or at a
+// trim edge sits fully inside the box (2026-11-12: at y 0 the default points
+// were half cut off and fought the fade handles' top band).
+export const ENVELOPE_INSET_PX = 16
+export const ENVELOPE_POINT_RADIUS = 6
+export function envelopeY(gain, height) {
+  return ENVELOPE_INSET_PX + (1 - gain) * Math.max(0, height - 2 * ENVELOPE_INSET_PX)
+}
+export function envelopeGainAtY(y, height) {
+  const span = Math.max(1, height - 2 * ENVELOPE_INSET_PX)
+  return 1 - Math.min(Math.max((y - ENVELOPE_INSET_PX) / span, 0), 1)
+}
+export function envelopeX(x, width) {
+  const edge = ENVELOPE_POINT_RADIUS + 2
+  return Math.min(Math.max(x, edge), Math.max(edge, width - edge))
+}
+
 export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, peaks, viewStart = 0, viewEnd = duration, peaksStart = 0, peaksEnd = duration, dopplerEnabled = false, dopplerClosestFraction = 0.5, dopplerReversed = false, fadesEnabled = false, fadeInSec = 0, fadeOutSec = 0, envelopeEnabled = false, envelopePoints = [] }) {
   const { width, height, dpr } = resizeCanvasForDisplay(canvas)
   const ctx = canvas.getContext('2d')
@@ -263,9 +282,8 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
 
   // Volume envelope (per-sound, Loop mode) - a simplified straight-line-
   // segments overlay, not a literal mirrored/symmetric Audacity-style
-  // envelope: gain 1 maps to the very top of the canvas ("full level"), gain
-  // 0 to the very bottom ("silent"), one continuous line across the whole
-  // waveform height. Same simplification precedent as the EQ graph's own
+  // envelope: gain 1 maps near the top of the canvas ("full level"), gain 0
+  // near the bottom ("silent"), inset by ENVELOPE_INSET_PX (see envelopeY). Same simplification precedent as the EQ graph's own
   // "straight polyline, not a true response curve." Points already arrive
   // pre-converted to absolute time by LoopEditor's redraw() (envelopePoints
   // here is [{time, gain}], not the raw {position, gain} data model) so this
@@ -276,8 +294,8 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
     ctx.lineWidth = 2
     ctx.beginPath()
     envelopePoints.forEach((p, i) => {
-      const x = timeToX(p.time)
-      const y = (1 - p.gain) * height
+      const x = envelopeX(timeToX(p.time), width)
+      const y = envelopeY(p.gain, height)
       if (i === 0) ctx.moveTo(x, y)
       else ctx.lineTo(x, y)
     })
@@ -288,10 +306,10 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
     ctx.strokeStyle = '#ffffff'
     ctx.lineWidth = 1.5
     for (const p of envelopePoints) {
-      const x = timeToX(p.time)
-      const y = (1 - p.gain) * height
+      const x = envelopeX(timeToX(p.time), width)
+      const y = envelopeY(p.gain, height)
       ctx.beginPath()
-      ctx.arc(x, y, 5, 0, Math.PI * 2)
+      ctx.arc(x, y, ENVELOPE_POINT_RADIUS, 0, Math.PI * 2)
       ctx.fill()
       ctx.stroke()
     }
