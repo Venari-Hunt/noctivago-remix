@@ -9,6 +9,7 @@
 import { icon } from './icons.js'
 import { attachKnob } from './Knob.js'
 import { filterSummaries } from './filterSummary.js'
+import { renderDetail } from './libraryDetail.js'
 
 const el = (doc, tag, className, html) => {
   const node = doc.createElement(tag)
@@ -430,7 +431,7 @@ const VIEWS = [
 
 // Called once from mount(), right after the markup is written and before any
 // element is looked up or wired.
-export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, onPick } = {}) {
+export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, onPick, detail } = {}) {
   const doc = root.ownerDocument
   const win = doc.defaultView
   const $ = (sel) => root.querySelector(sel)
@@ -775,7 +776,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
     scopes.group.refresh()
   }
 
-  const studio = buildStudio(root, { getStudio, onPick, seekSlot, transport })
+  const studio = buildStudio(root, { getStudio, onPick, seekSlot, transport, detail })
 
   return { setView, openAccordion, setPlayMode, setCompare, setSummaries, filterTargets, refreshScopes, refreshStudio: studio.refresh }
 }
@@ -791,7 +792,7 @@ const KIND = { sound: 'Sound', group: 'Group', preset: 'Preset' }
 const SEARCH = { sound: 'Search sounds', group: 'Search groups', preset: 'Search presets' }
 const NONE = { sound: 'No sounds match.', group: 'No groups yet. Make one with New group.', preset: 'No presets saved yet.' }
 
-function buildStudio(root, { getStudio, onPick, seekSlot, transport }) {
+function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
   const doc = root.ownerDocument
   const win = doc.defaultView
   const tab = root.querySelector('.editor-tab')
@@ -843,7 +844,64 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport }) {
   const query = () => search.value.trim().toLowerCase()
   const shown = () => (state?.items ?? []).filter((it) => it.name.toLowerCase().includes(query()))
 
+  // Drill in (mock-noctivago-remix-detail, placement C): a picked group or
+  // preset replaces the list with its contents until its back arrow. sub is
+  // the group or sound opened inside a preset.
+  let drilled = true
+  let sub = null
+  let dragging = false
+  const view = () => {
+    if (!drilled || !state || state.mode === 'sound' || !state.currentId || query()) return null
+    const v = detail?.get?.(state.mode, sub)
+    if (!v?.top) return null
+    if (sub && !v.sub) sub = null
+    return v
+  }
+  const handlers = detail && {
+    up: () => {
+      drilled = false
+      sub = null
+      lastKey = ''
+      renderList()
+    },
+    back: () => {
+      sub = null
+      lastKey = ''
+      renderList()
+    },
+    openSub: (kind, id) => {
+      sub = { kind, id }
+      lastKey = ''
+      renderList()
+      list.scrollTop = 0
+    },
+    dragging: (on) => {
+      dragging = on
+      if (!on) win.queueMicrotask(() => renderList())
+    },
+    setVolume: (id, gain, commit) => detail.setVolume(state.mode, sub, id, gain, commit),
+    setPan: (id, pan) => detail.setPan(id, pan),
+    mute: (id) => detail.mute(id),
+    solo: (id, on) => detail.solo(id, on),
+    editSound: (id) => detail.editSound(id),
+    editGroup: (id) => detail.editGroup(id)
+  }
+
   const renderList = () => {
+    if (dragging) return
+    const v = view()
+    if (v) {
+      const key = JSON.stringify(['drill', state.mode, state.currentId, sub, v])
+      if (key === lastKey) return
+      lastKey = key
+      list.classList.add('rx-list-drill')
+      // Keep keyboard focus on the same control across a redraw.
+      const focused = list.contains(doc.activeElement) ? doc.activeElement.getAttribute('aria-label') : null
+      renderDetail(list, v, handlers)
+      if (focused) list.querySelector(`[aria-label="${CSS.escape(focused)}"]`)?.focus()
+      return
+    }
+    list.classList.remove('rx-list-drill')
     const items = shown()
     const key = JSON.stringify([state?.mode, state?.currentId, highlight, items])
     if (key === lastKey) return
@@ -860,7 +918,18 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport }) {
       b.querySelector('small').textContent = it.meta
       b.title = it.dot ? `${it.name} (${it.dotTitle})` : it.name
       if (it.id === state.currentId) b.setAttribute('aria-current', 'true')
-      b.addEventListener('click', () => onPick?.(state.mode, it.id))
+      b.addEventListener('click', () => {
+        // A row opens its contents; the picked row again just drills back in.
+        if (state.mode !== 'sound') {
+          drilled = true
+          sub = null
+          if (query()) search.value = ''
+          lastKey = ''
+        }
+        onPick?.(state.mode, it.id)
+        renderList()
+      })
+      if (state.mode !== 'sound' && detail) b.insertAdjacentHTML('beforeend', `<span class="rx-chev">${icon('chevron-right')}</span>`)
       list.appendChild(b)
     })
   }
@@ -906,11 +975,13 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport }) {
       renderList()
     }
   })
-  // A new mode starts with an empty search.
+  // A new mode starts with an empty search, drilled into what it has open.
   const syncMode = () => {
     if (state && state.mode !== lastMode) {
       if (lastMode) search.value = ''
       lastMode = state.mode
+      drilled = true
+      sub = null
       highlight = -1
       lastKey = ''
       renderList()
@@ -956,10 +1027,13 @@ export function arrangeBar(bar, root) {
   // Sound, Group, Preset (the mock's order) as chips. The tab toggles
   // editor-mode-pill-active on them; CSS reads that.
   const chips = lib.querySelector('#rx-chips')
+  // Each chip carries its type's icon, the same one as its rows and panel.
+  const CHIP_ICON = { '#editor-mode-sound': 'audio-waveform', '#editor-mode-group': 'layers', '#editor-mode-preset': 'bookmark' }
   for (const id of ['#editor-mode-sound', '#editor-mode-group', '#editor-mode-preset']) {
     const b = $(id)
     b.classList.remove('editor-mode-pill')
     b.classList.add('rx-mchip')
+    b.insertAdjacentHTML('afterbegin', icon(CHIP_ICON[id], 14))
     chips.appendChild(b)
   }
   const hint = root.querySelector('#editor-mode-hint')

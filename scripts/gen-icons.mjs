@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const NAMES = ['audio-waveform', 'chevron-down', 'copy', 'headphones', 'minus', 'play', 'pause', 'plus', 'redo-2', 'refresh-cw', 'repeat', 'save', 'search', 'sparkles', 'trash-2', 'undo-2', 'volume-2', 'volume-x', 'shuffle', 'clock', 'x', 'layers', 'bookmark']
+const NAMES = ['audio-waveform', 'chevron-down', 'copy', 'headphones', 'minus', 'play', 'pause', 'plus', 'redo-2', 'refresh-cw', 'repeat', 'save', 'search', 'sparkles', 'trash-2', 'undo-2', 'volume-2', 'volume-x', 'shuffle', 'clock', 'x', 'layers', 'bookmark', 'arrow-left', 'arrow-right', 'chevron-right']
 const mock = process.argv[2] || 'C:/Users/jluca/Projects/Global Management/design-system/dist/tool/mock-noctivago-desktop.html'
 const html = fs.readFileSync(mock, 'utf-8')
 const paths = {}

@@ -21,6 +21,7 @@ import { requestAnalyser, requestMixerStatus } from './mixerBridge.js'
 import { pushLevel, peakFromTimeDomain } from '../domain/levels.js'
 import { drawLevelHistory } from './levelHistory.js'
 import { escapeHtml } from '../domain/html.js'
+import { groupDetail, presetDetail, soundDetail, panOverride, withSoundVolume } from '../domain/detailPanel.js'
 
 export default class EditorPlugin {
   constructor(app) {
@@ -970,7 +971,16 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       onCompare: (which) => this.switchCompareView(which),
       getBands: (kind) => (kind === 'preset' ? this.presetEq : this.groupEq)?.getBands?.(),
       getStudio: () => this.studioState(),
-      onPick: (kind, id) => this.pickFromLibrary(kind, id)
+      onPick: (kind, id) => this.pickFromLibrary(kind, id),
+      detail: {
+        get: (mode, sub) => this.detailView(mode, sub),
+        setVolume: (_mode, _sub, id, gain, commit) => this.setDetailVolume(id, gain, commit),
+        setPan: (id, pan) => this.setDetailPan(id, pan).catch((err) => console.error('Remix: pan save failed', err)),
+        mute: (id) => this.mixerSoundAction('noctivago:remix-toggle-sound-mute', { soundId: id }),
+        solo: (id, on) => this.mixerSoundAction('noctivago:solo', { soundId: id, active: on }),
+        editSound: (id) => this.editFromDetail('sound', id),
+        editGroup: (id) => this.editFromDetail('group', id)
+      }
     })
 
     this.els = {
@@ -2156,6 +2166,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.activePresetId = requestMixerStatus().activePresetId
     const [library, presets] = await Promise.all([this.api.library.list(), this.api.presets.list()])
     this.presets = presets
+    this.baseLibrary = library
     const activePreset = this.presets.find((p) => p.id === this.activePresetId)
     this.library = library.map((entry) => {
       const override = activePreset?.sounds.find((s) => s.soundId === entry.id)?.overrides
@@ -2220,6 +2231,86 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     if (select.value === id && (kind === 'preset' ? this.selectedPresetId : this.selectedGroupId) === id) return
     select.value = id
     select.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+
+  // The library's drill-in panel (layout.js buildStudio, libraryDetail.js):
+  // the open group's members, or the open preset's groups and loose sounds.
+  // When the preset is the one loaded in the Mixer, volumes are the Mixer's
+  // live ones and Mute/Solo work.
+  detailView(mode, sub) {
+    const status = requestMixerStatus()
+    const preset = this.presets.find((p) => p.id === this.selectedPresetId)
+    const live = Boolean(preset) && status.activePresetId === preset.id
+    const volumes = live && status.soundVolumes ? status.soundVolumes : null
+    const volumeOf = volumes ? (id) => volumes[id] : null
+    const lib = this.baseLibrary ?? this.library ?? []
+    if (mode === 'group') return { top: groupDetail(this.groups.find((g) => g.id === this.selectedGroupId), preset, lib, volumeOf) }
+    const top = presetDetail(preset, lib, volumeOf)
+    let subView = null
+    if (sub?.kind === 'group') subView = groupDetail(preset?.groups?.find((g) => g.id === sub.id), preset, lib, volumeOf)
+    else if (sub?.kind === 'sound') subView = soundDetail(preset, sub.id, lib, volumeOf)
+    const isSound = sub?.kind === 'sound'
+    return {
+      top,
+      sub: subView,
+      status: {
+        live,
+        canMute: Array.isArray(status.mutedSoundIds),
+        muted: isSound && (status.mutedSoundIds ?? []).includes(sub.id),
+        soloed: isSound && status.soloedSoundId === sub.id
+      }
+    }
+  }
+
+  // Live preset: the Mixer applies the volume (and autosaves the preset as
+  // a drag there would). Otherwise the stored preset is written once, at
+  // the end of the drag.
+  setDetailVolume(soundId, gain, commit) {
+    const preset = this.presets.find((p) => p.id === this.selectedPresetId)
+    if (!preset) return
+    if (requestMixerStatus().activePresetId === preset.id) {
+      const detail = { presetId: preset.id, soundId, volume: gain, applied: false }
+      window.dispatchEvent(new CustomEvent('noctivago:remix-set-sound-volume', { detail }))
+      if (detail.applied) {
+        if (commit) this.layout?.refreshStudio?.()
+        return
+      }
+    }
+    if (!commit) return
+    const sounds = withSoundVolume(preset, soundId, gain)
+    if (!sounds) return
+    preset.sounds = sounds
+    this.api.presets
+      .updateSounds(preset.id, sounds)
+      .then((saved) => {
+        if (saved) this.presets = this.presets.map((p) => (p.id === saved.id ? saved : p))
+        this.layout?.refreshStudio?.()
+      })
+      .catch((err) => console.error('Remix: volume save failed', err))
+  }
+
+  // Pan in this preset is a preset override (filters.pan), the same slot a
+  // Sound-mode save writes; the Mixer hears it like one.
+  async setDetailPan(soundId, pan) {
+    const preset = this.presets.find((p) => p.id === this.selectedPresetId)
+    const overrides = panOverride(preset, soundId, this.baseLibrary ?? this.library ?? [], pan)
+    if (!overrides) return
+    const updated = await this.api.presets.updateSoundOverride(preset.id, soundId, overrides)
+    if (updated) this.presets = this.presets.map((p) => (p.id === updated.id ? updated : p))
+    const saved = updated?.sounds.find((s) => s.soundId === soundId)?.overrides ?? overrides
+    window.dispatchEvent(new CustomEvent('noctivago:sound-override-changed', { detail: { presetId: preset.id, soundId, overrides: saved } }))
+    await this.refreshLibrary()
+  }
+
+  mixerSoundAction(eventName, detail) {
+    window.dispatchEvent(new CustomEvent(eventName, { detail }))
+    this.layout?.refreshStudio?.()
+  }
+
+  editFromDetail(kind, id) {
+    this.setMode(kind)
+    this.pickFromLibrary(kind, id)
+    this.layout?.refreshStudio?.()
   }
 
   filteredPickerSounds() {
