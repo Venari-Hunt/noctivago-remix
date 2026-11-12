@@ -18,12 +18,10 @@ import { loopLayout, clipToSource } from '../domain/loopLayout.js'
 // Zoom (v0.1.231): scroll to zoom, centered on the cursor, and middle-drag
 // to pan - the same interaction the main trim waveform already has
 // (LoopEditor.js's handleWheel/pointerDown 'pan'), so it feels consistent
-// rather than a second interaction to learn. The crossfade-edge pins only
-// hit-test at full zoom-out (edgeHit) - their drag math derives the fade
-// from the overlap's own on-screen symmetry around the canvas center, which
-// only holds when the canvas is showing the whole clip; once zoomed, the
-// existing "Loop crossfade" slider is still the way to change the fade
-// value. Detail peaks (finer than the trim-wide fetch index.js already
+// rather than a second interaction to learn. The crossfade edges drag at any
+// zoom (edgeHit / fadeForX): unzoomed from the overlap's symmetry around the
+// canvas center, zoomed from the cursor's clip time, with the view following
+// the clip's center so the seam stays under the cursor. Detail peaks (finer than the trim-wide fetch index.js already
 // does) are requested through onViewportChange whenever a zoom/pan settles,
 // keyed off the union of source-time positions actually on screen -
 // straddling the crossfade blend shows two source ranges (tail and head) at
@@ -86,9 +84,8 @@ export function createSeamViewController(canvas) {
   let panStartX = 0
   let panStartViewStart = 0
   let panStartViewEnd = 0
-  let detailPeaks = null
-  let detailPeaksStart = 0
-  let detailPeaksEnd = 0
+  // [{ peaks, start, end }] - finer peaks for the zoomed view's source ranges.
+  let detail = []
 
   const layout = () => loopLayout(loopStart, loopEnd, enabled ? fadeSec : 0)
 
@@ -109,14 +106,18 @@ export function createSeamViewController(canvas) {
   // viewHi] of clip time - both the tail and head curves where that window
   // straddles the crossfade blend, otherwise the single plain/tail mapping
   // clipToSource already gives. See the header comment for why.
-  function computeSourceRange(viewLo, viewHi) {
+  // Returns up to two source ranges: the tail side (source >= the trim's
+  // middle) and the head side (< middle). A view across the seam shows both,
+  // and one union of them is the whole trim, which made the "detail" peaks
+  // as coarse as the base ones (2026-11-12).
+  function computeSourceRanges(viewLo, viewHi) {
     const L = layout()
-    if (!(L.length > 0)) return null
-    let lo = Infinity
-    let hi = -Infinity
+    if (!(L.length > 0)) return []
+    const sides = [[Infinity, -Infinity], [Infinity, -Infinity]]
     const consider = (t) => {
-      if (t < lo) lo = t
-      if (t > hi) hi = t
+      const side = sides[t >= L.mid ? 0 : 1]
+      if (t < side[0]) side[0] = t
+      if (t > side[1]) side[1] = t
     }
     for (let i = 0; i <= SOURCE_RANGE_SAMPLES; i++) {
       const ct = viewLo + (viewHi - viewLo) * (i / SOURCE_RANGE_SAMPLES)
@@ -127,7 +128,9 @@ export function createSeamViewController(canvas) {
         consider(clipToSource(L, ct))
       }
     }
-    return hi > lo ? [lo, hi] : null
+    // Pad by one sample step so a side's edge between samples is covered.
+    const pad = (viewHi - viewLo) / SOURCE_RANGE_SAMPLES
+    return sides.filter(([lo, hi]) => hi > lo).map(([lo, hi]) => [Math.max(L.loopStart, lo - pad), Math.min(L.loopEnd, hi + pad)])
   }
 
   // The one place that commits a new view window - clamps to [0, length]
@@ -149,13 +152,15 @@ export function createSeamViewController(canvas) {
     viewStart = Math.max(s, 0)
     viewEnd = Math.min(e, length)
     redraw()
-    onViewportChangeCb(computeSourceRange(viewStart, viewEnd))
+    onViewportChangeCb(computeSourceRanges(viewStart, viewEnd))
   }
 
   function peakAt(t) {
-    if (detailPeaks && detailPeaks.length > 0 && detailPeaksEnd > detailPeaksStart && t >= detailPeaksStart && t <= detailPeaksEnd) {
-      const idx = Math.floor(((t - detailPeaksStart) / (detailPeaksEnd - detailPeaksStart)) * detailPeaks.length)
-      return detailPeaks[Math.min(detailPeaks.length - 1, Math.max(0, idx))]
+    for (const d of detail) {
+      if (d.peaks.length > 0 && d.end > d.start && t >= d.start && t <= d.end) {
+        const idx = Math.floor(((t - d.start) / (d.end - d.start)) * d.peaks.length)
+        return d.peaks[Math.min(d.peaks.length - 1, Math.max(0, idx))]
+      }
     }
     if (!peaks || peaks.length === 0 || peaksEnd <= peaksStart) return [0, 0]
     const idx = Math.floor(((t - peaksStart) / (peaksEnd - peaksStart)) * peaks.length)
@@ -300,30 +305,52 @@ export function createSeamViewController(canvas) {
     if (zoomed) label(ctx, 'Zoomed — double-click to reset', width / 2, 'center', COLORS.dim, 16)
   }
 
-  // Edge pins only hit-test at full zoom-out - fadeForX's math derives the
-  // fade from where the overlap sits relative to the *canvas* center, which
-  // only equals the clip-time center (L.length / 2) when the whole clip is
-  // on screen. Scrubbing still works at any zoom (it just reads tOf(x)).
+  // Edge pins hit-test at any zoom (2026-11-12: on a long trim a short fade is
+  // a couple of pixels wide unzoomed, so the owner zooms in to grab it, and
+  // the edges used to switch off there). Scrubbing works anywhere else.
   function edgeHit(x, width) {
     if (!enabled) return false
     const { L, lo, hi } = currentView()
     if (!(L.length > 0)) return false
-    if (hi - lo < L.length - 1e-6) return false
-    const center = width / 2
-    if (L.fade <= 0) return Math.abs(x - center) <= EDGE_HIT_PX
-    const half = ((L.fade / 2) / L.length) * width
-    return Math.abs(Math.abs(x - center) - half) <= EDGE_HIT_PX
+    const xOf = (t) => ((t - lo) / (hi - lo)) * width
+    if (L.fade <= 0) return Math.abs(x - xOf(L.length / 2)) <= EDGE_HIT_PX
+    return Math.abs(x - xOf(L.blendStart)) <= EDGE_HIT_PX || Math.abs(x - xOf(L.blendEnd)) <= EDGE_HIT_PX
   }
 
-  // The overlap is always centered, so its half-width d (px) fixes the fade:
-  // d / width = (f / 2) / (trim - f)  =>  f = 2 d trim / (width + 2 d).
-  function fadeForX(x, width) {
+  function clampFade(raw) {
     const trim = Math.max(0, loopEnd - loopStart)
-    const d = Math.abs(x - width / 2)
-    const raw = (2 * d * trim) / (width + 2 * d)
     const cap = Math.min(maxSec, trim / 4)
     const snapped = Math.round(Math.min(raw, cap) / stepSec) * stepSec
     return Math.min(Math.max(snapped, 0), cap)
+  }
+
+  // Unzoomed, the whole clip fills the canvas and the overlap is always
+  // centered, so its half-width d (px) fixes the fade:
+  // d / width = (f / 2) / (trim - f)  =>  f = 2 d trim / (width + 2 d).
+  // Zoomed, the edge follows the cursor in clip time (f = 2 |t - center|),
+  // and the view shifts with the clip's center (it moves by half the change
+  // in length) so the seam stays put under the cursor.
+  function fadeForX(x, width) {
+    const { L, lo, hi } = currentView()
+    if (hi - lo >= L.length - 1e-6) {
+      const trim = Math.max(0, loopEnd - loopStart)
+      const d = Math.abs(x - width / 2)
+      return clampFade((2 * d * trim) / (width + 2 * d))
+    }
+    const t = lo + (x / width) * (hi - lo)
+    return clampFade(2 * Math.abs(t - L.length / 2))
+  }
+
+  function setFadeKeepingView(next) {
+    const before = currentView()
+    const zoomed = before.hi - before.lo < before.L.length - 1e-6
+    fadeSec = next
+    if (zoomed) {
+      const shift = (layout().length - before.L.length) / 2
+      applyView(before.lo + shift, before.hi + shift, layout().length)
+    } else {
+      redraw()
+    }
   }
 
   function scrubAt(x, width) {
@@ -375,8 +402,7 @@ export function createSeamViewController(canvas) {
     }
     const next = fadeForX(x, rect.width)
     if (next !== fadeSec) {
-      fadeSec = next
-      redraw()
+      setFadeKeepingView(next)
       onChange(fadeSec)
     }
   }
@@ -414,8 +440,7 @@ export function createSeamViewController(canvas) {
     const rect = canvas.getBoundingClientRect()
     const x = evt.clientX - rect.left
     if (edgeHit(x, rect.width)) {
-      fadeSec = defaultSec
-      redraw()
+      setFadeKeepingView(defaultSec)
       onChange(fadeSec)
       return
     }
@@ -436,7 +461,7 @@ export function createSeamViewController(canvas) {
   // no-op call if nothing's listening yet.
   function refreshDetailForCurrentView(length) {
     const [lo, hi] = resolveView(length)
-    if (hi - lo < length - 1e-6) onViewportChangeCb(computeSourceRange(lo, hi))
+    if (hi - lo < length - 1e-6) onViewportChangeCb(computeSourceRanges(lo, hi))
   }
 
   return {
@@ -471,10 +496,9 @@ export function createSeamViewController(canvas) {
     // Finer peaks for exactly the current zoomed-in view - see the header
     // comment and index.js's scheduleSeamDetailPeaks. Falls back to the
     // (coarser) base peaks outside [rangeStart, rangeEnd].
-    setDetailPeaks(newPeaks, rangeStart, rangeEnd) {
-      detailPeaks = newPeaks
-      detailPeaksStart = rangeStart
-      detailPeaksEnd = rangeEnd
+    // segments: [{ peaks, start, end }], one per source range.
+    setDetailPeaks(segments) {
+      detail = segments.filter((d) => d && d.peaks)
       redraw()
     },
     setPlayhead(clipTime) {
@@ -486,9 +510,7 @@ export function createSeamViewController(canvas) {
     resetZoom() {
       viewStart = 0
       viewEnd = 0
-      detailPeaks = null
-      detailPeaksStart = 0
-      detailPeaksEnd = 0
+      detail = []
       redraw()
     },
     getLayout: layout,
@@ -499,8 +521,8 @@ export function createSeamViewController(canvas) {
     onScrub(fn) {
       onScrub = fn
     },
-    // fn(sourceRange | null) - the source-time range the current zoomed
-    // view spans, whenever a zoom/pan gesture settles. index.js uses this
+    // fn(sourceRanges) - the source-time ranges (one or two) the current
+    // zoomed view spans, whenever a zoom/pan gesture settles. index.js uses this
     // to fetch finer peaks for just that range.
     onViewportChange(fn) {
       onViewportChangeCb = fn

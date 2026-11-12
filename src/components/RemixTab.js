@@ -960,7 +960,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.root = container
     this.layout = arrangeLayout(container, {
       onView: (view) => {
-        if (view === 'seam') this.syncSeamView()
+        if (view === 'seam') this.syncSeamView({ immediate: true })
       },
       onCompare: (which) => this.switchCompareView(which),
       getBands: (kind) => (kind === 'preset' ? this.presetEq : this.groupEq)?.getBands?.(),
@@ -1293,8 +1293,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.els.crossfade.value = String(Math.round(seconds * 1000))
       this.applyCrossfadeControl()
     })
-    this.seamView.onViewportChange((sourceRange) => {
-      this.scheduleSeamDetailPeaks(sourceRange)
+    this.seamView.onViewportChange((sourceRanges) => {
+      this.scheduleSeamDetailPeaks(sourceRanges)
     })
     this.seamView.onScrub((liveClipTime) => {
       const source = clipToSource(this.liveLayout(), liveClipTime)
@@ -2727,59 +2727,70 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.spectralReductionValue.textContent = `${box.reductionDb} dB`
   }
 
-  syncSeamView() {
+  syncSeamView({ immediate = false } = {}) {
     if (!this.seamView || !this.loopEditorController) return
     const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
     this.seamView.setLoop(loopStart, loopEnd)
     this.seamView.setCrossfade(this.currentCrossfadeMs() / 1000)
     this.seamView.setEnabled(!this.currentSpeedPitchDoppler())
-    this.scheduleSeamPeaks()
+    this.scheduleSeamPeaks({ immediate })
   }
 
   // The strip needs peaks for just the trim. Base (whole-file) peaks show
   // immediately; a finer fetch for the trim replaces them once settled.
-  scheduleSeamPeaks() {
+  // The fetch sizes itself to the canvas, so it only runs while the Loop seam
+  // view is shown: loading a sound commits loop points while the Trim view is
+  // up, and a fetch then got a 0 px canvas (2 peaks for the whole trim) that
+  // the key kept on screen until the trim changed (2026-11-12). Opening the
+  // view fetches at once; the 300 ms wait is only for trim and fade edits.
+  scheduleSeamPeaks({ immediate = false } = {}) {
     clearTimeout(this._seamPeaksTimer)
     const id = this.currentEntry?.id
     if (!id || !this.seamView) return
     const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
     const base = this.waveformPeaksCache.get(id)
-    const key = `${id}:${loopStart}:${loopEnd}:${Boolean(base)}`
+    const width = Math.round(this.els.seamCanvas.getBoundingClientRect().width)
+    const key = `${id}:${loopStart}:${loopEnd}:${Boolean(base)}:${width}`
     if (key === this._seamPeaksKey) return
-    this._seamPeaksKey = key
     const duration = this.currentEntry?.durationSeconds
-    if (base && duration) this.seamView.setPeaks(base, 0, duration)
+    const trimKey = `${id}:${loopStart}:${loopEnd}`
+    if (base && duration && this._seamFineFor !== trimKey) this.seamView.setPeaks(base, 0, duration)
+    if (width < 2) {
+      this._seamPeaksKey = null
+      return
+    }
+    this._seamPeaksKey = key
     this._seamPeaksTimer = setTimeout(async () => {
-      const width = Math.max(1, Math.round(this.els.seamCanvas.getBoundingClientRect().width))
       try {
         const peaks = await this.api.audio.getWaveformPeaks(id, width * 2, loopStart, loopEnd)
         const current = this.loopEditorController.getLoopPoints()
         if (!peaks || this.currentEntry?.id !== id || current.loopStart !== loopStart || current.loopEnd !== loopEnd) return
         this.seamView.setPeaks(peaks, loopStart, loopEnd)
+        this._seamFineFor = trimKey
       } catch (err) {
         console.error('Editor: seam strip peaks fetch failed', err)
       }
-    }, 300)
+    }, immediate ? 0 : 300)
   }
 
   // Finer peaks for exactly what the "Loop seam" strip's current zoom
   // shows (v0.1.231) - the same idea as maybeFetchDetailPeaks for the main
-  // trim waveform, keyed off the source-time range SeamView's own
-  // onViewportChange already resolved (it can be two disjoint stretches'
-  // union collapsed into one span, when the view straddles the crossfade
-  // blend - see that file's computeSourceRange).
-  scheduleSeamDetailPeaks(sourceRange) {
+  // trim waveform, keyed off the source-time ranges SeamView's own
+  // onViewportChange already resolved: two when the view straddles the
+  // crossfade (the trim's end and its start), fetched separately so each is
+  // really finer (see that file's computeSourceRanges).
+  scheduleSeamDetailPeaks(sourceRanges) {
     clearTimeout(this._seamDetailPeaksTimer)
     const id = this.currentEntry?.id
-    if (!id || !this.seamView || !sourceRange) return
-    const [start, end] = sourceRange
-    if (!(end > start)) return
+    const ranges = (sourceRanges || []).filter(([start, end]) => end > start)
+    if (!id || !this.seamView || ranges.length === 0) return
+    const request = (this._seamDetailRequest = (this._seamDetailRequest || 0) + 1)
     this._seamDetailPeaksTimer = setTimeout(async () => {
       const width = Math.max(1, Math.round(this.els.seamCanvas.getBoundingClientRect().width))
       try {
-        const peaks = await this.api.audio.getWaveformPeaks(id, width, start, end)
-        if (!peaks || this.currentEntry?.id !== id) return
-        this.seamView.setDetailPeaks(peaks, start, end)
+        const segments = await Promise.all(ranges.map(async ([start, end]) => ({ peaks: await this.api.audio.getWaveformPeaks(id, width, start, end), start, end })))
+        if (request !== this._seamDetailRequest || this.currentEntry?.id !== id) return
+        this.seamView.setDetailPeaks(segments)
       } catch (err) {
         console.error('Editor: seam detail peaks fetch failed', err)
       }
