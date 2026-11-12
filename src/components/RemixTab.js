@@ -1731,7 +1731,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
 
     this.els.eqMute.addEventListener('click', () => {
       const idx = this.eqEditorController.getSelectedIndex()
-      const band = this.eqEditorController.getBands()[idx]
+      const band = this.eqEditorController.getSlots()[idx]
       if (!band) return
       this.eqEditorController.setSelectedBand({ muted: !band.muted })
       this.applyEqControls()
@@ -2596,7 +2596,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   // called whenever the selection or its values change, whatever the source
   // (a drag, a wheel Q adjustment, a fresh load, or Reset EQ).
   updateEqFieldsFromSelection() {
-    const bands = this.eqEditorController.getBands()
+    const bands = this.eqEditorController.getSlots()
     const index = this.eqEditorController.getSelectedIndex()
     const band = bands[index]
     // Nothing selected - either a blank EQ, or a band was just deleted
@@ -4826,7 +4826,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixPresetEqRevertBanner.addEventListener('click', () => this.revertPresetEqToSaved())
     this.els.mixPresetEqMute.addEventListener('click', () => {
       const idx = this.presetEq.getSelectedIndex()
-      const band = this.presetEq.getBands()[idx]
+      const band = this.presetEq.getSlots()[idx]
       if (!band) return
       this.presetEq.setSelectedBand({ muted: !band.muted })
       this.applyPresetEqControls()
@@ -4893,7 +4893,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixGroupEqRevertBanner.addEventListener('click', () => this.revertGroupEqToSaved())
     this.els.mixGroupEqMute.addEventListener('click', () => {
       const idx = this.groupEq.getSelectedIndex()
-      const band = this.groupEq.getBands()[idx]
+      const band = this.groupEq.getSlots()[idx]
       if (!band) return
       this.groupEq.setSelectedBand({ muted: !band.muted })
       this.applyGroupEqControls()
@@ -5276,7 +5276,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   // Mirrors Sound mode's updateEqFieldsFromSelection exactly, just against
   // this.presetEq/mixPreset* instead of the Sound-mode controller/els.
   updatePresetEqFieldsFromSelection() {
-    const bands = this.presetEq.getBands()
+    const bands = this.presetEq.getSlots()
     const index = this.presetEq.getSelectedIndex()
     const band = bands[index]
     const readOnly = this.presetEq.isReadOnly()
@@ -5746,7 +5746,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   updateGroupEqFieldsFromSelection() {
-    const bands = this.groupEq.getBands()
+    const bands = this.groupEq.getSlots()
     const index = this.groupEq.getSelectedIndex()
     const band = bands[index]
     const readOnly = this.groupEq.isReadOnly()

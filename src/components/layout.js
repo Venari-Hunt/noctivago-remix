@@ -188,6 +188,13 @@ function arrangeEqTools(eq, p) {
 
   const fields = eq.querySelector('.editor-eq-band-controls, .editor-mix-eq-fields')
   fields.className = 'rx-under rx-eq-fields'
+  // Fixed band slots (LYNX): numbered chips at the start of the fields row;
+  // EqEditor finds the strip by its canvas id and draws the chips.
+  const slots = el(doc, 'div', 'rx-eq-slots')
+  slots.setAttribute('role', 'group')
+  slots.setAttribute('aria-label', 'Band slots')
+  slots.dataset.eqSlotsFor = `${p}-canvas`
+  fields.prepend(slots)
   for (const label of fields.querySelectorAll('label')) {
     label.classList.add('rx-fl')
     label.querySelector('.editor-filter-value')?.remove() // "Hz", "dB": the mock's fields carry no unit

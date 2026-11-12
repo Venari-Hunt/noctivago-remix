@@ -1,4 +1,5 @@
 import { PALETTE, withAlpha } from '../domain/palette.js'
+import { EQ_MAX_BANDS, EMPTY_SLOT, isEmptySlot, padEqSlots, compactEqSlots, freeSlotIndex } from '../domain/eqSlots.js'
 // Draggable-node parametric EQ editor - a scoped-down take on FL Studio's
 // "Fruity Parametric EQ 2" (the reference the user showed a screenshot of,
 // see noctivago_remix_eq_future memory). Band count is fully user-managed -
@@ -107,7 +108,7 @@ export function eqBandStageCount(band) {
 // runaway (each band is a real BiquadFilterNode in the live audio graph),
 // not a meaningful creative constraint; a real parametric EQ project rarely
 // needs anywhere near this many bands.
-const MAX_BANDS = 20
+const MAX_BANDS = EQ_MAX_BANDS
 // How much a Ctrl-held drag shrinks mouse movement into parameter movement -
 // matches the reference's own Ctrl+click fine-tune convention. Applied to
 // the per-frame *delta*, not the absolute cursor position (see pointerMove),
@@ -653,7 +654,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
     const litCurve = responseCurve.perBand.find((c) => c.index === lit)
     if (litCurve && responseCurve.perBand.length > 1) strokeCurve(ctx, litCurve.db, height, TYPE_COLORS[litCurve.type] ?? TYPE_COLORS.peaking, 1.5)
     strokeCurve(ctx, responseCurve.total, height, PALETTE.text, 2)
-  } else if (bands.length === 0) {
+  } else if (bands.every(isEmptySlot)) {
     ctx.fillStyle = PALETTE.textDim
     ctx.font = '12px sans-serif'
     ctx.textAlign = 'center'
@@ -675,6 +676,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
   // (matching the graph's existing accent-highlight color) around the node,
   // and each node's 1-2 letter initial (TYPE_INITIALS) is drawn on top.
   bands.forEach((band, i) => {
+    if (isEmptySlot(band)) return // an unused slot has no node on the graph
     const type = band.type ?? 'peaking'
     const bypassed = band.muted || type === 'off' || (soloIndex !== -1 && soloIndex !== i)
     const x = freqToX(band.freqHz, width, viewMinHz, viewMaxHz)
@@ -819,6 +821,8 @@ export function createEqEditorController(canvas) {
   // being edited before has no reason to carry over to a different one.
   let viewMinHz = FREQ_MIN
   let viewMaxHz = FREQ_MAX
+  let slotStrip = null // see renderSlotStrip
+  let slotSignature = ''
   let onChange = () => {}
   // Two distinct gestures, two distinct callbacks - deliberately split apart
   // (they used to fire the identical callback) after direct feedback: double
@@ -854,6 +858,41 @@ export function createEqEditorController(canvas) {
     const heat = shown ? { binDb: shown, refBinDb: heatPreDb, sampleRate: heatSampleRate, before } : null
     drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, getResponseCurve(width), hoveredIndex, viewMinHz, viewMaxHz, { mode: spectrumMode, heat, tap: tapMode })
     if (rulerCanvas) drawRulers(rulerCanvas, viewMinHz, viewMaxHz)
+    renderSlotStrip()
+  }
+
+  // Fixed band slots: one numbered chip per slot under the graph. Empty
+  // slots are hollow, Off/muted bands dim, live bands carry their type
+  // color; the selected one is ringed. Clicking a chip selects that slot
+  // (an empty one shows Off in the fields; pick a type to turn it on).
+  // redraw() runs every spectrum frame, so the DOM is only rebuilt when
+  // the slots or the selection actually change.
+  function renderSlotStrip() {
+    if (!slotStrip && canvas.id) slotStrip = canvas.ownerDocument.querySelector(`[data-eq-slots-for="${canvas.id}"]`)
+    if (!slotStrip) return
+    const sig = JSON.stringify([selectedIndex, soloIndex, readOnly, bands.map((b) => [isEmptySlot(b), b.type, b.muted, Math.round(b.freqHz)])])
+    if (sig === slotSignature) return
+    slotSignature = sig
+    const doc = slotStrip.ownerDocument
+    slotStrip.replaceChildren(...bands.map((band, i) => {
+      const chip = doc.createElement('button')
+      chip.type = 'button'
+      chip.className = 'rx-eq-slot'
+      chip.textContent = String(i + 1)
+      const empty = isEmptySlot(band)
+      const off = !empty && (band.type === 'off' || band.muted || (soloIndex !== -1 && soloIndex !== i))
+      chip.dataset.state = empty ? 'empty' : off ? 'off' : 'on'
+      if (!empty && band.type !== 'off') chip.style.setProperty('--slot-color', TYPE_COLORS[band.type] ?? TYPE_COLORS.peaking)
+      chip.setAttribute('aria-pressed', String(i === selectedIndex))
+      const label = empty ? 'empty' : band.type === 'off' ? 'Off' : `${EQ_TYPE_LABELS[band.type] ?? band.type}, ${Math.round(band.freqHz)} Hz${band.muted ? ', muted' : ''}`
+      chip.title = `Band ${i + 1}: ${label}`
+      chip.addEventListener('click', () => {
+        selectedIndex = i
+        redraw()
+        onChange(getBands(), selectedIndex)
+      })
+      return chip
+    }))
   }
 
   // Zooms the visible frequency window in/out around centerHz (defaults to
@@ -901,6 +940,7 @@ export function createEqEditorController(canvas) {
     let best = -1
     let bestDist = Infinity
     bands.forEach((band, i) => {
+      if (isEmptySlot(band)) return
       const bx = freqToX(band.freqHz, width, viewMinHz, viewMaxHz)
       const by = gainToY(handleGainDb(band), height)
       const dist = Math.hypot(x - bx, y - by)
@@ -999,10 +1039,19 @@ export function createEqEditorController(canvas) {
   // New node lands at a fixed, neutral default position rather than
   // wherever the cursor happens to be - the request was specifically for a
   // dedicated + button, not click-anywhere-on-the-graph-to-add.
+  // Fixed slots: the + turns on the first free slot; past the slots it
+  // still adds one, up to MAX_BANDS.
   function addBand() {
-    if (readOnly || bands.length >= MAX_BANDS) return
-    bands.push({ ...NEW_BAND_DEFAULTS })
-    selectedIndex = bands.length - 1
+    if (readOnly) return
+    let idx = freeSlotIndex(bands)
+    if (idx === -1) {
+      if (bands.length >= MAX_BANDS) return
+      bands.push({ ...NEW_BAND_DEFAULTS })
+      idx = bands.length - 1
+    } else {
+      bands[idx] = { ...NEW_BAND_DEFAULTS }
+    }
+    selectedIndex = idx
     redraw()
     onChange(getBands(), selectedIndex)
   }
@@ -1015,10 +1064,11 @@ export function createEqEditorController(canvas) {
   // element shifts left by one).
   function removeSelectedBand() {
     if (readOnly || selectedIndex === -1 || !bands[selectedIndex]) return
+    // Fixed slots: deleting empties the slot (back to its untouched Off
+    // state) instead of splicing, so the other bands keep their numbers.
     const removedIndex = selectedIndex
-    bands.splice(removedIndex, 1)
+    bands[removedIndex] = { ...EMPTY_SLOT }
     if (soloIndex === removedIndex) soloIndex = -1
-    else if (soloIndex > removedIndex) soloIndex -= 1
     selectedIndex = -1
     redraw()
     onChange(getBands(), selectedIndex)
@@ -1053,7 +1103,7 @@ export function createEqEditorController(canvas) {
   function turnOnBandAt(x, y, width, height) {
     const freqHz = Math.round(xToFreq(x, width, viewMinHz, viewMaxHz))
     const gainDb = Math.round(yToGain(y, height) * 10) / 10
-    let idx = bands.findIndex((b) => b.type === 'off')
+    let idx = freeSlotIndex(bands)
     if (idx === -1) {
       if (bands.length >= MAX_BANDS) return
       bands.push({ ...NEW_BAND_DEFAULTS })
@@ -1175,7 +1225,12 @@ export function createEqEditorController(canvas) {
     document.addEventListener('keydown', onMenuKey, true)
   }
 
+  // The saved shape: the bands without the untouched trailing slots.
   function getBands() {
+    return compactEqSlots(bands)
+  }
+  // Every slot, for indexing by the selected slot.
+  function getSlots() {
     return bands.map((b) => ({ ...b }))
   }
 
@@ -1199,8 +1254,8 @@ export function createEqEditorController(canvas) {
 
   return {
     load(newBands) {
-      bands = newBands.map((b) => ({ ...b }))
-      selectedIndex = bands.length > 0 ? 0 : -1
+      bands = padEqSlots(newBands)
+      selectedIndex = isEmptySlot(bands[0]) ? -1 : 0
       // A fresh sound's band-energy analysis hasn't arrived yet (it's an
       // async ffmpeg round-trip, see index.js's loadSound()) - clear any
       // previous sound's backdrop immediately rather than leaving it up
@@ -1219,6 +1274,7 @@ export function createEqEditorController(canvas) {
       redraw()
     },
     getBands,
+    getSlots,
     // freqs/energies are parallel arrays - see bandEnergy.js's
     // computeBandEnergy for where energies comes from. Passing freqs
     // alongside rather than assuming they match the current bands keeps

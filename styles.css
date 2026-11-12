@@ -1864,3 +1864,19 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: h
 .rx-det-go { width: 100%; }
 .rx-det-empty { color: var(--text-dim); font-size: 13px; line-height: 20px; padding: 8px; }
 .rx-det-empty b { display: block; color: var(--text); font-weight: 600; }
+
+/* Fixed EQ band slots (LYNX): numbered chips at the start of the fields
+   row. Empty = hollow, Off/muted = dim, live = the band's type color;
+   selected = ringed. 28 px chips, 32 px tall rows like the fields. */
+.rx-eq-slots { display: flex; flex-basis: 100%; justify-content: center; gap: 4px; }
+.rx .rx-eq-slot { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: var(--rx-track); color: var(--text-dim, rgba(255, 255, 255, .55)); font: inherit; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer; box-shadow: inset 0 0 0 1px var(--rx-line); transition: background 120ms cubic-bezier(.2,.8,.2,1); }
+.rx .rx-eq-slot:hover { background: var(--rx-hover); color: var(--text); }
+.rx .rx-eq-slot[data-state="empty"] { background: transparent; box-shadow: inset 0 0 0 1px var(--rx-line); }
+.rx .rx-eq-slot[data-state="on"] { background: color-mix(in srgb, var(--slot-color) 28%, transparent); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--slot-color) 70%, transparent); }
+.rx .rx-eq-slot[data-state="off"] { opacity: .55; }
+.rx .rx-eq-slot[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rx .rx-eq-slot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The revert banner keeps its space while hidden, so the graph does not
+   jump down 46 px on the first edit. */
+.editor-eq-revert-banner.hidden { display: block !important; visibility: hidden; pointer-events: none; }
