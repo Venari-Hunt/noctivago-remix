@@ -38,7 +38,8 @@ export const Q_MIN = 0.1
 // surgical narrow-band work without drifting into a range so narrow it's
 // no longer musically useful.
 export const Q_MAX = 20
-const HIT_PX = 14
+// LYNX-style handles (owner, 2026-11-11): 12 px grab radius.
+const HIT_PX = 12
 const Q_WHEEL_STEP = 0.08
 // A new node's starting point - a neutral peaking band, roughly centered on
 // the graph's log-frequency axis so it's immediately visible and draggable
@@ -57,15 +58,12 @@ const NEW_BAND_DEFAULTS = { freqHz: 1000, gainDb: 0, q: 1, type: 'peaking', slop
 export const SLOPE_CAPABLE_EQ_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch']
 export const STEEP_STAGE_COUNT = 4
 
-// Right-click cycles a node's type through this exact order - matches the
-// precision-fields <select>'s own option order in index.js, so right-click
-// and the dropdown always agree on "next". A per-type color (fill) + 1-2
+// A per-type color (fill) + 1-2
 // letter initial (drawn inside the node) replace the old binary selected/
 // unselected coloring, so a band's shape is now readable at a glance without
 // selecting it - 'off' has neither (it does nothing, stays the plain dimmed
 // gray the bypassed/muted state already used). 'peaking' keeps the graph's
 // app's accent color since it's the most common/default type.
-const TYPE_CYCLE_ORDER = ['off', 'lowpass', 'highpass', 'bandpass', 'notch', 'lowshelf', 'highshelf', 'peaking']
 const TYPE_COLORS = {
   peaking: PALETTE.accent,
   lowpass: '#2dd4bf',
@@ -83,6 +81,22 @@ const TYPE_INITIALS = {
   notch: 'N',
   lowshelf: 'LS',
   highshelf: 'HS'
+}
+// Where a band's handle sits (owner, 2026-11-11): on the band's real point.
+// Peak and shelves at their gain; cuts, band pass and notch have no gain
+// (the biquad ignores it), so their handle rides the 0 dB line.
+const GAINLESS_EQ_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch', 'off']
+export function handleGainDb(band) {
+  return GAINLESS_EQ_TYPES.includes(band.type ?? 'peaking') ? 0 : band.gainDb
+}
+export const EQ_TYPE_LABELS = {
+  peaking: 'Peak',
+  lowshelf: 'Low shelf',
+  highshelf: 'High shelf',
+  highpass: 'Low cut (high pass)',
+  lowpass: 'High cut (low pass)',
+  bandpass: 'Band pass',
+  notch: 'Notch'
 }
 const NODE_RADIUS = 9
 const NODE_RADIUS_SELECTED = 11
@@ -510,7 +524,9 @@ function getResponseContext() {
 // (in the log domain, i.e. added that many times) to stay an honest
 // reflection of the real cascaded rolloff, not just the single-stage shape.
 function computeResponseCurve(bands, width, soloIndex, viewMinHz, viewMaxHz) {
-  const activeBands = bands.filter((band, i) => !band.muted && band.type !== 'off' && (soloIndex === -1 || soloIndex === i))
+  const activeBands = bands
+    .map((band, index) => ({ band, index }))
+    .filter(({ band, index }) => !band.muted && band.type !== 'off' && (soloIndex === -1 || soloIndex === index))
   if (activeBands.length === 0) return null
 
   const sampleCount = Math.max(2, Math.round(width))
@@ -523,7 +539,10 @@ function computeResponseCurve(bands, width, soloIndex, viewMinHz, viewMaxHz) {
   const totalDb = new Float32Array(sampleCount)
   const mag = new Float32Array(sampleCount)
   const phase = new Float32Array(sampleCount)
-  for (const band of activeBands) {
+  // Each band's own curve too (owner, 2026-11-11): the graph fills every
+  // band's shape in its color, so a node visibly pulls its part of the curve.
+  const perBand = []
+  for (const { band, index } of activeBands) {
     const node = context.createBiquadFilter()
     node.type = band.type ?? 'peaking'
     node.frequency.value = band.freqHz
@@ -531,11 +550,36 @@ function computeResponseCurve(bands, width, soloIndex, viewMinHz, viewMaxHz) {
     node.gain.value = band.gainDb
     node.getFrequencyResponse(freqs, mag, phase)
     const stages = eqBandStageCount(band)
+    const own = new Float32Array(sampleCount)
     for (let i = 0; i < sampleCount; i++) {
-      totalDb[i] += stages * 20 * Math.log10(Math.max(mag[i], 1e-6))
+      own[i] = stages * 20 * Math.log10(Math.max(mag[i], 1e-6))
+      totalDb[i] += own[i]
     }
+    perBand.push({ index, type: band.type ?? 'peaking', db: own })
   }
-  return totalDb
+  return { total: totalDb, perBand }
+}
+
+// One band's shape: filled between its curve and the 0 dB line.
+function bandPath(ctx, db, height) {
+  const zero = gainToY(0, height)
+  ctx.beginPath()
+  ctx.moveTo(0, zero)
+  for (let x = 0; x < db.length; x++) ctx.lineTo(x, gainToY(Math.min(GAIN_MAX, Math.max(GAIN_MIN, db[x])), height))
+  ctx.lineTo(db.length - 1, zero)
+  ctx.closePath()
+}
+
+function strokeCurve(ctx, db, height, color, lineWidth) {
+  ctx.strokeStyle = color
+  ctx.lineWidth = lineWidth
+  ctx.beginPath()
+  for (let x = 0; x < db.length; x++) {
+    const y = gainToY(Math.min(GAIN_MAX, Math.max(GAIN_MIN, db[x])), height)
+    if (x === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.stroke()
 }
 
 function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, responseCurve, hoveredIndex = -1, viewMinHz = FREQ_MIN, viewMaxHz = FREQ_MAX, display = {}) {
@@ -594,24 +638,26 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
     // stopped: the heatmap stays as the last long-term picture of the sound
   } else if (bandEnergy) drawBandEnergyBackdrop(ctx, width, height, bandEnergy.freqs, bandEnergy.energies, viewMinHz, viewMaxHz)
 
-  drawCutOverlay(ctx, width, height, responseCurve)
+  drawCutOverlay(ctx, width, height, responseCurve?.total)
 
   if (responseCurve) {
-    ctx.strokeStyle = PALETTE.accent
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    for (let x = 0; x < responseCurve.length; x++) {
-      const gainDb = Math.min(GAIN_MAX, Math.max(GAIN_MIN, responseCurve[x]))
-      const y = gainToY(gainDb, height)
-      if (x === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
+    // Every band's shape in its color, the highlighted band's own curve in
+    // its color, then the composite on top (LYNX look, owner 2026-11-11).
+    const lit = hoveredIndex !== -1 ? hoveredIndex : selectedIndex
+    for (const curve of responseCurve.perBand) {
+      const color = TYPE_COLORS[curve.type] ?? TYPE_COLORS.peaking
+      bandPath(ctx, curve.db, height)
+      ctx.fillStyle = withAlpha(color, curve.index === lit ? 0.26 : 0.12)
+      ctx.fill()
     }
-    ctx.stroke()
+    const litCurve = responseCurve.perBand.find((c) => c.index === lit)
+    if (litCurve && responseCurve.perBand.length > 1) strokeCurve(ctx, litCurve.db, height, TYPE_COLORS[litCurve.type] ?? TYPE_COLORS.peaking, 1.5)
+    strokeCurve(ctx, responseCurve.total, height, PALETTE.text, 2)
   } else if (bands.length === 0) {
     ctx.fillStyle = PALETTE.textDim
     ctx.font = '12px sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('Click + to add a band', width / 2, height / 2)
+    ctx.fillText('Double-click to add a band', width / 2, height / 2)
     ctx.textAlign = 'left'
     ctx.font = '11px "Segoe UI", sans-serif' // mock axis labels
   }
@@ -632,7 +678,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
     const type = band.type ?? 'peaking'
     const bypassed = band.muted || type === 'off' || (soloIndex !== -1 && soloIndex !== i)
     const x = freqToX(band.freqHz, width, viewMinHz, viewMaxHz)
-    const y = gainToY(band.gainDb, height)
+    const y = gainToY(handleGainDb(band), height)
     const color = TYPE_COLORS[type] ?? TYPE_COLORS.peaking
     const isSelected = i === selectedIndex
     const radius = isSelected ? NODE_RADIUS_SELECTED : NODE_RADIUS
@@ -856,7 +902,7 @@ export function createEqEditorController(canvas) {
     let bestDist = Infinity
     bands.forEach((band, i) => {
       const bx = freqToX(band.freqHz, width, viewMinHz, viewMaxHz)
-      const by = gainToY(band.gainDb, height)
+      const by = gainToY(handleGainDb(band), height)
       const dist = Math.hypot(x - bx, y - by)
       if (dist < bestDist) {
         bestDist = dist
@@ -887,7 +933,8 @@ export function createEqEditorController(canvas) {
     selectedIndex = idx
     dragging = true
     dragVirtualX = freqToX(bands[idx].freqHz, width, viewMinHz, viewMaxHz)
-    dragVirtualY = gainToY(bands[idx].gainDb, height)
+    dragVirtualY = gainToY(handleGainDb(bands[idx]), height)
+    canvas.focus({ preventScroll: true })
     lastMouseX = x
     lastMouseY = y
     redraw()
@@ -923,7 +970,8 @@ export function createEqEditorController(canvas) {
     lastMouseY = y
     const band = bands[selectedIndex]
     band.freqHz = Math.round(xToFreq(dragVirtualX, width, viewMinHz, viewMaxHz))
-    band.gainDb = Math.round(yToGain(dragVirtualY, height) * 10) / 10
+    // A gainless type keeps its handle on 0 dB; only frequency follows.
+    if (!GAINLESS_EQ_TYPES.includes(band.type ?? 'peaking')) band.gainDb = Math.round(yToGain(dragVirtualY, height) * 10) / 10
     redraw()
     onChange(getBands(), selectedIndex)
   }
@@ -992,8 +1040,39 @@ export function createEqEditorController(canvas) {
     if (readOnly) return
     const { x, y, width, height } = eventPos(evt)
     const idx = nearestBandIndex(x, y, width, height)
-    if (idx === -1) return
+    if (idx === -1) {
+      turnOnBandAt(x, y, width, height)
+      return
+    }
     onDoubleClick(idx)
+  }
+
+  // Double-click on empty graph (LYNX, owner 2026-11-11): a band turns on
+  // there. An Off band is reused first (the slot idea: Off bands wait to be
+  // turned on); otherwise a new peak is added, up to MAX_BANDS.
+  function turnOnBandAt(x, y, width, height) {
+    const freqHz = Math.round(xToFreq(x, width, viewMinHz, viewMaxHz))
+    const gainDb = Math.round(yToGain(y, height) * 10) / 10
+    let idx = bands.findIndex((b) => b.type === 'off')
+    if (idx === -1) {
+      if (bands.length >= MAX_BANDS) return
+      bands.push({ ...NEW_BAND_DEFAULTS })
+      idx = bands.length - 1
+    }
+    Object.assign(bands[idx], { type: 'peaking', freqHz, gainDb, muted: false })
+    selectedIndex = idx
+    redraw()
+    onChange(getBands(), selectedIndex)
+  }
+
+  // Delete or Backspace on the focused graph turns the selected band Off.
+  function handleKeyDown(evt) {
+    if (readOnly || selectedIndex === -1 || !bands[selectedIndex]) return
+    if (evt.key !== 'Delete' && evt.key !== 'Backspace') return
+    evt.preventDefault()
+    bands[selectedIndex].type = 'off'
+    redraw()
+    onChange(getBands(), selectedIndex)
   }
 
   // Q has no natural drag axis (both X and Y are already spoken for by
@@ -1020,27 +1099,80 @@ export function createEqEditorController(canvas) {
     onChange(getBands(), selectedIndex)
   }
 
-  // Right-click cycles a node's type through TYPE_CYCLE_ORDER, wrapping
-  // around - requested directly ("Right clicking a node on remix tab should
-  // cicle it's type/mode"). Fully self-contained here (unlike Alt+click's
-  // reset, which defers "what does reset mean" to index.js via a callback)
-  // since cycling has no ambiguity to resolve - matches the plain-mutate-
-  // then-onChange pattern pointerMove already uses for freq/gain drags.
-  // Leaves band.slope untouched, same as switching type via the dropdown
-  // already does - it just goes inert/hidden for a non-slope-capable type
-  // rather than being reset.
+  // Right-click a handle (LYNX, owner 2026-11-11, replacing the old type
+  // cycle): a menu with the types, the slope for types that have one, and
+  // Delete, which turns the band Off.
   function handleContextMenu(evt) {
     if (readOnly) return
     const { x, y, width, height } = eventPos(evt)
     const idx = nearestBandIndex(x, y, width, height)
     if (idx === -1) return
     evt.preventDefault()
-    const band = bands[idx]
-    const currentType = TYPE_CYCLE_ORDER.indexOf(band.type ?? 'peaking')
-    band.type = TYPE_CYCLE_ORDER[(currentType + 1) % TYPE_CYCLE_ORDER.length]
     selectedIndex = idx
     redraw()
     onChange(getBands(), selectedIndex)
+    openBandMenu(idx, evt.clientX, evt.clientY)
+  }
+
+  let menuEl = null
+  function closeBandMenu() {
+    if (!menuEl) return
+    menuEl.remove()
+    menuEl = null
+    document.removeEventListener('mousedown', onMenuOutside, true)
+    document.removeEventListener('keydown', onMenuKey, true)
+  }
+  function onMenuOutside(evt) {
+    if (menuEl && !menuEl.contains(evt.target)) closeBandMenu()
+  }
+  function onMenuKey(evt) {
+    if (evt.key === 'Escape') {
+      evt.stopPropagation()
+      closeBandMenu()
+      canvas.focus({ preventScroll: true })
+    }
+  }
+  function openBandMenu(idx, clientX, clientY) {
+    closeBandMenu()
+    const band = bands[idx]
+    const type = band.type ?? 'peaking'
+    const doc = canvas.ownerDocument
+    menuEl = doc.createElement('div')
+    menuEl.className = 'rx-eq-menu'
+    menuEl.setAttribute('role', 'menu')
+    const item = (label, checked, act, cls = '') => {
+      const b = doc.createElement('button')
+      b.type = 'button'
+      b.className = 'rx-eq-mi' + (cls ? ' ' + cls : '')
+      b.setAttribute('role', checked == null ? 'menuitem' : 'menuitemradio')
+      if (checked != null) b.setAttribute('aria-checked', String(checked))
+      b.textContent = label
+      b.addEventListener('click', () => {
+        act()
+        closeBandMenu()
+        redraw()
+        onChange(getBands(), selectedIndex)
+        canvas.focus({ preventScroll: true })
+      })
+      menuEl.appendChild(b)
+    }
+    const sep = () => menuEl.appendChild(Object.assign(doc.createElement('div'), { className: 'rx-eq-sep' }))
+    for (const [key, label] of Object.entries(EQ_TYPE_LABELS)) item(label, type === key, () => { band.type = key })
+    if (SLOPE_CAPABLE_EQ_TYPES.includes(type)) {
+      sep()
+      item('Gentle slope', band.slope !== 'steep', () => { band.slope = 'gentle' })
+      item('Steep slope', band.slope === 'steep', () => { band.slope = 'steep' })
+    }
+    sep()
+    item('Delete (turn off)', null, () => { band.type = 'off' }, 'rx-eq-danger')
+    doc.body.appendChild(menuEl)
+    const r = menuEl.getBoundingClientRect()
+    const win = doc.defaultView
+    menuEl.style.left = `${Math.min(clientX, win.innerWidth - r.width - 8)}px`
+    menuEl.style.top = `${Math.min(clientY, win.innerHeight - r.height - 8)}px`
+    ;(menuEl.querySelector('[aria-checked="true"]') ?? menuEl.querySelector('button'))?.focus()
+    document.addEventListener('mousedown', onMenuOutside, true)
+    document.addEventListener('keydown', onMenuKey, true)
   }
 
   function getBands() {
@@ -1061,6 +1193,8 @@ export function createEqEditorController(canvas) {
   canvas.addEventListener('wheel', handleWheel, { passive: false })
   canvas.addEventListener('dblclick', handleDoubleClick)
   canvas.addEventListener('contextmenu', handleContextMenu)
+  canvas.addEventListener('keydown', handleKeyDown)
+  if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0
   window.addEventListener('resize', handleResize)
 
   return {
@@ -1250,6 +1384,8 @@ export function createEqEditorController(canvas) {
       window.removeEventListener('resize', handleResize)
       canvas.removeEventListener('dblclick', handleDoubleClick)
       canvas.removeEventListener('contextmenu', handleContextMenu)
+      canvas.removeEventListener('keydown', handleKeyDown)
+      closeBandMenu()
     }
   }
 }
