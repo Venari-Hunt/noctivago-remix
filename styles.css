@@ -1765,3 +1765,34 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: h
 .rx-lib > :not(.rx-list) { flex: none; }
 .rx-side > h3.rx-side-h, .rx-lib-h h3 { flex: none; margin: 0 4px 8px; font-size: 15px; font-weight: 700; overflow: visible; }
 .rx-lib-h h3 { margin: 0; }
+
+/* Contrast pass (owner, 2026-11-11: controls drowned in the panels, A/B looked
+   off). Controls use white overlays, so the same rule reads on the #141417
+   columns and on the #1b1b1f open accordions alike: track 6 %, filled 10 %,
+   hover 15 %, selected 18 % with full-strength text. */
+.rx { --rx-track: rgba(255, 255, 255, .06); --rx-fill: rgba(255, 255, 255, .10); --rx-hover: rgba(255, 255, 255, .15); --rx-press: rgba(255, 255, 255, .08); --rx-sel: rgba(255, 255, 255, .18); --rx-line: rgba(255, 255, 255, .14); }
+
+/* Segmented controls (Now / Last saved, Before / After / Both, A / B). */
+.rx .rx-seg, .rx .editor-eq-compare { display: inline-flex; gap: 2px; padding: 2px; border: 0; border-radius: 12px; background: var(--rx-track); box-shadow: inset 0 0 0 1px var(--rx-line); }
+.rx .rx-seg button:hover { background: var(--rx-press); color: var(--text); }
+.rx .rx-seg button[aria-pressed="true"], .rx .rx-seg button.editor-mode-pill-active, .rx .rx-seg button.editor-mode-pill-active:hover,
+.rx .rx-seg button.editor-eq-compare-btn-active, .rx .rx-seg button.editor-eq-compare-btn-active:hover { background: var(--rx-sel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .4); }
+.rx .editor-eq-compare-btn { width: auto; min-width: 36px; height: 28px; padding: 0 12px; border: 0; border-radius: 10px; font-size: 13px; }
+
+/* Buttons. */
+.rx .rx-b:not(.rx-ghost):not(.rx-pri):not(:disabled), .rx .rx-acts .rx-b:not(.rx-ghost):not(.rx-pri):not(:disabled),
+.rx .rx-tools .rx-b:not(.rx-ghost):not(.editor-eq-mute-active):not(.editor-eq-solo-active) { background: var(--rx-fill); }
+.rx .rx-b:not(.rx-ghost):not(.rx-pri):not(:disabled):hover, .rx .rx-tools .rx-b:not(.rx-ghost):not(.editor-eq-mute-active):not(.editor-eq-solo-active):hover { background: var(--rx-hover); }
+.rx .rx-b:not(.rx-pri):not(:disabled):active { background: var(--rx-press); }
+.rx .rx-b.rx-ghost:hover, .rx .rx-i:hover, .rx .rx-tools .rx-i:hover { background: var(--rx-fill); color: var(--text); }
+
+/* Fields: a visible edge, brighter on hover, accent on focus. */
+.rx .rx-field, .rx .rx-search { background: var(--rx-track); box-shadow: inset 0 0 0 1px var(--rx-line); }
+.rx .rx-field:hover, .rx .rx-search:hover { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .26); }
+.rx .rx-field:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Sound list and accordions: hover and selected read at a glance. */
+.rx .rx-item:hover, .rx .rx-item.rx-item-hl { background: var(--rx-track); }
+.rx .rx-item[aria-current='true'] { background: var(--rx-fill); box-shadow: inset 3px 0 0 var(--accent); }
+.rx .rx-acc[data-open='true'] { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); }
+.rx .rx-acch:hover { background: var(--rx-track); }
