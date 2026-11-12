@@ -811,6 +811,7 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport }) {
     'section',
     'rx-pane rx-prev',
     '<div class="rx-prow"><span id="rx-pplay-slot" class="rx-slot"></span><b id="rx-now-name" class="rx-now"></b><span id="rx-prow-end" class="rx-slot"></span></div>' +
+      '<div id="rx-pnote" class="rx-pnote" hidden>Playing this group only</div>' +
       '<div class="rx-pseek"><span id="rx-cur">0:00</span><span id="rx-total">0:00</span></div>' +
       '<div id="rx-pvol" class="rx-pvol"></div>'
   )
@@ -1031,7 +1032,20 @@ export function arrangeBar(bar, root) {
   const syncVolume = () => volume.style.setProperty('--p', `${volume.value}%`)
   volume.addEventListener('input', syncVolume)
   syncVolume()
-  vol.append($('#editor-sticky-mute'), volumeWrap, $('#editor-preview-mode-toggle'))
+  // Group and Preset modes play through the Mixer: their volume row is the
+  // app's master volume (RemixTab.updateMixVolumeUI), shown in place of the
+  // Sound preview's own row.
+  const mixMute = $('#editor-mix-mute')
+  const mixVolume = $('#editor-mix-volume')
+  mixMute.classList.add('rx-only-mix')
+  const mixVolumeWrap = el(doc, 'div', 'rx-volume rx-only-mix')
+  mixVolumeWrap.appendChild(mixVolume)
+  const soundMute = $('#editor-sticky-mute')
+  soundMute.classList.add('rx-only-sound')
+  volumeWrap.classList.add('rx-only-sound')
+  const modeToggle = $('#editor-preview-mode-toggle')
+  modeToggle.classList.add('rx-only-sound')
+  vol.append(soundMute, volumeWrap, mixMute, mixVolumeWrap, modeToggle)
 
   tab.querySelector('#rx-transport')?.remove()
   bar.querySelector('#rx-transport-src')?.remove()

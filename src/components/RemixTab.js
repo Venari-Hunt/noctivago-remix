@@ -1870,6 +1870,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
         <span id="editor-sticky-time" class="editor-sticky-time rx-num">0:00 / 0:00</span>
         <button id="editor-preview-mode-toggle" class="editor-preview-mode-toggle rx-live" type="button" disabled>Live edit</button>
         <button id="editor-sticky-mute" class="rx-i" type="button" title="Mute">${VOLUME_ICON_SVG}</button>
+        <button id="editor-mix-mute" class="rx-i" type="button" title="Mute" aria-label="Mute">${VOLUME_ICON_SVG}</button>
+        <input id="editor-mix-volume" type="range" min="0" max="1000" value="500" class="editor-sticky-volume rx-fader" title="Volume (the app's master volume)" aria-label="Volume" />
         <input id="editor-sticky-volume" type="range" min="0" max="100" value="${Math.round(this.previewVolume * 100)}" class="editor-sticky-volume rx-fader" title="Preview volume" aria-label="Preview volume" />
         <div id="editor-sticky-progress" class="editor-sticky-progress" title="Drag to seek">
           <div class="editor-sticky-progress-track">
@@ -1968,6 +1970,12 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixSave = container.querySelector('#editor-mix-save')
     this.els.mixDeleteGroup = container.querySelector('#editor-mix-delete-group')
     this.els.mixCopyGroupTo = container.querySelector('#editor-mix-copy-group-to')
+    this.els.mixMute = container.querySelector('#editor-mix-mute')
+    this.els.mixVolume = container.querySelector('#editor-mix-volume')
+    this.els.mixVolume.addEventListener('input', () => {
+      window.dispatchEvent(new CustomEvent('noctivago:remix-set-volume', { detail: { position: Number(this.els.mixVolume.value) / 1000 } }))
+    })
+    this.els.mixMute.addEventListener('click', () => window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-mute', {})))
     this.els.mixPlayPause.addEventListener('click', () => this.onMixPlayPauseClick())
     this.els.mixSoloGroup.addEventListener('click', () => this.onMixSoloGroupClick())
     this.els.mixSave.addEventListener('click', () => {
@@ -4954,8 +4962,11 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   // Mixer's own state to subscribe to.
   updateMixPlayPauseUI(status) {
     const isActivePreset = Boolean(this.selectedPresetId) && status.activePresetId === this.selectedPresetId
-    const playing = isActivePreset && status.isPlaying
     const soloed = this.mode === 'group' && isActivePreset && status.soloedGroupId === this.selectedGroupId
+    // Group mode's Play plays only the picked group (owner, 2026-11-11), so
+    // the whole preset playing there shows Play: pressing it solos the group.
+    const playing = isActivePreset && status.isPlaying && (this.mode !== 'group' || !this.selectedGroupId || soloed)
+    this.updateMixVolumeUI(status)
     // Skip the DOM writes entirely when nothing actually changed since the
     // last tick (self-review v0.1.149) - this runs every rAF frame for as
     // long as Preset/Group mode is open, and .innerHTML in particular tears
@@ -4969,16 +4980,35 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixPlayPause.title = playing ? 'Pause' : isActivePreset ? 'Play' : 'Load this preset and play it in the Mixer'
     this.els.mixPlayPause.disabled = !this.selectedPresetId
 
-    if (this.mode === 'group') {
-      this.els.mixSoloGroup.classList.remove('hidden')
-      this.els.mixSoloGroup.disabled = !this.selectedGroupId
-      this.els.mixSoloGroup.classList.toggle('editor-sticky-solo-active', soloed)
-      // An "S" icon button (mock remix-group); the state is in its label.
-      this.els.mixSoloGroup.title = soloed ? 'Unsolo group' : 'Solo group'
-      this.els.mixSoloGroup.setAttribute('aria-label', this.els.mixSoloGroup.title)
-      this.els.mixSoloGroup.setAttribute('aria-pressed', String(soloed))
-    } else {
-      this.els.mixSoloGroup.classList.add('hidden')
+    if (this.mode === 'group' && this.selectedGroupId) this.els.mixPlayPause.title = playing ? 'Pause' : 'Play this group only'
+    // Play is the solo now, so the separate Solo button stays hidden.
+    this.els.mixSoloGroup.classList.add('hidden')
+    // The preview module is built after els are looked up (arrangeBar), so
+    // the note is found here.
+    const note = this.root?.querySelector('#rx-pnote')
+    if (note) note.hidden = !(this.mode === 'group' && playing && soloed)
+  }
+
+  // The Group/Preset player's volume row is the app's master volume (those
+  // modes play through the Mixer). Polled with the status like Play/Pause; an
+  // app without the remix-set-volume bridge reports no volumePosition, and
+  // the row stays hidden.
+  updateMixVolumeUI(status) {
+    const supported = Number.isFinite(status.volumePosition)
+    this.root?.classList.toggle('rx-mixvol-on', supported)
+    if (!supported) return
+    const doc = this.els.mixVolume.ownerDocument
+    if (doc.activeElement !== this.els.mixVolume || !this.els.mixVolume.matches(':active')) {
+      const value = String(Math.round(status.volumePosition * 1000))
+      if (this.els.mixVolume.value !== value) this.els.mixVolume.value = value
+    }
+    this.els.mixVolume.style.setProperty('--p', `${(Number(this.els.mixVolume.value) / 10).toFixed(1)}%`)
+    const muted = Boolean(status.muted)
+    if (this._mixMuted !== muted) {
+      this._mixMuted = muted
+      this.els.mixMute.innerHTML = muted ? MUTE_ICON_SVG : VOLUME_ICON_SVG
+      this.els.mixMute.title = muted ? 'Unmute' : 'Mute'
+      this.els.mixMute.setAttribute('aria-label', this.els.mixMute.title)
     }
   }
 
@@ -4992,11 +5022,41 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   onMixPlayPauseClick() {
     if (!this.selectedPresetId) return
     const status = requestMixerStatus()
+    if (this.mode === 'group' && this.selectedGroupId) {
+      this.playGroupOnly(status)
+      return
+    }
+    // Preset mode plays the whole preset: a group soloed from Group mode is
+    // released first.
+    if (status.activePresetId === this.selectedPresetId && status.soloedGroupId) {
+      window.dispatchEvent(new CustomEvent('noctivago:remix-unsolo-group', {}))
+      if (!status.isPlaying) window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-playback', {}))
+      return
+    }
     if (status.activePresetId !== this.selectedPresetId) {
       window.dispatchEvent(new CustomEvent('noctivago:remix-load-preset', { detail: { presetId: this.selectedPresetId } }))
     } else {
       window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-playback', {}))
     }
+  }
+
+  // Group mode's Play (owner, 2026-11-11): plays only the picked group, with
+  // "Playing this group only" on the player. Loads the preset if needed (with
+  // the solo applied once it lands), solos the group if another is heard,
+  // and otherwise toggles play/pause.
+  playGroupOnly(status) {
+    const presetId = this.selectedPresetId
+    const groupId = this.selectedGroupId
+    if (status.activePresetId !== presetId) {
+      window.dispatchEvent(new CustomEvent('noctivago:remix-load-preset', { detail: { presetId, soloGroupId: groupId } }))
+      return
+    }
+    if (status.soloedGroupId !== groupId) {
+      window.dispatchEvent(new CustomEvent('noctivago:remix-solo-group', { detail: { presetId, groupId } }))
+      if (!status.isPlaying) window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-playback', {}))
+      return
+    }
+    window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-playback', {}))
   }
 
   // Group mode's own "hear just this group" button - mutes every other

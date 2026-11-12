@@ -19,7 +19,9 @@ export function requestAnalyser(kind, presetId, groupId) {
 // playing, is a group currently soloed) without a direct reference into
 // tabs/mixer/index.js.
 export function requestMixerStatus() {
-  const detail = { activePresetId: null, isPlaying: false, soloedGroupId: null }
+  // volumePosition/muted: the app's master volume, filled in by apps that
+  // have the remix-set-volume bridge (left undefined by older ones).
+  const detail = { activePresetId: null, isPlaying: false, soloedGroupId: null, volumePosition: undefined, muted: false }
   window.dispatchEvent(new CustomEvent('noctivago:request-mixer-status', { detail }))
   return detail
 }

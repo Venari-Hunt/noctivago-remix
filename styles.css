@@ -1690,6 +1690,10 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: h
 .rx-pvol .rx-i { width: 28px; height: 28px; border-radius: 10px; }
 .rx[data-rx-mode='sound'] .rx-only-mix, .rx:not([data-rx-mode='sound']) .rx-only-sound { display: none; }
 .rx:not([data-rx-mode='sound']) .rx-pseek, .rx:not([data-rx-mode='sound']) .rx-pvol { display: none; }
+/* Group and Preset show the master-volume row only when the app has the bridge. */
+.rx-mixvol-on .rx:not([data-rx-mode='sound']) .rx-pvol { display: flex; }
+.rx-pnote { color: var(--accent); font-size: 12px; line-height: 16px; font-weight: 600; }
+.rx-pnote[hidden] { display: none; }
 
 /* Center: the head, then the mode's canvas column, as one pane. */
 .rx-head { grid-column: 2; grid-row: 1; flex-direction: row; align-items: flex-end; gap: 16px; padding: 20px 24px 0; border-radius: 12px 12px 0 0; overflow: visible; }
