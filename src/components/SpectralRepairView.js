@@ -30,7 +30,8 @@ const COLORS = {
   boxFill: withAlpha(PALETTE.accent, 0.16),
   box: 'rgba(255, 255, 255, 0.7)',
   selected: PALETTE.accent,
-  draft: 'rgba(255, 255, 255, 0.9)'
+  draft: 'rgba(255, 255, 255, 0.9)',
+  playhead: PALETTE.accent
 }
 
 export function createSpectralRepairController(canvas) {
@@ -41,6 +42,10 @@ export function createSpectralRepairController(canvas) {
   let regions = []
   let selected = -1
   let drag = null // { kind: 'create' | 'move' | 'resize', ... }
+  // Playback needle in absolute file seconds (null = hidden), so the
+  // spectrogram shows which part of the sound is playing.
+  let playhead = null
+  let playheadX = null
   const changeListeners = []
   const selectListeners = []
 
@@ -233,6 +238,12 @@ export function createSpectralRepairController(canvas) {
     if (drag?.kind === 'create') {
       drawBox(regionFromCorners(drag.from, drag.to, view), width, height, { stroke: COLORS.draft, lineWidth: 1 })
     }
+    playheadX = null
+    if (playhead !== null && playhead >= view.start && playhead <= view.end) {
+      playheadX = Math.round(secToX(playhead, view, width))
+      ctx.fillStyle = COLORS.playhead
+      ctx.fillRect(playheadX - 1, 0, 2, height)
+    }
     if (status) {
       ctx.fillStyle = COLORS.dim
       ctx.font = '12px system-ui, sans-serif'
@@ -258,6 +269,14 @@ export function createSpectralRepairController(canvas) {
   resizeObserver.observe(canvas)
 
   return {
+    // Called every animation frame while a preview plays; redraws only when
+    // the needle moves to a new pixel (or shows/hides).
+    setPlayhead(sec) {
+      playhead = Number.isFinite(sec) ? sec : null
+      const visible = playhead !== null && playhead >= view.start && playhead <= view.end
+      const x = visible ? Math.round(secToX(playhead, view, size().width)) : null
+      if (x !== playheadX) draw()
+    },
     setView(start, end) {
       if (!(end > start)) return
       view = { start, end }

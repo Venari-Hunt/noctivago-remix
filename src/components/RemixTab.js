@@ -3820,11 +3820,13 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       // 0..duration terms (see updateStickyProgress's mode branch).
       const source = this.clipTimeToSource(active.currentTime)
       this.loopEditorController.setPlayhead(source)
+      this.spectralView?.setPlayhead(source)
       this.updateSeamPlayhead(source)
       this.updateStickyProgress(active.currentTime)
     } else {
       const currentTime = active.currentTime
       this.loopEditorController.setPlayhead(currentTime)
+      this.spectralView?.setPlayhead(currentTime)
       this.updateSeamPlayhead(currentTime)
       this.updateStickyProgress(currentTime)
       // Volume envelope: only the *live* preview needs this (previewMode
