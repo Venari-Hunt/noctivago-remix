@@ -480,6 +480,11 @@ ${mixFluctuationMarkup('preset')}
                 <span id="editor-mix-group-gain-value" class="editor-filter-value">0 dB</span>
               </label>
               <label>
+                <span>Pan</span>
+                <input id="editor-mix-group-pan" type="range" min="-100" max="100" value="0" step="1" />
+                <span id="editor-mix-group-pan-value" class="editor-filter-value">C</span>
+              </label>
+              <label>
                 <span>Echo delay</span>
                 <input id="editor-mix-group-echo-delay" type="range" min="0" max="1500" value="0" step="10" />
                 <span id="editor-mix-group-echo-delay-value" class="editor-filter-value">Off</span>
@@ -1188,6 +1193,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       mixGroupLowpassValue: container.querySelector('#editor-mix-group-lowpass-value'),
       mixGroupGain: container.querySelector('#editor-mix-group-gain'),
       mixGroupGainValue: container.querySelector('#editor-mix-group-gain-value'),
+      mixGroupPan: container.querySelector('#editor-mix-group-pan'),
+      mixGroupPanValue: container.querySelector('#editor-mix-group-pan-value'),
       mixGroupEchoDelay: container.querySelector('#editor-mix-group-echo-delay'),
       mixGroupEchoDelayValue: container.querySelector('#editor-mix-group-echo-delay-value'),
       mixGroupEchoDecay: container.querySelector('#editor-mix-group-echo-decay'),
@@ -4757,7 +4764,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     }
 
     this.els.mixGroupName.addEventListener('input', () => this.updateGroupDirty())
-    for (const el of [this.els.mixGroupHighpass, this.els.mixGroupLowpass, this.els.mixGroupGain, this.els.mixGroupEchoDelay, this.els.mixGroupEchoDecay, this.els.mixGroupReverbSize, this.els.mixGroupReverbMix, this.els.mixGroupOcclusion]) {
+    for (const el of [this.els.mixGroupHighpass, this.els.mixGroupLowpass, this.els.mixGroupGain, this.els.mixGroupPan, this.els.mixGroupEchoDelay, this.els.mixGroupEchoDecay, this.els.mixGroupReverbSize, this.els.mixGroupReverbMix, this.els.mixGroupOcclusion]) {
       el.addEventListener('input', () => this.readGroupControlsAndPreview())
     }
     for (const el of [this.els.mixGroupFlucEnabled, this.els.mixGroupFlucFullRandom, this.els.mixGroupFlucChangeMin, this.els.mixGroupFlucChangeMax, this.els.mixGroupFlucTransition, this.els.mixGroupFlucPanEnabled, this.els.mixGroupFlucPanFullRandom, this.els.mixGroupFlucPanChangeMin, this.els.mixGroupFlucPanChangeMax, this.els.mixGroupFlucPanTransition, this.els.mixGroupFlucBias, this.els.mixGroupFlucPerSound, this.els.mixGroupFlucPanBias, this.els.mixGroupFlucPanPerSound, this.els.mixGroupFlucPitchEnabled, this.els.mixGroupFlucPitchFullRandom, this.els.mixGroupFlucPitchChangeMin, this.els.mixGroupFlucPitchChangeMax, this.els.mixGroupFlucPitchTransition, this.els.mixGroupFlucPitchBias]) {
@@ -5629,6 +5636,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixGroupHighpass.value = String(filters.highpassHz)
     this.els.mixGroupLowpass.value = String(filters.lowpassHz)
     this.els.mixGroupGain.value = String(filters.gainDb)
+    this.els.mixGroupPan.value = String(Math.round((filters.pan ?? 0) * 100))
     this.els.mixGroupEchoDelay.value = String(filters.echoDelayMs)
     this.els.mixGroupEchoDecay.value = String(filters.echoDecay)
     this.els.mixGroupReverbSize.value = String(filters.reverbSizeMs ?? 0)
@@ -5751,6 +5759,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       highpassHz: Number(this.els.mixGroupHighpass.value),
       lowpassHz: Number(this.els.mixGroupLowpass.value),
       gainDb: Number(this.els.mixGroupGain.value),
+      pan: Number(this.els.mixGroupPan.value) / 100,
       echoDelayMs: Number(this.els.mixGroupEchoDelay.value),
       echoDecay: Number(this.els.mixGroupEchoDecay.value),
       reverbSizeMs: Number(this.els.mixGroupReverbSize.value),
@@ -5786,6 +5795,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.els.mixGroupHighpassValue.textContent = hp > 0 ? `${hp} Hz` : 'Off'
     this.els.mixGroupLowpassValue.textContent = lp < 20000 ? `${lp} Hz` : 'Off'
     this.els.mixGroupGainValue.textContent = `${gain > 0 ? '+' : ''}${gain} dB`
+    this.els.mixGroupPanValue.textContent = formatPan(Number(this.els.mixGroupPan.value) / 100)
     this.els.mixGroupEchoDelayValue.textContent = echoDelay > 0 ? `${echoDelay} ms` : 'Off'
     this.els.mixGroupEchoDecayValue.textContent = echoDecay > 0 ? echoDecay.toFixed(2) : 'Off'
     this.els.mixGroupReverbSizeValue.textContent = reverbSize > 0 ? `${(reverbSize / 1000).toFixed(1)}s` : 'Off'

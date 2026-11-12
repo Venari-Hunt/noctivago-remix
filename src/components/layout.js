@@ -308,7 +308,9 @@ function arrangeScope(root, kind, getBands) {
     knobs([
       ['highpass', 'High-pass'],
       ['lowpass', 'Low-pass'],
-      ['gain', 'Gain']
+      ['gain', 'Gain'],
+      // Group pan (owner, 2026-11-11); a whole mix has no pan.
+      ...(kind === 'group' ? [['pan', 'Pan']] : [])
     ])
   )
   if (kind === 'preset') {
@@ -386,7 +388,7 @@ function arrangeScope(root, kind, getBands) {
       highpassHz: num('highpass'),
       lowpassHz: num('lowpass'),
       gainDb: num('gain'),
-      pan: 0,
+      pan: kind === 'group' ? num('pan') / 100 : 0,
       gateThresholdDb: -80,
       gateRangeDb: 0,
       denoiseEnabled: false,

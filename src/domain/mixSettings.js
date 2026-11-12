@@ -169,7 +169,8 @@ export const NEUTRAL_WHOLE_MIX = { highpassHz: 0, lowpassHz: 20000, gainDb: 0, f
 // see src/shared/constants.js's applyOcclusionToFilters (duplicated here
 // only as this plain default, per this plugin's own can't-import-outside-
 // its-directory rule; the actual formula lives in that one shared place).
-export const NEUTRAL_GROUP_FILTERS = { highpassHz: 0, lowpassHz: 20000, gainDb: 0, echoDelayMs: 0, echoDecay: 0, occlusion: 0, eq: [] }
+// pan (owner, 2026-11-11): the group's left/right placement, -1..1.
+export const NEUTRAL_GROUP_FILTERS = { highpassHz: 0, lowpassHz: 20000, gainDb: 0, echoDelayMs: 0, echoDecay: 0, occlusion: 0, pan: 0, eq: [] }
 
 // Shared by both the whole-mix (Preset mode) and group (Group mode) filter
 // shapes below - self-review v0.1.149: these were originally two byte-for-
@@ -279,6 +280,8 @@ export function canonicalMixFilters(obj, { includeFadeIn }) {
     reverbSizeMs: Number(o.reverbSizeMs) || 0,
     reverbMix: Number(o.reverbMix) || 0,
     occlusion: Number(o.occlusion) || 0,
+    // Group pan; a whole-mix object has none (always 0, harmless).
+    pan: Number(o.pan) || 0,
     ...(includeFadeIn ? { fadeInSeconds: Number(o.fadeInSeconds) || 0 } : {}),
     fluctuation: (() => {
       const axis = (a, neutral) => {
