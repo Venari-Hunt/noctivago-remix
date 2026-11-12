@@ -275,33 +275,42 @@ export function spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz, 
 // Step 13b: the heatmap (mock screen remix-eq). Each frequency column glows
 // with its LONG-TERM level, so where a sound lives reads at a glance even
 // between bursts. The level is the live held spectrum smoothed per bin at
-// HEAT_RATE_PER_S, about a 4 s time constant. The mock's 1.5/s drives its
-// simulated motion only; on real rain it swung with every gust. Colors
-// and the curve that spreads them are the mock's heatColor, cold to hot:
-// near black, violet, red, then the app's amber.
-const HEAT_RATE_PER_S = 0.25
+// HEAT_RATE_PER_S, about a 1 s time constant: slow enough that rain does not
+// swing with every gust, fast enough that an EQ edit shows within a second
+// (the old 0.25/s, ~4 s, made edits look like they did nothing; owner,
+// 2026-11-11). Colors and the curve that spreads them are the mock's
+// heatColor: After (post-EQ) runs warm, near black, violet, red, then the
+// app's amber; Before (pre-EQ) runs cold, slate to pale blue, so the two
+// never read as the same picture.
+const HEAT_RATE_PER_S = 1
 const HEAT_BLUR_PX = 4
 const HEAT_STOPS = [[15, 15, 17], [46, 22, 70], [132, 34, 72], [205, 72, 52], [224, 184, 76]]
+export const HEAT_STOPS_BEFORE = [[15, 15, 17], [24, 32, 50], [42, 70, 104], [92, 130, 166], [184, 208, 228]]
 export const SPECTRUM_MODES = ['spectrum', 'both', 'heat']
 const SPECTRUM_MODE_KEY = 'noctivago-remix.spectrumMode'
 // Step 13c: which signal the spectrum reads (Pro-Q's Pre / Post / Pre+Post).
 export const TAP_MODES = ['before', 'after', 'both']
 const TAP_MODE_KEY = 'noctivago-remix.spectrumTap'
 
-export function heatColor(h) {
+export function heatColor(h, stops = HEAT_STOPS) {
   const p = Math.max(0, Math.min(0.999, h)) * 4
   const i = Math.floor(p)
   const f = p - i
-  const a = HEAT_STOPS[i]
-  const b = HEAT_STOPS[i + 1]
+  const a = stops[i]
+  const b = stops[i + 1]
   return `rgb(${a.map((n, k) => Math.round(n + (b[k] - n) * f)).join(',')})`
 }
 
-// Tilted dB -> heat color position, relative to the loudest visible column:
-// that one reads amber, HEAT_RANGE_DB below it near black. Real sounds sit
-// far below the mock's simulated levels, so an absolute scale left the whole
-// graph one dark violet. The middle goes through the mock's own curve.
+// Tilted dB -> heat color position, relative to a top level maxDb: that
+// reads amber, HEAT_RANGE_DB below it near black. Real sounds sit far below
+// the mock's simulated levels, so an absolute scale left the whole graph one
+// dark violet. The middle goes through the mock's own curve.
+// The top is the loudest column of the BEFORE (pre-EQ) heat plus
+// HEAT_HEADROOM_DB, so it does not move when the EQ changes: a boost on the
+// loudest area climbs toward amber and a cut darkens. Scaling to the shown
+// signal's own loudest column (the old way) re-normalized every edit away.
 const HEAT_RANGE_DB = 30
+export const HEAT_HEADROOM_DB = 6
 export function heatLevel(db, maxDb) {
   const rel = Math.min(1, Math.max(0, 1 - (maxDb - db) / HEAT_RANGE_DB))
   const v = 0.22 + 0.62 * rel
@@ -309,11 +318,11 @@ export function heatLevel(db, maxDb) {
   return h * h * 1.1 + 0.08
 }
 
-function drawHeatmap(ctx, width, height, heatDb, sampleRate, viewMinHz, viewMaxHz) {
+// Heat bins -> blurred pixel columns. A soft blur across neighbor columns
+// (HEAT_BLUR_PX each side): the heat is a picture of where the sound lives,
+// not bin-by-bin noise, which drew hard vertical stripes.
+export function heatColumns(width, heatDb, sampleRate, viewMinHz, viewMaxHz) {
   const raw = spectrumColumns(width, heatDb, sampleRate, viewMinHz, viewMaxHz, 'mean')
-  // A soft blur across neighbor columns (HEAT_BLUR_PX each side): the heat is
-  // a picture of where the sound lives, not bin-by-bin noise, which drew
-  // hard vertical stripes.
   const cols = new Float32Array(raw.length)
   for (let x = 0; x < raw.length; x++) {
     let sum = 0
@@ -321,10 +330,26 @@ function drawHeatmap(ctx, width, height, heatDb, sampleRate, viewMinHz, viewMaxH
     for (let k = Math.max(0, x - HEAT_BLUR_PX); k <= Math.min(raw.length - 1, x + HEAT_BLUR_PX); k++) { sum += raw[k]; n++ }
     cols[x] = sum / n
   }
+  return cols
+}
+
+// The heat top: loudest reference column plus headroom (see heatLevel).
+// refCols is the Before heat; without one (no pre tap) the shown heat is
+// its own reference.
+export function heatTopDb(cols, refCols = null) {
+  const src = refCols ?? cols
   let maxDb = -Infinity
-  for (let x = 0; x < cols.length; x++) if (cols[x] > maxDb) maxDb = cols[x]
+  for (let x = 0; x < src.length; x++) if (src[x] > maxDb) maxDb = src[x]
+  return maxDb + HEAT_HEADROOM_DB
+}
+
+function drawHeatmap(ctx, width, height, heat, viewMinHz, viewMaxHz) {
+  const cols = heatColumns(width, heat.binDb, heat.sampleRate, viewMinHz, viewMaxHz)
+  const refCols = heat.refBinDb ? heatColumns(width, heat.refBinDb, heat.sampleRate, viewMinHz, viewMaxHz) : null
+  const topDb = heatTopDb(cols, refCols)
+  const stops = heat.before ? HEAT_STOPS_BEFORE : HEAT_STOPS
   for (let x = 0; x < cols.length; x++) {
-    ctx.fillStyle = heatColor(heatLevel(cols[x], maxDb))
+    ctx.fillStyle = heatColor(heatLevel(cols[x], topDb), stops)
     ctx.fillRect(x, 0, 1.5, height)
   }
 }
@@ -521,7 +546,7 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
   const mode = display.mode ?? 'both'
   // The heatmap is the graph's background, so grid and labels sit on it.
   const showHeat = mode !== 'spectrum' && display.heat
-  if (showHeat) drawHeatmap(ctx, width, height, display.heat.binDb, display.heat.sampleRate, viewMinHz, viewMaxHz)
+  if (showHeat) drawHeatmap(ctx, width, height, display.heat, viewMinHz, viewMaxHz)
 
   ctx.font = '11px "Segoe UI", sans-serif' // mock axis labels
   ctx.textBaseline = 'middle'
@@ -675,6 +700,7 @@ export function createEqEditorController(canvas) {
   // Step 13b: per-bin long-term level for the heatmap, kept after playback
   // stops (it is the sound's picture), cleared when a new sound loads.
   let heatDb = null
+  let heatPreDb = null
   let heatSampleRate = 48000
   let spectrumMode = 'both'
   try {
@@ -775,7 +801,11 @@ export function createEqEditorController(canvas) {
 
   function redraw() {
     const { width } = canvas.getBoundingClientRect()
-    const heat = heatDb ? { binDb: heatDb, sampleRate: heatSampleRate } : null
+    // Before shows the pre-EQ heat in cold hues; After and Both the post-EQ
+    // heat in warm ones. Both are scaled to the Before heat (heatTopDb).
+    const before = tapMode === 'before' && Boolean(heatPreDb)
+    const shown = before ? heatPreDb : heatDb
+    const heat = shown ? { binDb: shown, refBinDb: heatPreDb, sampleRate: heatSampleRate, before } : null
     drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, getResponseCurve(width), hoveredIndex, viewMinHz, viewMaxHz, { mode: spectrumMode, heat, tap: tapMode })
     if (rulerCanvas) drawRulers(rulerCanvas, viewMinHz, viewMaxHz)
   }
@@ -1044,6 +1074,7 @@ export function createEqEditorController(canvas) {
       bandEnergy = null
       liveSpectrum = null
       heatDb = null
+      heatPreDb = null
       // Solo is scoped to "the arrangement currently being edited" - any
       // fresh load (a new sound, Reset EQ, an A/B Compare slot switch) is a
       // new arrangement, so carrying a stale solo forward would silently
@@ -1099,14 +1130,16 @@ export function createEqEditorController(canvas) {
       }
       hold(analyserNode, heldDb)
       if (hasPre) hold(preAnalyserNode, heldPreDb)
-      // Heat follows the signal on show (Before when picked, else After),
-      // easing toward the held level; a fresh sound starts from it.
-      const heatSource = hasPre && tapMode === 'before' ? heldPreDb : heldDb
-      if (!heatDb || heatDb.length !== n) heatDb = Float32Array.from(heatSource)
-      else {
-        const k = Math.min(1, dt * HEAT_RATE_PER_S)
-        for (let i = 0; i < n; i++) heatDb[i] += (heatSource[i] - heatDb[i]) * k
+      // Both heats ease toward their held levels; a fresh sound starts from
+      // them. The Before heat is kept even on After: it is the fixed scale.
+      const k = Math.min(1, dt * HEAT_RATE_PER_S)
+      const ease = (heat, src) => {
+        if (!heat || heat.length !== n) return Float32Array.from(src)
+        for (let i = 0; i < n; i++) heat[i] += (src[i] - heat[i]) * k
+        return heat
       }
+      heatDb = ease(heatDb, heldDb)
+      heatPreDb = hasPre ? ease(heatPreDb, heldPreDb) : null
       heatSampleRate = analyserNode.context.sampleRate
       liveSpectrum = { binDb: heldDb, preBinDb: hasPre ? heldPreDb : null, sampleRate: analyserNode.context.sampleRate }
       redraw()
