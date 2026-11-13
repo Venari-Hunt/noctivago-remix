@@ -1,3 +1,5 @@
+import { icon } from './icons.js'
+import { eqMenuIcon } from './eqMenuIcons.js'
 import { PALETTE, withAlpha } from '../domain/palette.js'
 import { EQ_MAX_BANDS, EMPTY_SLOT, qWhenTypeChanges, isEmptySlot, padEqSlots, compactEqSlots, freeSlotIndex } from '../domain/eqSlots.js'
 // Draggable-node parametric EQ editor - a scoped-down take on FL Studio's
@@ -1190,13 +1192,14 @@ export function createEqEditorController(canvas) {
     menuEl = doc.createElement('div')
     menuEl.className = 'rx-eq-menu'
     menuEl.setAttribute('role', 'menu')
-    const item = (label, checked, act, cls = '') => {
+    const item = (label, checked, act, cls = '', iconSvg = '') => {
       const b = doc.createElement('button')
       b.type = 'button'
       b.className = 'rx-eq-mi' + (cls ? ' ' + cls : '')
       b.setAttribute('role', checked == null ? 'menuitem' : 'menuitemradio')
       if (checked != null) b.setAttribute('aria-checked', String(checked))
-      b.textContent = label
+      b.innerHTML = iconSvg
+      b.appendChild(doc.createTextNode(label))
       b.addEventListener('click', () => {
         act()
         closeBandMenu()
@@ -1207,14 +1210,14 @@ export function createEqEditorController(canvas) {
       menuEl.appendChild(b)
     }
     const sep = () => menuEl.appendChild(Object.assign(doc.createElement('div'), { className: 'rx-eq-sep' }))
-    for (const [key, label] of Object.entries(EQ_TYPE_LABELS)) item(label, type === key, () => { band.q = qWhenTypeChanges(band, key); band.type = key })
+    for (const [key, label] of Object.entries(EQ_TYPE_LABELS)) item(label, type === key, () => { band.q = qWhenTypeChanges(band, key); band.type = key }, '', eqMenuIcon(key))
     if (SLOPE_CAPABLE_EQ_TYPES.includes(type)) {
       sep()
-      item('Gentle slope', band.slope !== 'steep', () => { band.slope = 'gentle' })
-      item('Steep slope', band.slope === 'steep', () => { band.slope = 'steep' })
+      item('Gentle slope', band.slope !== 'steep', () => { band.slope = 'gentle' }, '', eqMenuIcon('slope-gentle'))
+      item('Steep slope', band.slope === 'steep', () => { band.slope = 'steep' }, '', eqMenuIcon('slope-steep'))
     }
     sep()
-    item('Delete (turn off)', null, () => { band.type = 'off' }, 'rx-eq-danger')
+    item('Delete (turn off)', null, () => { band.type = 'off' }, 'rx-eq-danger', icon('trash-2'))
     doc.body.appendChild(menuEl)
     const r = menuEl.getBoundingClientRect()
     const win = doc.defaultView
