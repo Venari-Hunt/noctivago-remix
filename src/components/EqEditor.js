@@ -294,12 +294,13 @@ export function spectrumColumns(width, binDb, sampleRate, viewMinHz, viewMaxHz, 
 // (the old 0.25/s, ~4 s, made edits look like they did nothing; owner,
 // 2026-11-11). Colors and the curve that spreads them are the mock's
 // heatColor: After (post-EQ) runs warm, near black, violet, red, then the
-// app's amber; Before (pre-EQ) runs cold, slate to pale blue, so the two
-// never read as the same picture.
+// app's amber; Before (pre-EQ) runs cold, deep teal to pale aqua (was slate
+// blue, which sat too close to After's dark violet; owner, 2026-11-13), so
+// the two never read as the same picture.
 const HEAT_RATE_PER_S = 1
 const HEAT_BLUR_PX = 4
 const HEAT_STOPS = [[15, 15, 17], [46, 22, 70], [132, 34, 72], [205, 72, 52], [224, 184, 76]]
-export const HEAT_STOPS_BEFORE = [[15, 15, 17], [24, 32, 50], [42, 70, 104], [92, 130, 166], [184, 208, 228]]
+export const HEAT_STOPS_BEFORE = [[15, 15, 17], [8, 52, 58], [10, 112, 124], [40, 190, 190], [150, 240, 232]]
 export const SPECTRUM_MODES = ['spectrum', 'both', 'heat']
 const SPECTRUM_MODE_KEY = 'noctivago-remix.spectrumMode'
 // Step 13c: which signal the spectrum reads (Pro-Q's Pre / Post / Pre+Post).
@@ -444,8 +445,6 @@ function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, view
   // Both): a faint gray outline, so the EQ's change reads as the gap.
   if (dim) {
     ctx.fillStyle = 'rgba(236, 233, 226, 0.05)'
-  } else if (overHeat) {
-    ctx.fillStyle = 'rgba(236, 233, 226, 0.1)'
   } else {
     const fill = ctx.createLinearGradient(0, height - top, 0, height)
     fill.addColorStop(0, 'rgba(247, 118, 142, 0.42)')
@@ -461,9 +460,16 @@ function drawLiveSpectrum(ctx, width, height, binDb, sampleRate, viewMinHz, view
     if (x === 0) ctx.moveTo(x + 0.5, y)
     else ctx.lineTo(x + 0.5, y)
   }
-  ctx.strokeStyle = dim ? 'rgba(236, 233, 226, 0.32)' : overHeat ? 'rgba(236, 233, 226, 0.5)' : 'rgba(247, 118, 142, 0.95)'
-  ctx.lineWidth = dim || overHeat ? 1 : 1.25
   ctx.lineJoin = 'round'
+  // Over the heatmap the pink keeps its own color (owner, 2026-11-13: Both
+  // looked like one picture); a dark halo under it keeps it readable on red.
+  if (overHeat && !dim) {
+    ctx.strokeStyle = 'rgba(15, 15, 17, 0.6)'
+    ctx.lineWidth = 3.25
+    ctx.stroke()
+  }
+  ctx.strokeStyle = dim ? 'rgba(236, 233, 226, 0.32)' : 'rgba(247, 118, 142, 0.95)'
+  ctx.lineWidth = dim ? 1 : 1.25
   ctx.stroke()
 }
 
