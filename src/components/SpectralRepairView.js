@@ -49,6 +49,7 @@ export function createSpectralRepairController(canvas) {
   const changeListeners = []
   const selectListeners = []
   const seekListeners = []
+  const resizeListeners = []
   // The needle is 2px wide; grab it from this far either side.
   const NEEDLE_GRAB_PX = 8
 
@@ -286,7 +287,10 @@ export function createSpectralRepairController(canvas) {
   canvas.addEventListener('pointercancel', onPointerUp)
   canvas.addEventListener('contextmenu', onContextMenu)
   canvas.addEventListener('keydown', onKeyDown)
-  const resizeObserver = new ResizeObserver(() => draw())
+  const resizeObserver = new ResizeObserver(() => {
+    draw()
+    for (const cb of resizeListeners) cb()
+  })
   resizeObserver.observe(canvas)
 
   return {
@@ -330,6 +334,10 @@ export function createSpectralRepairController(canvas) {
     },
     // Size to ask the app for: one column per CSS pixel, rows to match the
     // canvas's device-pixel height (both capped by the app).
+    // Hidden (or not laid out yet): too small to ask for a real image.
+    isShown() {
+      return size().width >= 40 && size().height >= 40
+    },
     requestSize() {
       const rect = size()
       const dpr = window.devicePixelRatio || 1
@@ -370,6 +378,11 @@ export function createSpectralRepairController(canvas) {
     // Fired with absolute file seconds while the needle is dragged.
     onSeek(cb) {
       seekListeners.push(cb)
+    },
+    // Fired when the canvas changes size, including when its tab is first shown
+    // (it is display:none until then, so its size is 0).
+    onResize(cb) {
+      resizeListeners.push(cb)
     },
     redraw: draw,
     destroy() {
