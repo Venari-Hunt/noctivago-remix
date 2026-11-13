@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { EQ_SLOT_COUNT, EMPTY_SLOT, isEmptySlot, padEqSlots, compactEqSlots, freeSlotIndex } from '../src/domain/eqSlots.js'
+import { EQ_SLOT_COUNT, EMPTY_SLOT, CUT_DEFAULT_Q, qWhenTypeChanges, isEmptySlot, padEqSlots, compactEqSlots, freeSlotIndex } from '../src/domain/eqSlots.js'
 
 const peak = { freqHz: 500, gainDb: 3, q: 1, type: 'peaking', slope: 'gentle', muted: false }
 
@@ -38,4 +38,13 @@ test('the free slot is an empty one first, then any Off band', () => {
   assert.equal(freeSlotIndex(slots), 2)
   assert.equal(freeSlotIndex(slots.slice(0, 2)), 0)
   assert.equal(freeSlotIndex([{ ...peak }]), -1)
+})
+
+test('a band that becomes a high-pass or low-pass at the default Q starts bump-free (0.71)', () => {
+  assert.equal(qWhenTypeChanges({ type: 'peaking', q: 1 }, 'highpass'), CUT_DEFAULT_Q)
+  assert.equal(qWhenTypeChanges({ type: 'off', q: 1 }, 'lowpass'), CUT_DEFAULT_Q)
+  assert.equal(qWhenTypeChanges({ type: 'peaking', q: 3 }, 'lowpass'), 3) // a Q the owner set stays
+  assert.equal(qWhenTypeChanges({ type: 'highpass', q: 1 }, 'lowpass'), 1) // cut to cut: untouched
+  assert.equal(qWhenTypeChanges({ type: 'lowpass', q: 0.71 }, 'peaking'), 1)
+  assert.equal(qWhenTypeChanges({ type: 'lowpass', q: 2 }, 'peaking'), 2)
 })
