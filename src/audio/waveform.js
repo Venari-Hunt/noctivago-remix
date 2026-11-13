@@ -163,9 +163,12 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
 
   if (peaks && peaks.length > 0) {
     const peaksSpan = peaksEnd - peaksStart
-    const maxY = new Array(width)
-    const minY = new Array(width)
-    for (let x = 0; x < width; x++) {
+    // width is in CSS pixels and can be fractional (620.5 at some window sizes):
+    // new Array(620.5) threw "Invalid array length" and the whole Trim view broke.
+    const columns = Math.ceil(width)
+    const maxY = new Array(columns)
+    const minY = new Array(columns)
+    for (let x = 0; x < columns; x++) {
       const t = viewStart + (x / width) * viewSpan
       const idx = Math.min(peaks.length - 1, Math.max(0, ((t - peaksStart) / peaksSpan) * peaks.length))
       const i0 = Math.min(peaks.length - 1, Math.floor(idx))
@@ -180,8 +183,8 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
     }
     ctx.beginPath()
     ctx.moveTo(0.5, maxY[0])
-    for (let x = 1; x < width; x++) ctx.lineTo(x + 0.5, maxY[x])
-    for (let x = width - 1; x >= 0; x--) ctx.lineTo(x + 0.5, minY[x])
+    for (let x = 1; x < columns; x++) ctx.lineTo(x + 0.5, maxY[x])
+    for (let x = columns - 1; x >= 0; x--) ctx.lineTo(x + 0.5, minY[x])
     ctx.closePath()
     ctx.fillStyle = PALETTE.wave
     ctx.fill()
