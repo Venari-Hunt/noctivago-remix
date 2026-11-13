@@ -52,9 +52,8 @@ export default class EditorPlugin {
     // baked) - this is its own small parallel dirty flag instead.
     this.savedFluctuationSnapshot = null
     // The "hear the real baked file" half of the preview toggle - see
-    // BakedClipPreview.js's own doc comment for why this exists (Doppler has
-    // no live preview at all; Pitch is only a rough
-    // approximation). 'live' (the editable Web Audio chain, previewSource)
+    // BakedClipPreview.js's own doc comment for why this exists (live Reverse
+    // is skipped for sounds over 10 minutes). 'live' (the editable Web Audio chain, previewSource)
     // or 'saved' (the actual baked clip file, bakedPreview) - always reset
     // to 'live' on a fresh load() since a new sound's own bake (if any) is
     // unrelated to whatever was being auditioned before. Otherwise sticky
@@ -1335,8 +1334,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       }
     })
     // Dragging (or double-click-resetting) the Doppler "closest point"
-    // marker - no live preview to update (Doppler is bake-only, see
-    // speedPitch's own doc comment), just the dirty-check/history hook every
+    // marker - the preview already follows the Doppler curve (see
+    // PreviewSource._updatePitch), just the dirty-check/history hook every
     // other field-change handler already ends with.
     this.loopEditorController.onDopplerChange(() => this.updateSaveButtonState())
     // Dragging a fade handle (see waveform.js's corner pins) writes straight
@@ -2112,7 +2111,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
         ? stale
           ? 'Hearing the last saved/baked audio - edited since then, autosave will refresh it shortly. Click to switch to the live editable preview'
           : 'Hearing the actual saved/baked audio - click to switch back to the live editable preview'
-        : 'Hearing the live editable preview (Doppler and Reverse have no live preview) - click to hear the actual saved audio instead'
+        : 'Hearing the live editable preview (Reverse on a sound over 10 minutes is only heard after saving) - click to hear the actual saved audio instead'
       : 'Click to render and hear the actual saved audio'
     // Keep the "drift needs Live edit preview" note in sync with the mode.
     if (this.flucVolBar) this.updateFluctuationEnabledUI()

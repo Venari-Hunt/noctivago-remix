@@ -4,14 +4,11 @@ const RAMP_SECONDS = 0.15
 // "Everything modifiable on the remix tab should be audible on the remix
 // tab preview... If this isn't possible then when you hit save and an audio
 // is baked you should be able to alternate between the baked audio and the
-// preview." PreviewSource's live Web Audio chain can't accurately preview
-// everything ffmpeg bakes (Doppler and Reverse have no live preview at all;
-// Pitch is only a rough approximation - see PreviewSource.js's own doc
-// comments) - rather than building real-time equivalents for each of those
-// (a real-time pitch-bend engine for Doppler in particular is a lot of new
-// DSP work for a bake-only, non-interactive effect), this plays the actual
-// baked clip file instead, so switching to "Saved" is always 100% truthful
-// to what the Mixer will really play.
+// preview." PreviewSource's live chain now runs the same engines as the
+// bake (Pitch, Doppler, Spectral repair, Noise reduction, Reverse; the one
+// gap is Reverse on sounds over 10 minutes). This plays the actual baked
+// clip file instead, so switching to "Saved" is always 100% truthful to what
+// the Mixer will really play.
 //
 // Deliberately minimal next to PreviewSource: no crossfade voices (the
 // baked clip already has its own seam crossfade baked in by ffmpeg), no
