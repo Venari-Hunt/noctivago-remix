@@ -779,18 +779,23 @@ export function createEqEditorController(canvas) {
     if (TAP_MODES.includes(saved)) tapMode = saved
   } catch {}
   let preAvailable = true
+  // Saved audio has no pre-EQ tap. Before / Both stay clickable (dimmed) and a
+  // click asks the host to go back to Live edit, instead of a dead button.
+  let needLive = null
   const tapButtons = eqRoot ? [...eqRoot.querySelectorAll('[data-tap]')] : []
   for (const b of tapButtons) b.dataset.title = b.title
   function showTap() {
     for (const b of tapButtons) {
       const off = !preAvailable && b.dataset.tap !== 'after'
-      b.disabled = off
-      b.title = off ? 'Saved audio has the EQ baked in: After only' : b.dataset.title
+      b.classList.toggle('rx-seg-off', off)
+      b.setAttribute('aria-disabled', String(off))
+      b.title = off ? 'Saved audio has the EQ baked in. Click to switch to Live edit' : b.dataset.title
       b.setAttribute('aria-pressed', String(b.dataset.tap === (preAvailable ? tapMode : 'after')))
     }
   }
   for (const b of tapButtons) {
     b.addEventListener('click', () => {
+      if (!preAvailable && b.dataset.tap !== 'after') needLive?.()
       tapMode = b.dataset.tap
       try { window.localStorage.setItem(TAP_MODE_KEY, tapMode) } catch {}
       showTap()
@@ -1337,6 +1342,9 @@ export function createEqEditorController(canvas) {
     // Falls back to the static band-energy backdrop (if any) - called when
     // playback stops, so the graph doesn't freeze on the last live frame
     // forever.
+    onNeedLive(fn) {
+      needLive = fn
+    },
     clearSpectrum() {
       if (!liveSpectrum) return
       liveSpectrum = null

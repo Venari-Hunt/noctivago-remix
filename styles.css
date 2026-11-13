@@ -1342,6 +1342,7 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 .rx-seg { display: inline-flex; gap: 0; padding: 2px; border: 0; background: var(--surface); border-radius: 12px; }
 .rx-seg button { height: 28px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--text-dim); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .rx-seg button:hover { color: var(--text); background: transparent; }
+.rx-seg button.rx-seg-off { opacity: .45; }
 .rx-seg button[aria-pressed="true"], .rx-seg button.editor-mode-pill-active, .rx-seg button.editor-mode-pill-active:hover { background: var(--surface-hover); color: var(--text); }
 
 /* Switch: a checkbox or radio drawn as the look's switch */
