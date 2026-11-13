@@ -4304,11 +4304,22 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.updateSaveButtonState()
 
     this.els.waveformStatus.textContent = this.waveformPeaksCache.has(id) ? '' : 'Loading waveform…'
-    const peaks = await this.getWaveformPeaks(id)
+    // A failed fetch used to leave "Loading waveform…" up forever; say why instead.
+    let peaks = null
+    let failure = null
+    try {
+      // 60 s covers an hour-long file; past that the main process never answered.
+      let timer
+      const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("no answer after 60 s")), 60000) })
+      peaks = await Promise.race([this.getWaveformPeaks(id), timeout]).finally(() => clearTimeout(timer))
+    } catch (err) {
+      console.error('Editor: waveform load failed', err)
+      failure = err?.message || String(err)
+    }
     if (this.currentEntry?.id !== id) return
     this.loopEditorController.setPeaks(peaks)
     this.syncSeamView()
-    this.els.waveformStatus.textContent = peaks ? '' : 'Waveform preview unavailable for this file.'
+    this.els.waveformStatus.textContent = peaks ? '' : failure ? `Waveform failed to load: ${failure}` : 'Waveform preview unavailable for this file.'
   }
 
   // trigger: 'manual' (the Save button) or 'auto' (runAutosave) - only
