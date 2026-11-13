@@ -178,6 +178,27 @@ export class StftChannel {
   }
 }
 
+// Freehand shapes: region.points is a closed polygon of [sec, hz] pairs (3 or
+// more). Tested in (sec, ln Hz) so the shape keeps its look on the log-pitch
+// spectrogram. The points are mapped once and cached on the region object.
+function isShape(r) {
+  return Array.isArray(r.points) && r.points.length >= 3
+}
+function shapePoints(r) {
+  if (!r._lp) r._lp = r.points.map((p) => [p[0], Math.log(Math.max(1, p[1]))])
+  return r._lp
+}
+// 1 when (x, y) is inside the polygon (even-odd rule), else 0.
+function inShape(pts, x, y) {
+  let inside = false
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i]
+    const [xj, yj] = pts[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside ? 1 : 0
+}
+
 // One channel of Spectral repair. timeOf(i) gives the box time in seconds for
 // input sample index i (offline: i / sampleRate; live: where the audio sits in
 // the source file).
@@ -195,7 +216,9 @@ export class SpectralRepairChannel extends StftChannel {
   }
 
   // Per-bin gain for a frame centred at box time t: the product over boxes of
-  // (1 - inTime * inBand * loss), loss = 1 - 10^(-dB/20).
+  // (1 - inTime * inBand * loss), loss = 1 - 10^(-dB/20). A region with a
+  // points list (a freehand shape, [sec, hz] pairs) is masked by that
+  // polygon instead of the whole box; the box is then only its bounding box.
   _computeGains(t) {
     const gains = this.gains
     gains.fill(1)
@@ -205,6 +228,16 @@ export class SpectralRepairChannel extends StftChannel {
       const loss = 1 - Math.pow(10, -r.reductionDb / 20)
       const lo = Math.max(0, Math.ceil(r.lowHz / binHz))
       const hi = Math.min(FRAME / 2, Math.floor(r.highHz / binHz))
+      if (isShape(r)) {
+        const pts = shapePoints(r)
+        for (let b = lo; b <= hi; b++) {
+          // Three samples across the bin (half a bin either side) soften the
+          // top and bottom edges of a freehand shape.
+          const f = (inShape(pts, t, Math.log(Math.max(1, (b - 0.5) * binHz))) + inShape(pts, t, Math.log(Math.max(1, b * binHz))) + inShape(pts, t, Math.log(Math.max(1, (b + 0.5) * binHz)))) / 3
+          if (f > 0) gains[b] *= 1 - loss * f
+        }
+        continue
+      }
       for (let b = lo; b <= hi; b++) gains[b] *= 1 - loss
     }
   }
