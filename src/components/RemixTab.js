@@ -1368,6 +1368,9 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
 
     this.eqEditorController = createEqEditorController(this.els.eqCanvas)
     this.eqEditorController.onChange(() => this.applyEqControls())
+    this.eqEditorController.onNeedLive(() => {
+      if (this.previewMode === 'saved') this.togglePreviewMode()
+    })
     // Double-click and Alt+click used to fire the identical full reset -
     // split apart after direct feedback ("double clicking shouldn't reset
     // the node completely just position. Alt clicking should be the full
