@@ -86,7 +86,7 @@ export function envelopeX(x, width) {
   return Math.min(Math.max(x, edge), Math.max(edge, width - edge))
 }
 
-export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, peaks, viewStart = 0, viewEnd = duration, peaksStart = 0, peaksEnd = duration, dopplerEnabled = false, dopplerClosestFraction = 0.5, dopplerReversed = false, fadesEnabled = false, fadeInSec = 0, fadeOutSec = 0, envelopeEnabled = false, envelopePoints = [] }) {
+export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, peaks, viewStart = 0, viewEnd = duration, peaksStart = 0, peaksEnd = duration, dopplerEnabled = false, dopplerClosestFraction = 0.5, dopplerReversed = false, fadesEnabled = false, fadeInSec = 0, fadeOutSec = 0, envelopeEnabled = false, envelopePoints = [], markerLayer = null }) {
   const { width, height, dpr } = resizeCanvasForDisplay(canvas)
   const ctx = canvas.getContext('2d')
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -317,6 +317,8 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
       ctx.stroke()
     }
   }
+
+  markerLayer?.draw(ctx, { width, height, timeToX })
 
   if (Number.isFinite(playhead)) {
     const playX = timeToX(Math.min(Math.max(playhead, 0), duration))

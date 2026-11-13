@@ -1,5 +1,6 @@
 import { PALETTE, withAlpha } from '../domain/palette.js'
 import { resizeCanvasForDisplay } from '../audio/waveform.js'
+import { createMarkerLayer } from './markerLayer.js'
 import {
   DEFAULT_REDUCTION_DB,
   MAX_HZ,
@@ -59,6 +60,14 @@ export function createSpectralRepairController(canvas) {
   const selectListeners = []
   const seekListeners = []
   const resizeListeners = []
+  // Timing markers: RemixTab owns the list and pushes it in. A box edge,
+  // corner or lasso point snaps to one within 8 px (Ctrl held = free).
+  let onMarkersChange = () => {}
+  let onMarkerEdit = () => {}
+  const markerLayer = createMarkerLayer({
+    onChange: (list) => onMarkersChange(list),
+    onEdit: (marker, x, y) => onMarkerEdit(marker, x, y)
+  })
   // The needle is 2px wide; grab it from this far either side.
   const NEEDLE_GRAB_PX = 8
 
@@ -128,6 +137,18 @@ export function createSpectralRepairController(canvas) {
     for (const cb of selectListeners) cb(selected)
   }
 
+  const markerTimeToX = (t) => secToX(t, view, size().width)
+  function markerAt(p) {
+    return markerLayer.getMarkers().length ? markerLayer.hitTag(p.x, p.y, markerTimeToX) : null
+  }
+  // The point with its time snapped to a marker (and the layer told which).
+  function snapPoint(p, event) {
+    const rect = size()
+    const snapped = markerLayer.snap(p.sec, (view.end - view.start) / rect.width, !event.ctrlKey)
+    markerLayer.setSnapped(snapped.marker)
+    return snapped.marker ? { ...p, sec: snapped.time } : p
+  }
+
   function emitChange() {
     for (const cb of changeListeners) cb(getRegions())
   }
@@ -143,6 +164,12 @@ export function createSpectralRepairController(canvas) {
     if (event.button !== 0) return
     canvas.focus()
     const p = pointAt(event)
+    const tag = markerAt(p)
+    if (tag) {
+      const timeAt = (clientX) => xToSec(clientX - size().left, view, size().width)
+      markerLayer.startDrag(event, tag, { timeAt, duration: view.end, redraw: draw })
+      return
+    }
     if (nearNeedle(p)) {
       canvas.setPointerCapture(event.pointerId)
       drag = { kind: 'seek' }
@@ -161,7 +188,8 @@ export function createSpectralRepairController(canvas) {
       drag = { kind: 'lasso', pts: [p] }
     } else {
       select(-1)
-      drag = { kind: 'create', from: p, to: p }
+      const from = snapPoint(p, event)
+      drag = { kind: 'create', from, to: from }
     }
     draw()
   }
@@ -169,27 +197,36 @@ export function createSpectralRepairController(canvas) {
   function onPointerMove(event) {
     const p = pointAt(event)
     if (!drag) {
-      canvas.style.cursor = nearNeedle(p) ? 'ew-resize' : cursorFor(hitTest(p))
+      canvas.style.cursor = markerAt(p) ? 'grab' : nearNeedle(p) ? 'ew-resize' : cursorFor(hitTest(p))
       return
     }
     if (drag.kind === 'seek') {
       seekTo(p)
       return
     }
+    markerLayer.setSnapped(null)
     if (drag.kind === 'lasso') {
       const last = drag.pts[drag.pts.length - 1]
       if (Math.hypot(p.x - last.x, p.y - last.y) >= LASSO_STEP_PX) drag.pts.push(p)
     } else if (drag.kind === 'vertex') {
       const o = drag.original
       const pts = o.points.map((q) => [q[0], q[1]])
-      pts[drag.vertex] = [Math.min(Math.max(p.sec, view.start), view.end), Math.min(Math.max(p.hz, MIN_HZ), MAX_HZ)]
+      pts[drag.vertex] = [Math.min(Math.max(snapPoint(p, event).sec, view.start), view.end), Math.min(Math.max(p.hz, MIN_HZ), MAX_HZ)]
       regions[drag.index] = { ...o, ...boundsOf(pts), points: pts.map((q) => [round2(q[0]), Math.round(q[1])]) }
     } else if (drag.kind === 'create') {
-      drag.to = p
+      drag.to = snapPoint(p, event)
     } else if (drag.kind === 'move') {
       const o = drag.original
       const length = o.endSec - o.startSec
       let start = o.startSec + (p.sec - drag.from.sec)
+      // Snap whichever end of the box lands nearer a marker.
+      const rectW = size().width
+      const spp = (view.end - view.start) / rectW
+      const sa = markerLayer.snap(start, spp, !event.ctrlKey)
+      const sb = markerLayer.snap(start + length, spp, !event.ctrlKey)
+      markerLayer.setSnapped(sa.marker || sb.marker)
+      if (sa.marker) start = sa.time
+      else if (sb.marker) start = sb.time - length
       start = Math.min(Math.max(start, view.start), view.end - length)
       // Move in log-Hz so a box keeps its shape on screen.
       const ratio = o.highHz / o.lowHz
@@ -205,8 +242,9 @@ export function createSpectralRepairController(canvas) {
     } else {
       const o = drag.original
       const e = drag.edges
-      const a = { sec: e.left ? p.sec : o.startSec, hz: e.bottom ? p.hz : o.lowHz }
-      const b = { sec: e.right ? p.sec : o.endSec, hz: e.top ? p.hz : o.highHz }
+      const ps = e.left || e.right ? snapPoint(p, event).sec : p.sec
+      const a = { sec: e.left ? ps : o.startSec, hz: e.bottom ? p.hz : o.lowHz }
+      const b = { sec: e.right ? ps : o.endSec, hz: e.top ? p.hz : o.highHz }
       regions[drag.index] = regionFromCorners(a, b, view, o.reductionDb)
     }
     draw()
@@ -214,6 +252,7 @@ export function createSpectralRepairController(canvas) {
 
   function onPointerUp(event) {
     if (!drag) return
+    markerLayer.setSnapped(null)
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
     const finished = drag
     drag = null
@@ -240,7 +279,18 @@ export function createSpectralRepairController(canvas) {
     draw()
   }
 
+  function onDoubleClick(event) {
+    const tag = markerAt(pointAt(event))
+    if (tag) markerLayer.edit(tag, event.clientX, event.clientY)
+  }
+
   function onContextMenu(event) {
+    const tag = markerAt(pointAt(event))
+    if (tag) {
+      event.preventDefault()
+      markerLayer.edit(tag, event.clientX, event.clientY)
+      return
+    }
     const hit = hitTest(pointAt(event))
     if (!hit) return
     event.preventDefault()
@@ -346,6 +396,7 @@ export function createSpectralRepairController(canvas) {
     if (drag?.kind === 'create') {
       drawBox(regionFromCorners(drag.from, drag.to, view), width, height, { stroke: COLORS.draft, lineWidth: 1 })
     }
+    markerLayer.draw(ctx, { width, height, timeToX: (t) => secToX(t, view, width) })
     playheadX = null
     if (playhead !== null && playhead >= view.start && playhead <= view.end) {
       playheadX = Math.round(secToX(playhead, view, width))
@@ -372,6 +423,7 @@ export function createSpectralRepairController(canvas) {
   canvas.addEventListener('pointerup', onPointerUp)
   canvas.addEventListener('pointercancel', onPointerUp)
   canvas.addEventListener('contextmenu', onContextMenu)
+  canvas.addEventListener('dblclick', onDoubleClick)
   canvas.addEventListener('keydown', onKeyDown)
   const resizeObserver = new ResizeObserver(() => {
     draw()
@@ -474,6 +526,21 @@ export function createSpectralRepairController(canvas) {
     onResize(cb) {
       resizeListeners.push(cb)
     },
+    // Markers (see the layer above): the list is RemixTab's, pushed in here.
+    setMarkers(list) {
+      markerLayer.setMarkers(list)
+      draw()
+    },
+    selectMarker(id) {
+      markerLayer.select(id)
+      draw()
+    },
+    onMarkersChange(cb) {
+      onMarkersChange = cb
+    },
+    onMarkerEdit(cb) {
+      onMarkerEdit = cb
+    },
     redraw: draw,
     destroy() {
       resizeObserver.disconnect()
@@ -482,6 +549,7 @@ export function createSpectralRepairController(canvas) {
       canvas.removeEventListener('pointerup', onPointerUp)
       canvas.removeEventListener('pointercancel', onPointerUp)
       canvas.removeEventListener('contextmenu', onContextMenu)
+      canvas.removeEventListener('dblclick', onDoubleClick)
       canvas.removeEventListener('keydown', onKeyDown)
     }
   }

@@ -1883,3 +1883,30 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: h
 /* The revert banner keeps its space while hidden, so the graph does not
    jump down 46 px on the first edit. */
 .editor-eq-revert-banner.hidden { display: block !important; visibility: hidden; pointer-events: none; }
+
+/* Timing markers: the Marker button, ticks on the progress bar, the chip row
+   and the popover (the approved mock-noctivago-remix-markers). */
+.rx-marker-btn { color: var(--accent); }
+.rx-marker-btn.rx-flash { animation: rx-marker-flash 320ms ease-out; }
+@keyframes rx-marker-flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 0 rgba(224, 184, 76, 0); } }
+.rx-pseek .editor-sticky-progress .rx-mt { position: absolute; top: 1px; width: 3px; height: 14px; margin-left: -1.5px; border-radius: 1.5px; background: var(--mc); z-index: 1; pointer-events: none; }
+.rx-mlist { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 32px; }
+.rx-mnone { color: var(--text-dim); font-size: 12px; }
+.rx-mchip { height: 32px; padding: 0 4px 0 12px; border-radius: 16px; background: var(--surface-hover); display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.rx-mchip > i { width: 8px; height: 8px; border-radius: 50%; background: var(--mc); }
+.rx-mchip > span { color: var(--text-dim); font-weight: 400; font-variant-numeric: tabular-nums; }
+.rx-mchip.rx-sel { box-shadow: inset 0 0 0 1.5px var(--mc); }
+.rx-mchip .rx-mx { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 12px; background: transparent; color: var(--text-dim); display: grid; place-items: center; cursor: pointer; }
+.rx-mchip .rx-mx:hover { background: var(--surface-alt); color: var(--text); }
+.rx:not([data-rx-mode='sound']) .rx-mlist { display: none; }
+.rx-mpop { position: fixed; z-index: 1000; width: 232px; box-sizing: border-box; padding: 12px; border-radius: 12px; background: var(--surface-hover); box-shadow: 0 0 0 1px var(--border), 0 12px 32px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 10px; color: var(--text); }
+.rx-mpop input { height: 32px; padding: 0 10px; border: 0; border-radius: 8px; outline: 0; background: var(--surface); color: var(--text); font: inherit; box-shadow: inset 0 0 0 1px var(--border); }
+.rx-mpop input:focus { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.rx-mpop-sw { display: flex; gap: 8px; }
+.rx-mpop-sw button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: var(--c); cursor: pointer; }
+.rx-mpop-sw button[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--surface-hover), 0 0 0 3.5px var(--c); }
+.rx-mpop small { color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rx-mpop-row { display: flex; gap: 8px; }
+.rx-mpop-row .rx-b { flex: 1; background: var(--surface-alt); }
+.rx-mpop-row .rx-b:hover { background: #36363d; }
+.rx-mpop-row .rx-del { color: #f0907a; }

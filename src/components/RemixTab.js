@@ -13,6 +13,9 @@ import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
+import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
+import { loadMarkers, saveMarkers } from '../domain/markerStore.js'
+import { mountMarkerUi, flashMarkerButton, renderMarkerChips, renderProgressTicks, openMarkerPopover, closeMarkerPopover, formatMarkerTime } from './markerUi.js'
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
 import { arrangeLayout, arrangeBar } from './layout.js'
 import { wireNameMarquee } from './nameMarquee.js'
@@ -63,6 +66,9 @@ export default class EditorPlugin {
     this.bakedPreview = null
     this.previewRafId = null
     this.loopEditorController = null
+    // Timing markers of the open sound (original-file seconds), see markers.js.
+    this.markers = []
+    this.markerUi = null
     this.waveformPeaksCache = new Map()
     this.detailPeaksDebounceTimer = null
     // Persists across sounds within one tab session (like the filter
@@ -173,6 +179,7 @@ export default class EditorPlugin {
     // undo inside those still works as expected.
     this._onKeyDown = (evt) => {
       if (!this._tabActive || !this.currentEntry) return
+      if (this.handleMarkerKey(evt)) return
       if (!evt.ctrlKey || (evt.key !== 'z' && evt.key !== 'Z')) return
       const active = document.activeElement
       if (active && active.tagName === 'INPUT' && active.type === 'text') return
@@ -1275,6 +1282,10 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.applyFilterControls()
     })
     this.spectralView.onSelect(() => this.updateSpectralControls())
+    for (const view of [this.loopEditorController, this.spectralView]) {
+      view.onMarkersChange((list) => this.setMarkers(list))
+      view.onMarkerEdit((marker, x, y) => this.editMarker(marker, x, y))
+    }
     // The Spectrum tab is hidden until opened, so the first fetch has to wait for a real size.
     this.spectralView.onResize(() => this.syncSpectralView())
     // Dragging the needle seeks the preview (playing or paused).
@@ -2020,7 +2031,109 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.copyGroupToPreset(targetPresetId).catch((err) => console.error('Editor: group copy failed', err))
     })
     arrangeBar(container, this.root)
+    this.markerUi = mountMarkerUi(this.root, {
+      onAdd: () => this.addMarkerAtPlayhead(),
+      onGo: (id) => this.goToMarker(id),
+      onDelete: (id) => this.deleteMarker(id)
+    })
+    this.refreshMarkerUi()
     this.setBarEnabled(Boolean(this.currentEntry))
+  }
+
+  // --- Timing markers ---
+  // A named point on the open sound (Marker button, Ctrl+M). They show on the
+  // progress bar, the Trim waveform and the Spectrum view, and a trim handle
+  // or repair-box edge snaps to one. Saved per sound in this app's
+  // localStorage (markerStore.js), not part of the baked audio.
+
+  // The playhead in original-file seconds, whichever engine is audible.
+  currentSourceTime() {
+    const active = this.activePreview()
+    const points = this.loopEditorController?.getLoopPoints()
+    if (!active) return points?.loopStart ?? 0
+    return this.previewMode === 'saved' ? this.clipTimeToSource(active.currentTime) : active.currentTime
+  }
+
+  setMarkers(list, { save = true } = {}) {
+    this.markers = list
+    if (save && this.currentEntry) saveMarkers(this.currentEntry.id, list)
+    this.loopEditorController?.setMarkers(list)
+    this.spectralView?.setMarkers(list)
+    this.refreshMarkerUi()
+  }
+
+  refreshMarkerUi() {
+    if (!this.markerUi) return
+    const points = this.loopEditorController?.getLoopPoints()
+    const selected = this.loopEditorController?.getSelectedMarker?.() ?? null
+    renderMarkerChips(this.markerUi.list, this.markers, selected)
+    renderProgressTicks(this.els.stickyProgress, this.markers, points?.loopStart ?? 0, points?.loopEnd ?? 0)
+  }
+
+  addMarkerAtPlayhead() {
+    if (!this.currentEntry || this.mode !== 'sound') return
+    const duration = this.currentEntry.durationSeconds ?? Infinity
+    const t = this.currentSourceTime()
+    const { markers, added } = addMarker(this.markers, t, duration)
+    if (!added) {
+      this.els.saveStatus.textContent = `A marker is already at ${formatMarkerTime(t)}`
+      return
+    }
+    this.setMarkers(markers)
+    this.loopEditorController?.selectMarker(added.id)
+    this.spectralView?.selectMarker(added.id)
+    flashMarkerButton(this.markerUi?.button)
+    this.els.saveStatus.textContent = `Marker at ${formatMarkerTime(added.time)}`
+  }
+
+  goToMarker(id) {
+    const marker = this.markers.find((m) => m.id === id)
+    const active = this.activePreview()
+    if (!marker || !active) return
+    const t = this.previewMode === 'saved' ? this.sourceTimeToClip(marker.time) : marker.time
+    active.scrubTo(t)
+    this.loopEditorController?.setPlayhead(marker.time)
+    this.spectralView?.setPlayhead(marker.time)
+    this.updateStickyProgress(t)
+  }
+
+  deleteMarker(id) {
+    closeMarkerPopover()
+    this.setMarkers(removeMarker(this.markers, id))
+  }
+
+  editMarker(marker, clientX, clientY) {
+    this.loopEditorController?.selectMarker(marker.id)
+    this.spectralView?.selectMarker(marker.id)
+    openMarkerPopover(this.root.ownerDocument, marker, clientX, clientY, {
+      onRename: (name) => this.setMarkers(renameMarker(this.markers, marker.id, name)),
+      onColor: (color) => this.setMarkers(updateMarker(this.markers, marker.id, { color })),
+      onGo: () => this.goToMarker(marker.id),
+      onDelete: () => this.deleteMarker(marker.id)
+    })
+  }
+
+  // Ctrl+M adds a marker; Delete removes the selected one. Returns true when
+  // the key was ours.
+  handleMarkerKey(evt) {
+    if (this.mode !== 'sound') return false
+    const active = document.activeElement
+    const typing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)
+    if (typing) return false
+    if (evt.ctrlKey && !evt.shiftKey && !evt.altKey && (evt.key === 'm' || evt.key === 'M')) {
+      evt.preventDefault()
+      this.addMarkerAtPlayhead()
+      return true
+    }
+    if (evt.key === 'Delete' && evt.target !== this.els.spectralCanvas) {
+      const id = this.loopEditorController?.getSelectedMarker?.()
+      if (id != null) {
+        evt.preventDefault()
+        this.deleteMarker(id)
+        return true
+      }
+    }
+    return false
   }
 
   effectivePreviewVolume() {
@@ -2477,6 +2590,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.previewSource?.setLoopPoints(loopStart, loopEnd)
     this.syncSeamView()
     this.syncSpectralView()
+    this.refreshMarkerUi()
     const active = this.activePreview()
     this.updateStickyProgress(active?.currentTime ?? 0)
     this.updateSaveButtonState()
@@ -4260,6 +4374,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.previewSource.setFluctuation(this.fluctuation)
     this.previewSource.scrubTo(loopStart)
     this.loopEditorController.load(duration, loopStart, loopEnd)
+    closeMarkerPopover()
+    this.setMarkers(loadMarkers(entry.id, duration), { save: false })
     // load() resets its own volume-envelope state to neutral, same reason
     // it resets Doppler (a fresh sound shouldn't inherit the previous one's
     // drawn points) - re-applied here after load(), same ordering fix
