@@ -20,14 +20,11 @@ const FREQ_MIN = 20
 const FREQ_MAX = 20000
 const GAIN_MIN = -24
 const GAIN_MAX = 24
-// How much attenuation counts as "this frequency range is effectively gone"
-// for the cut-overlay below - -18dB is roughly an 8x amplitude reduction,
-// deep enough to read as "cut" rather than merely "quieter" without being
-// all the way down at the graph's own -24dB floor (which would only flag
-// the most extreme settings). A reasoned round number, not measured against
-// any specific reference - there's no universal "this is inaudible" dB
-// figure, since that depends on the rest of the mix and listening level.
-const CUT_THRESHOLD_DB = -18
+// Where the red cut overlay starts: the graph's own floor (owner, 2026-11-13: it
+// used to start at -18 dB, short of where the line reaches the bottom, so the
+// box began before the curve looked cut). A filter slope never reaches zero, so
+// the floor is the one honest place to call a range "gone".
+const CUT_THRESHOLD_DB = GAIN_MIN
 export const Q_MIN = 0.1
 // Was 10 - raised per direct feedback ("Feels like nodes Q value cap at 10
 // is too little"). Checked the FL Studio "Fruity Parametric EQ 2" reference
