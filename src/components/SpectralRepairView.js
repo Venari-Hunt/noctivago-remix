@@ -1,12 +1,15 @@
 import { PALETTE, withAlpha } from '../domain/palette.js'
 import { resizeCanvasForDisplay } from '../audio/waveform.js'
 import {
+  DEFAULT_REDUCTION_DB,
   MAX_HZ,
   MIN_HZ,
   hzToY,
   isUsableRegion,
   normalizeRegions,
+  pointInShape,
   regionFromCorners,
+  regionFromPoints,
   secToX,
   spectrogramColor,
   xToSec,
@@ -21,6 +24,8 @@ import {
 // (spectralRepair.js). Bake-only: nothing here touches live audio.
 
 const EDGE_HIT_PX = 6
+const VERTEX_HIT_PX = 8
+const LASSO_STEP_PX = 4
 const GRID_HZ = [100, 1000, 10000]
 const COLORS = {
   background: PALETTE.surface,
@@ -34,6 +39,8 @@ const COLORS = {
   playhead: PALETTE.accent
 }
 
+const SELECTED_STYLE = { stroke: COLORS.selected, lineWidth: 2 }
+
 export function createSpectralRepairController(canvas) {
   const ctx = canvas.getContext('2d')
   let view = { start: 0, end: 1 }
@@ -41,7 +48,9 @@ export function createSpectralRepairController(canvas) {
   let status = ''
   let regions = []
   let selected = -1
-  let drag = null // { kind: 'create' | 'move' | 'resize', ... }
+  let drag = null // { kind: 'create' | 'lasso' | 'move' | 'resize' | 'vertex' | 'seek', ... }
+  // What a drag on empty space draws: a 'box' or a 'free' (lasso) shape.
+  let shape = 'box'
   // Playback needle in absolute file seconds (null = hidden), so the
   // spectrogram shows which part of the sound is playing.
   let playhead = null
@@ -74,7 +83,20 @@ export function createSpectralRepairController(canvas) {
   // enough to grab.
   function hitTest(p) {
     const { width, height } = size()
+    // A selected freehand shape: its corner handles come first.
+    const sel = regions[selected]
+    if (sel?.points) {
+      for (let v = 0; v < sel.points.length; v++) {
+        const vx = secToX(sel.points[v][0], view, width)
+        const vy = hzToY(sel.points[v][1], height)
+        if (Math.hypot(p.x - vx, p.y - vy) <= VERTEX_HIT_PX) return { index: selected, edges: null, vertex: v }
+      }
+    }
     for (let i = regions.length - 1; i >= 0; i--) {
+      if (regions[i].points) {
+        if (pointInShape(regions[i].points, p.sec, p.hz)) return { index: i, edges: null }
+        continue
+      }
       const b = boxRect(regions[i], width, height)
       if (p.x < b.x0 - EDGE_HIT_PX || p.x > b.x1 + EDGE_HIT_PX || p.y < b.y0 - EDGE_HIT_PX || p.y > b.y1 + EDGE_HIT_PX) continue
       const edges = {
@@ -92,6 +114,7 @@ export function createSpectralRepairController(canvas) {
 
   function cursorFor(hit) {
     if (!hit) return 'crosshair'
+    if (hit.vertex !== undefined) return 'pointer'
     if (!hit.edges) return 'move'
     const { left, right, top, bottom } = hit.edges
     if ((left && top) || (right && bottom)) return 'nwse-resize'
@@ -128,9 +151,14 @@ export function createSpectralRepairController(canvas) {
     }
     const hit = hitTest(p)
     canvas.setPointerCapture(event.pointerId)
-    if (hit) {
+    if (hit && hit.vertex !== undefined) {
+      drag = { kind: 'vertex', index: hit.index, vertex: hit.vertex, original: JSON.parse(JSON.stringify(regions[hit.index])) }
+    } else if (hit) {
       select(hit.index)
       drag = { kind: hit.edges ? 'resize' : 'move', index: hit.index, edges: hit.edges, from: p, original: { ...regions[hit.index] } }
+    } else if (shape === 'free') {
+      select(-1)
+      drag = { kind: 'lasso', pts: [p] }
     } else {
       select(-1)
       drag = { kind: 'create', from: p, to: p }
@@ -148,7 +176,15 @@ export function createSpectralRepairController(canvas) {
       seekTo(p)
       return
     }
-    if (drag.kind === 'create') {
+    if (drag.kind === 'lasso') {
+      const last = drag.pts[drag.pts.length - 1]
+      if (Math.hypot(p.x - last.x, p.y - last.y) >= LASSO_STEP_PX) drag.pts.push(p)
+    } else if (drag.kind === 'vertex') {
+      const o = drag.original
+      const pts = o.points.map((q) => [q[0], q[1]])
+      pts[drag.vertex] = [Math.min(Math.max(p.sec, view.start), view.end), Math.min(Math.max(p.hz, MIN_HZ), MAX_HZ)]
+      regions[drag.index] = { ...o, ...boundsOf(pts), points: pts.map((q) => [round2(q[0]), Math.round(q[1])]) }
+    } else if (drag.kind === 'create') {
       drag.to = p
     } else if (drag.kind === 'move') {
       const o = drag.original
@@ -159,7 +195,13 @@ export function createSpectralRepairController(canvas) {
       const ratio = o.highHz / o.lowHz
       let low = o.lowHz * (p.hz / drag.from.hz)
       low = Math.min(Math.max(low, MIN_HZ), MAX_HZ / ratio)
-      regions[drag.index] = { ...o, startSec: round2(start), endSec: round2(start + length), lowHz: Math.round(low), highHz: Math.round(low * ratio) }
+      const moved = { ...o, startSec: round2(start), endSec: round2(start + length), lowHz: Math.round(low), highHz: Math.round(low * ratio) }
+      if (o.points) {
+        const dSec = start - o.startSec
+        const mul = low / o.lowHz
+        moved.points = o.points.map((q) => [round2(q[0] + dSec), Math.round(Math.min(Math.max(q[1] * mul, MIN_HZ), MAX_HZ))])
+      }
+      regions[drag.index] = moved
     } else {
       const o = drag.original
       const e = drag.edges
@@ -176,7 +218,14 @@ export function createSpectralRepairController(canvas) {
     const finished = drag
     drag = null
     if (finished.kind === 'seek') return
-    if (finished.kind === 'create') {
+    if (finished.kind === 'lasso') {
+      const region = regionFromPoints(finished.pts, DEFAULT_REDUCTION_DB)
+      if (region) {
+        regions.push(region)
+        select(regions.length - 1)
+        emitChange()
+      }
+    } else if (finished.kind === 'create') {
       const region = regionFromCorners(finished.from, finished.to, view)
       if (isUsableRegion(region)) {
         regions.push(region)
@@ -234,7 +283,34 @@ export function createSpectralRepairController(canvas) {
     }
   }
 
+  function drawShape(region, width, height, style, handles) {
+    ctx.beginPath()
+    region.points.forEach(([sec, hz], i) => {
+      const x = secToX(sec, view, width)
+      const y = hzToY(hz, height)
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.closePath()
+    ctx.fillStyle = COLORS.boxFill
+    ctx.fill()
+    ctx.strokeStyle = style.stroke
+    ctx.lineWidth = style.lineWidth
+    ctx.setLineDash(style.dash ?? [])
+    ctx.stroke()
+    ctx.setLineDash([])
+    if (handles) {
+      ctx.fillStyle = COLORS.selected
+      for (const [sec, hz] of region.points) {
+        ctx.beginPath()
+        ctx.arc(secToX(sec, view, width), hzToY(hz, height), 3.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+  }
+
   function drawBox(region, width, height, style) {
+    if (region.points) return drawShape(region, width, height, style, style === SELECTED_STYLE)
     const b = boxRect(region, width, height)
     ctx.fillStyle = COLORS.boxFill
     ctx.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0)
@@ -256,7 +332,17 @@ export function createSpectralRepairController(canvas) {
       if (i === selected) return
       drawBox(region, width, height, { stroke: COLORS.box, lineWidth: 1, dash: [4, 3] })
     })
-    if (selected !== -1 && regions[selected]) drawBox(regions[selected], width, height, { stroke: COLORS.selected, lineWidth: 2 })
+    if (selected !== -1 && regions[selected]) drawBox(regions[selected], width, height, SELECTED_STYLE)
+    if (drag?.kind === 'lasso' && drag.pts.length > 1) {
+      ctx.beginPath()
+      drag.pts.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)))
+      ctx.closePath()
+      ctx.fillStyle = COLORS.boxFill
+      ctx.fill()
+      ctx.strokeStyle = COLORS.draft
+      ctx.lineWidth = 1
+      ctx.stroke()
+    }
     if (drag?.kind === 'create') {
       drawBox(regionFromCorners(drag.from, drag.to, view), width, height, { stroke: COLORS.draft, lineWidth: 1 })
     }
@@ -351,6 +437,10 @@ export function createSpectralRepairController(canvas) {
       if (selected >= regions.length) select(-1)
       draw()
     },
+    // 'box' (drag a rectangle) or 'free' (drag a freehand loop around the sound).
+    setShape(mode) {
+      shape = mode === 'free' ? 'free' : 'box'
+    },
     getRegions,
     getSelectedIndex: () => selected,
     getSelected: () => (selected === -1 ? null : { ...regions[selected] }),
@@ -395,6 +485,12 @@ export function createSpectralRepairController(canvas) {
       canvas.removeEventListener('keydown', onKeyDown)
     }
   }
+}
+
+function boundsOf(pts) {
+  const secs = pts.map((q) => q[0])
+  const hzs = pts.map((q) => q[1])
+  return { startSec: round2(Math.min(...secs)), endSec: round2(Math.max(...secs)), lowHz: Math.round(Math.min(...hzs)), highHz: Math.round(Math.max(...hzs)) }
 }
 
 function round2(n) {

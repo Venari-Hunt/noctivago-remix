@@ -28,7 +28,12 @@ export function usableRegion(r) {
   const reductionDb = Number(r.reductionDb ?? 40)
   if (![startSec, endSec, lowHz, highHz, reductionDb].every(Number.isFinite)) return null
   if (endSec - startSec < 0.005 || highHz - lowHz < 1 || reductionDb <= 0) return null
-  return { startSec, endSec, lowHz, highHz, reductionDb: Math.min(reductionDb, 80) }
+  const region = { startSec, endSec, lowHz, highHz, reductionDb: Math.min(reductionDb, 80) }
+  // A freehand shape: [sec, hz] pairs; a bad pair drops it back to the plain box.
+  if (Array.isArray(r.points) && r.points.length >= 3 && r.points.length <= 64 && r.points.every((p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))) {
+    region.points = r.points.map((p) => [Number(p[0]), Number(p[1])])
+  }
+  return region
 }
 
 export class SpectralStage {

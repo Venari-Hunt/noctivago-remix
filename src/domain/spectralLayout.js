@@ -40,6 +40,36 @@ export function regionFromCorners(a, b, view, reductionDb = DEFAULT_REDUCTION_DB
   }
 }
 
+// A freehand shape from the points a lasso drag collected: thinned so two
+// kept points are at least minPx apart (the caller measures px), closed
+// implicitly, with the box set to its bounds. null when it is too small.
+export function regionFromPoints(points, reductionDb = DEFAULT_REDUCTION_DB, maxPoints = 48) {
+  let pts = points.map((p) => [round(p.sec, 2), Math.round(Math.min(Math.max(p.hz, MIN_HZ), MAX_HZ))])
+  if (pts.length > maxPoints) {
+    const step = pts.length / maxPoints
+    pts = Array.from({ length: maxPoints }, (_, i) => pts[Math.floor(i * step)])
+  }
+  if (pts.length < 3) return null
+  const secs = pts.map((p) => p[0])
+  const hzs = pts.map((p) => p[1])
+  const region = { startSec: Math.min(...secs), endSec: Math.max(...secs), lowHz: Math.min(...hzs), highHz: Math.max(...hzs), reductionDb, points: pts }
+  return isUsableRegion(region) ? region : null
+}
+
+// Even-odd test of a (sec, hz) point against a polygon of [sec, hz] pairs, in log Hz.
+export function pointInShape(points, sec, hz) {
+  const y = Math.log(hz)
+  let inside = false
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const xi = points[i][0]
+    const yi = Math.log(points[i][1])
+    const xj = points[j][0]
+    const yj = Math.log(points[j][1])
+    if (yi > y !== yj > y && sec < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
 // Too small to mean anything (a click, not a drag): under 20 ms or under
 // about a semitone.
 export function isUsableRegion(region) {
@@ -58,13 +88,18 @@ export function formatHz(hz) {
 // Same key order/defaults the app's snapshot compare needs, so a region
 // that only round-trips through storage never reads as an unsaved change.
 export function normalizeRegions(regions) {
-  return (Array.isArray(regions) ? regions : []).map((r) => ({
-    startSec: r.startSec,
-    endSec: r.endSec,
-    lowHz: r.lowHz,
-    highHz: r.highHz,
-    reductionDb: r.reductionDb ?? DEFAULT_REDUCTION_DB
-  }))
+  return (Array.isArray(regions) ? regions : []).map((r) => {
+    const out = {
+      startSec: r.startSec,
+      endSec: r.endSec,
+      lowHz: r.lowHz,
+      highHz: r.highHz,
+      reductionDb: r.reductionDb ?? DEFAULT_REDUCTION_DB
+    }
+    // A freehand shape keeps its points (added only when present, so older boxes read the same).
+    if (Array.isArray(r.points) && r.points.length >= 3) out.points = r.points.map((p) => [p[0], p[1]])
+    return out
+  })
 }
 
 // Dark blue -> purple -> orange -> pale yellow, 0..255 -> [r, g, b].

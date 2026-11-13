@@ -875,8 +875,12 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
                 Clear all
               </button>
             </div>
-            <canvas id="editor-spectral-canvas" class="editor-spectral-canvas" title="Drag to draw a box around a sound to remove. Drag a box to move it, drag its edge to resize it, right-click it (or select it and press Delete) to remove it."></canvas>
+            <canvas id="editor-spectral-canvas" class="editor-spectral-canvas" title="Drag to draw a box around a sound to remove (or switch to Freehand and drag a loop around it). Drag a shape to move it, drag a box edge or a freehand corner dot to resize it, right-click it (or select it and press Delete) to remove it."></canvas>
             <div class="editor-spectral-controls">
+              <div id="editor-spectral-shape" class="rx-seg" role="group" aria-label="Shape to draw">
+                <button type="button" data-shape="box" aria-pressed="true" title="Drag a rectangle around the sound">Box</button>
+                <button type="button" data-shape="free" aria-pressed="false" title="Drag a freehand loop around the sound">Freehand</button>
+              </div>
               <span id="editor-spectral-selection" class="editor-spectral-selection">No box selected</span>
               <label>
                 <span>Reduce by</span>
@@ -1016,6 +1020,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       envelopeReset: container.querySelector('#editor-envelope-reset'),
       spectralSection: container.querySelector('#editor-spectral-section'),
       spectralCanvas: container.querySelector('#editor-spectral-canvas'),
+      spectralShape: container.querySelector('#editor-spectral-shape'),
       spectralDelete: container.querySelector('#editor-spectral-delete'),
       spectralClear: container.querySelector('#editor-spectral-clear'),
       spectralSelection: container.querySelector('#editor-spectral-selection'),
@@ -1295,6 +1300,12 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       const db = reductionDb() ?? 40
       this.els.spectralReduction.value = String(db)
       this.spectralView.setSelectedReduction(db)
+    })
+    this.els.spectralShape.addEventListener('click', (evt) => {
+      const btn = evt.target.closest('[data-shape]')
+      if (!btn) return
+      this.spectralView.setShape(btn.dataset.shape)
+      for (const b of this.els.spectralShape.querySelectorAll('[data-shape]')) b.setAttribute('aria-pressed', String(b === btn))
     })
     this.els.spectralDelete.addEventListener('click', () => this.spectralView.removeSelected())
     this.els.spectralClear.addEventListener('click', () => this.spectralView.clear())

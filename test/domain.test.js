@@ -4,7 +4,7 @@ import { loopLayout, clipToSource, sourceToClip } from '../src/domain/loopLayout
 import { formatDuration, parseDuration } from '../src/domain/time.js'
 import { applySoundOverride, cloneWholeMix, wholeMixEqual, NEUTRAL_WHOLE_MIX, defaultFluctuation, formatPan } from '../src/domain/mixSettings.js'
 import { escapeHtml } from '../src/domain/html.js'
-import { MIN_HZ, MAX_HZ, secToX, xToSec, hzToY, yToHz, regionFromCorners, isUsableRegion, normalizeRegions, formatHz, spectrogramColor } from '../src/domain/spectralLayout.js'
+import { MIN_HZ, MAX_HZ, secToX, xToSec, hzToY, yToHz, regionFromCorners, regionFromPoints, pointInShape, isUsableRegion, normalizeRegions, formatHz, spectrogramColor } from '../src/domain/spectralLayout.js'
 
 describe('loopLayout', () => {
   test('a fade of 0 is a plain trim', () => {
@@ -85,4 +85,28 @@ test('spectral layout: boxes from drag corners', () => {
   assert.equal(formatHz(12000), '12 kHz')
   assert.deepEqual(spectrogramColor(0), [22, 26, 43])
   assert.deepEqual(spectrogramColor(255), [255, 236, 180])
+})
+
+test('a freehand loop becomes a shape with its bounds as the box', () => {
+  const loop = [{ sec: 1, hz: 1000 }, { sec: 3, hz: 1000 }, { sec: 3, hz: 4000 }, { sec: 1, hz: 4000 }]
+  const r = regionFromPoints(loop)
+  assert.deepEqual([r.startSec, r.endSec, r.lowHz, r.highHz], [1, 3, 1000, 4000])
+  assert.equal(r.points.length, 4)
+  assert.equal(regionFromPoints([{ sec: 1, hz: 1000 }, { sec: 1.001, hz: 1000 }, { sec: 1, hz: 1001 }]), null, 'a speck is not a shape')
+  assert.equal(regionFromPoints([{ sec: 1, hz: 1000 }, { sec: 2, hz: 3000 }]), null, 'two points are not a shape')
+})
+
+test('a long lasso is thinned to at most 48 points', () => {
+  const many = Array.from({ length: 300 }, (_, i) => ({ sec: 1 + 2 * Math.sin(i / 47.7) ** 2, hz: 1000 + 3000 * Math.cos(i / 47.7) ** 2 }))
+  assert.ok(regionFromPoints(many).points.length <= 48)
+})
+
+test('pointInShape tests in log Hz and normalizeRegions keeps the points only when there are some', () => {
+  const tri = [[1, 500], [3, 500], [2, 2000]]
+  assert.equal(pointInShape(tri, 2, 700), true)
+  assert.equal(pointInShape(tri, 1.1, 1500), false)
+  assert.equal(pointInShape(tri, 2, 300), false)
+  const [box, shape] = normalizeRegions([{ startSec: 1, endSec: 2, lowHz: 100, highHz: 200 }, { startSec: 1, endSec: 3, lowHz: 500, highHz: 2000, reductionDb: 20, points: tri }])
+  assert.equal('points' in box, false)
+  assert.deepEqual(shape.points, tri)
 })
