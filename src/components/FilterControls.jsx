@@ -196,11 +196,11 @@ function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
       </div>
       <label
         className="rx-srow rx-nr-row"
-        title="Reduce steady background noise (hiss, hum, an air conditioner). Mark a stretch of the trimmed region that is noise only in the fields below, then Save. Bake only: no live preview, switch the preview to Saved audio to hear it."
+        title="Reduce steady background noise (hiss, hum, an air conditioner). Mark a stretch of the trimmed region that is noise only in the fields below, then Save. You hear it live while previewing, and Save bakes the same result."
       >
         <span className="rx-sl">
           <span>Noise reduction</span>
-          <small>Applies once saved; hear it in Saved audio</small>
+          <small>Plays live; saved the same way</small>
         </span>
         <input type="checkbox" checked={values.denoiseEnabled} onChange={(e) => onEdit({ denoiseEnabled: e.target.checked })} />
       </label>
