@@ -1,5 +1,5 @@
 import { PALETTE, withAlpha } from '../domain/palette.js'
-import { EQ_MAX_BANDS, EMPTY_SLOT, isEmptySlot, padEqSlots, compactEqSlots, freeSlotIndex } from '../domain/eqSlots.js'
+import { EQ_MAX_BANDS, EMPTY_SLOT, qWhenTypeChanges, isEmptySlot, padEqSlots, compactEqSlots, freeSlotIndex } from '../domain/eqSlots.js'
 // Draggable-node parametric EQ editor - a scoped-down take on FL Studio's
 // "Fruity Parametric EQ 2" (the reference the user showed a screenshot of,
 // see noctivago_remix_eq_future memory). Band count is fully user-managed -
@@ -1207,7 +1207,7 @@ export function createEqEditorController(canvas) {
       menuEl.appendChild(b)
     }
     const sep = () => menuEl.appendChild(Object.assign(doc.createElement('div'), { className: 'rx-eq-sep' }))
-    for (const [key, label] of Object.entries(EQ_TYPE_LABELS)) item(label, type === key, () => { band.type = key })
+    for (const [key, label] of Object.entries(EQ_TYPE_LABELS)) item(label, type === key, () => { band.q = qWhenTypeChanges(band, key); band.type = key })
     if (SLOPE_CAPABLE_EQ_TYPES.includes(type)) {
       sep()
       item('Gentle slope', band.slope !== 'steep', () => { band.slope = 'gentle' })
@@ -1373,7 +1373,9 @@ export function createEqEditorController(canvas) {
     // canvas drag would, then redraws so the node visibly jumps to match.
     setSelectedBand(patch) {
       if (readOnly || selectedIndex === -1 || !bands[selectedIndex]) return
-      Object.assign(bands[selectedIndex], patch)
+      const band = bands[selectedIndex]
+      if (patch.type && patch.type !== band.type) patch = { ...patch, q: qWhenTypeChanges(band, patch.type) }
+      Object.assign(band, patch)
       redraw()
     },
     // Gates every mutating interaction above (drag, wheel-Q, double-click/

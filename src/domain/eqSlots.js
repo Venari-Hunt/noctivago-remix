@@ -7,6 +7,17 @@
 export const EQ_SLOT_COUNT = 8
 // Soft ceiling kept from the list days (each band is a real filter node).
 export const EQ_MAX_BANDS = 20
+// A high-pass or low-pass at this Q has a flat, bump-free knee (Butterworth). Q 1 (the
+// bell default) adds a resonance bump at the cutoff, so a band that becomes a cut
+// and still has the untouched default Q starts here instead (owner, 2026-11-13).
+export const CUT_DEFAULT_Q = 0.71
+const CUT_TYPES = ['lowpass', 'highpass']
+export function qWhenTypeChanges(band, newType) {
+  if (CUT_TYPES.includes(newType) && !CUT_TYPES.includes(band.type) && band.q === 1) return CUT_DEFAULT_Q
+  if (!CUT_TYPES.includes(newType) && CUT_TYPES.includes(band.type) && band.q === CUT_DEFAULT_Q) return 1 // back to a bell: its own default
+  return band.q
+}
+
 export const EMPTY_SLOT = Object.freeze({ freqHz: 1000, gainDb: 0, q: 1, type: 'off', slope: 'gentle', muted: false })
 
 // An Off slot nobody has touched: hidden on the graph, dropped on save.
