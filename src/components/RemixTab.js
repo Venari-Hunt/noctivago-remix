@@ -1270,6 +1270,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       this.applyFilterControls()
     })
     this.spectralView.onSelect(() => this.updateSpectralControls())
+    // The Spectrum tab is hidden until opened, so the first fetch has to wait for a real size.
+    this.spectralView.onResize(() => this.syncSpectralView())
     // Dragging the needle seeks the preview (playing or paused).
     this.spectralView.onSeek((sec) => {
       const active = this.activePreview()
@@ -2799,16 +2801,22 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     if (!id || typeof this.api.audio.getSpectrogram !== 'function') return
     const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
     if (!(loopEnd > loopStart)) return
-    const key = `${id}:${loopStart}:${loopEnd}`
+    // Hidden tab: asking now would fetch a 16 x 16 image stretched blurry over the canvas.
+    if (!this.spectralView.isShown()) return
+    const want = this.spectralView.requestSize()
+    const trimKey = `${id}:${loopStart}:${loopEnd}`
+    // Size buckets of 100 px: a small resize keeps the image, a big one (a bigger window) refetches it sharper.
+    const key = `${trimKey}:${Math.round(want.columns / 100)}x${Math.round(want.rows / 100)}`
     if (key === this._spectrogramKey) return
+    const sameTrim = this._spectrogramKey?.startsWith(`${trimKey}:`)
     this._spectrogramKey = key
     this.spectralView.setView(loopStart, loopEnd)
-    this.spectralView.setSpectrogram(null, 'Reading the sound…')
+    if (!sameTrim) this.spectralView.setSpectrogram(null, 'Reading the sound…')
     clearTimeout(this._spectrogramTimer)
     this._spectrogramTimer = setTimeout(async () => {
       let spec = null
       try {
-        spec = await this.api.audio.getSpectrogram(id, { windowStart: loopStart, windowEnd: loopEnd, ...this.spectralView.requestSize() })
+        spec = await this.api.audio.getSpectrogram(id, { windowStart: loopStart, windowEnd: loopEnd, ...want })
       } catch (err) {
         console.error('Editor: spectrogram fetch failed', err)
       }
