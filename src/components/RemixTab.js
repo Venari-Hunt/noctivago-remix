@@ -885,7 +885,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
                 <span id="editor-spectral-reduction-value" class="editor-filter-value">40 dB</span>
               </label>
             </div>
-            <p class="editor-eq-hint">Removes a short sound hiding inside another one: a cough in the rain, a bird over the wind, a phone buzz. Find it as a bright spot on the spectrogram (time across, pitch up), drag a box around it, and just that box gets turned down. Everything outside the box stays as it was. Heard after you Save: switch the preview to <strong>Saved audio</strong> to check it.</p>
+            <p class="editor-eq-hint">Removes a short sound hiding inside another one: a cough in the rain, a bird over the wind, a phone buzz. Find it as a bright spot on the spectrogram (time across, pitch up), drag a box around it, and just that box gets turned down. Everything outside the box stays as it was. You hear it live while previewing, and Save bakes the same result.</p>
           </div>
           <div class="editor-presets">
             <span class="editor-presets-label">Presets</span>
@@ -2112,7 +2112,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
         ? stale
           ? 'Hearing the last saved/baked audio - edited since then, autosave will refresh it shortly. Click to switch to the live editable preview'
           : 'Hearing the actual saved/baked audio - click to switch back to the live editable preview'
-        : 'Hearing the live editable preview (Doppler, Reverse and Noise reduction have no live preview, and Pitch is only approximate) - click to hear the actual saved audio instead'
+        : 'Hearing the live editable preview (Doppler and Reverse have no live preview) - click to hear the actual saved audio instead'
       : 'Click to render and hear the actual saved audio'
     // Keep the "drift needs Live edit preview" note in sync with the mode.
     if (this.flucVolBar) this.updateFluctuationEnabledUI()
