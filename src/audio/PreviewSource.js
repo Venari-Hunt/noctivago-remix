@@ -8,6 +8,7 @@ import { NoiseStage } from './NoiseStage.js'
 import { computeNoiseProfile, resolveNoiseWindow } from './noiseReductionDsp.js'
 import { dopplerSemitones } from '../domain/doppler.js'
 import { rampEqualPower } from './equalPowerRamp.js'
+import { biquadQ } from '../domain/eqQ.js'
 import { canReverseLive, reverseRegion, encodeWav16, reversedToSource, sourceToReversed } from '../domain/reverseRegion.js'
 
 const RAMP_SECONDS = 0.15
@@ -194,7 +195,7 @@ function rebuildEqChain(voice, context, eq) {
       const node = context.createBiquadFilter()
       node.type = eqNodeType(band)
       node.frequency.value = band.freqHz
-      node.Q.value = band.q
+      node.Q.value = biquadQ(node.type, band.q)
       node.gain.value = band.gainDb
       return node
     })
@@ -241,7 +242,7 @@ function applyFiltersToVoice(voice, context, filters) {
       for (const node of group) {
         if (node.type !== newType) node.type = newType
         node.frequency.setTargetAtTime(band.freqHz, now, FILTER_SMOOTHING_SECONDS)
-        node.Q.setTargetAtTime(band.q, now, FILTER_SMOOTHING_SECONDS)
+        node.Q.setTargetAtTime(biquadQ(newType, band.q), now, FILTER_SMOOTHING_SECONDS)
         node.gain.setTargetAtTime(band.gainDb, now, FILTER_SMOOTHING_SECONDS)
       }
     })

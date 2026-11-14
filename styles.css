@@ -1834,7 +1834,15 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: h
 .rx-det-kind { color: var(--text-dim); font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rx-det-sec { color: var(--text-dim); font-size: 12px; line-height: 16px; font-weight: 600; margin: 4px 8px 0; display: flex; justify-content: space-between; }
 .rx-det-rows { display: flex; flex-direction: column; gap: 2px; overflow: auto; scrollbar-width: thin; min-height: 0; flex: 1 1 auto; }
-.rx-mrow { display: grid; grid-template-columns: minmax(0, 1fr) 72px 34px 32px; align-items: center; gap: 8px; padding: 4px 4px 4px 8px; border-radius: 10px; min-height: 40px; }
+.rx-mrow { display: grid; grid-template-columns: 28px minmax(0, 1fr) 32px 32px; align-items: center; gap: 2px 6px; padding: 4px 4px 6px 2px; border-radius: 10px; min-height: 40px; }
+.rx-mf { grid-column: 2 / 4; display: grid; grid-template-columns: minmax(0, 1fr) 34px; align-items: center; gap: 8px; }
+.rx-mrow .rx-mpv { width: 28px; height: 28px; border-radius: 50%; }
+.rx-mrow-playing .rx-mpv { background: var(--accent); color: #1a1500; }
+.rx-mrow-playing .rx-mnm, .rx-mrow-solo .rx-mnm { color: var(--accent); }
+.rx-mso { width: 32px; height: 32px; border: 0; border-radius: 10px; background: transparent; color: var(--text-dim); font: inherit; font-weight: 700; font-size: 13px; cursor: pointer; }
+.rx-mso:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+.rx-mso[aria-pressed="true"] { background: var(--accent); color: #1a1500; }
+.rx-mso:disabled { cursor: default; opacity: .45; }
 .rx-mrow:hover { background: var(--surface); }
 .rx-mnm { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rx-mval { font-size: 12px; color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
