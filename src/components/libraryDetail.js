@@ -103,19 +103,45 @@ function emptyNote(doc, title, text) {
   return n
 }
 
-function memberRows(doc, group, h) {
+// One member per two lines (approved mock, 2026-11-13): play/stop, the name,
+// S (Solo, preview only) and the arrow on the first; the volume fader and its
+// value under the name. Play previews that one sound from the library;
+// S needs the preset loaded in the Mixer and the sound in its mix.
+function memberRows(doc, group, h, status = {}) {
   if (!group.members.length) return emptyNote(doc, 'No sounds in this group yet', "Add sounds to it from a card's menu in the Mixer.")
   const rows = el(doc, 'div', 'rx-det-rows')
   for (const m of group.members) {
-    const r = el(doc, 'div', 'rx-mrow' + (m.inMix ? '' : ' rx-mrow-off'))
+    const soloed = status.soloedId === m.id
+    const r = el(doc, 'div', 'rx-mrow' + (m.inMix ? '' : ' rx-mrow-off') + (soloed ? ' rx-mrow-solo' : '') + (status.previewId === m.id ? ' rx-mrow-playing' : ''))
+    if (!m.missing) {
+      const playing = status.previewId === m.id
+      const pv = iconButton(doc, playing ? 'square' : 'play', playing ? 'Stop ' + m.name : 'Play ' + m.name, () => h.preview(m.id))
+      pv.classList.add('rx-mpv')
+      r.appendChild(pv)
+    } else r.appendChild(el(doc, 'span'))
     const nm = el(doc, 'span', 'rx-mnm')
     nm.textContent = m.name
     nm.title = m.inMix ? m.name : `${m.name} (not in this preset's mix)`
     const val = el(doc, 'span', 'rx-mval')
     val.textContent = m.inMix ? formatGain(m.gain) : 'off'
     r.appendChild(nm)
+    const so = el(doc, 'button', 'rx-mso', 'S')
+    so.type = 'button'
+    so.setAttribute('aria-pressed', String(soloed))
+    so.setAttribute('aria-label', 'Solo ' + m.name)
+    so.title = !status.live ? 'Load this preset in the Mixer first' : !m.inMix ? "Not in this preset's mix" : 'Solo: hear only this one while the group plays (preview only, never saved)'
+    so.disabled = !status.live || !m.inMix
+    so.addEventListener('click', () => h.solo(m.id, !soloed))
+    r.appendChild(so)
+    if (m.missing) r.appendChild(el(doc, 'span'))
+    else {
+      const go = iconButton(doc, 'arrow-right', 'Edit ' + m.name + ' in Sound mode', () => h.editSound(m.id))
+      go.title = 'Edit in Sound mode'
+      r.appendChild(go)
+    }
+    const mf = el(doc, 'div', 'rx-mf')
     if (m.inMix) {
-      r.appendChild(
+      mf.appendChild(
         fader(doc, {
           value: gainToFader(m.gain),
           label: `${m.name} volume`,
@@ -127,14 +153,9 @@ function memberRows(doc, group, h) {
           onDragState: h.dragging
         })
       )
-    } else r.appendChild(el(doc, 'span', 'rx-fader-none'))
-    r.appendChild(val)
-    if (m.missing) r.appendChild(el(doc, 'span'))
-    else {
-      const go = iconButton(doc, 'arrow-right', `Edit ${m.name} in Sound mode`, () => h.editSound(m.id))
-      go.title = 'Edit in Sound mode'
-      r.appendChild(go)
-    }
+    } else mf.appendChild(el(doc, 'span', 'rx-fader-none'))
+    mf.appendChild(val)
+    r.appendChild(mf)
     rows.appendChild(r)
   }
   return rows
@@ -148,7 +169,7 @@ function goButton(doc, kind, text, onClick) {
   return b
 }
 
-function groupPanel(doc, group, parent, h) {
+function groupPanel(doc, group, parent, h, status) {
   const frag = doc.createDocumentFragment()
   frag.appendChild(
     header(doc, {
@@ -158,7 +179,7 @@ function groupPanel(doc, group, parent, h) {
       back: parent ? { label: `Back to ${parent}`, onClick: h.back } : { label: 'Back to all groups', onClick: h.up }
     })
   )
-  frag.appendChild(memberRows(doc, group, h))
+  frag.appendChild(memberRows(doc, group, h, status))
   if (parent) frag.appendChild(goButton(doc, 'group', 'Edit in Group mode', () => h.editGroup(group.id)))
   return frag
 }
@@ -278,8 +299,8 @@ export function renderDetail(host, view, h) {
   const { top, sub } = view
   if (!top) return false
   const wrap = el(doc, 'div', 'rx-drill')
-  if (top.kind === 'group') wrap.appendChild(groupPanel(doc, top, null, h))
-  else if (sub?.kind === 'group') wrap.appendChild(groupPanel(doc, sub, top.name, h))
+  if (top.kind === 'group') wrap.appendChild(groupPanel(doc, top, null, h, view.status))
+  else if (sub?.kind === 'group') wrap.appendChild(groupPanel(doc, sub, top.name, h, view.status))
   else if (sub?.kind === 'sound') wrap.appendChild(soundPanel(doc, sub, top.name, h, view.status))
   else wrap.appendChild(presetPanel(doc, top, h))
   host.replaceChildren(wrap)

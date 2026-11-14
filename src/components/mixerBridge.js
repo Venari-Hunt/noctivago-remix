@@ -21,7 +21,7 @@ export function requestAnalyser(kind, presetId, groupId) {
 export function requestMixerStatus() {
   // volumePosition/muted: the app's master volume, filled in by apps that
   // have the remix-set-volume bridge (left undefined by older ones).
-  const detail = { activePresetId: null, isPlaying: false, soloedGroupId: null, volumePosition: undefined, muted: false }
+  const detail = { activePresetId: null, isPlaying: false, soloedGroupId: null, previewSoundId: null, volumePosition: undefined, muted: false }
   window.dispatchEvent(new CustomEvent('noctivago:request-mixer-status', { detail }))
   return detail
 }

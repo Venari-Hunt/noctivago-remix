@@ -890,6 +890,7 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
     setPan: (id, pan) => detail.setPan(id, pan),
     mute: (id) => detail.mute(id),
     solo: (id, on) => detail.solo(id, on),
+    preview: (id) => detail.preview(id),
     editSound: (id) => detail.editSound(id),
     editGroup: (id) => detail.editGroup(id)
   }

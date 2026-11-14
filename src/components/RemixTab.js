@@ -241,6 +241,11 @@ export default class EditorPlugin {
     }
     window.addEventListener('noctivago:edit-sound', this._onEditSound)
 
+    // The Mixer's preview player says which sound it is playing (the play
+    // button on a group member row); redraw the rows so the button follows.
+    this._onPreviewState = () => this.layout?.refreshStudio?.()
+    window.addEventListener('noctivago:remix-preview-state', this._onPreviewState)
+
     this.unregister = this.app.tabs.register({
       id: 'remix',
       title: 'Remix',
@@ -276,6 +281,7 @@ export default class EditorPlugin {
       onBeforeHide: () => this.confirmLeaveIfDirty(),
       onHide: () => {
         this._tabActive = false
+        window.dispatchEvent(new CustomEvent('noctivago:remix-preview-sound', { detail: { stop: true } }))
         this.activePreview()?.pause()
         this.stopPreviewTicking()
         this.setPlayPauseIcon(false)
@@ -296,6 +302,7 @@ export default class EditorPlugin {
     if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown)
     if (this._onActivePresetChanged) window.removeEventListener('noctivago:active-preset-changed', this._onActivePresetChanged)
     if (this._onEditSound) window.removeEventListener('noctivago:edit-sound', this._onEditSound)
+    if (this._onPreviewState) window.removeEventListener('noctivago:remix-preview-state', this._onPreviewState)
     this.disposePreview()
     this.stopWholeMixSpectrumTicking()
     clearTimeout(this._seamDetailPeaksTimer)
@@ -988,6 +995,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
         setPan: (id, pan) => this.setDetailPan(id, pan).catch((err) => console.error('Remix: pan save failed', err)),
         mute: (id) => this.mixerSoundAction('noctivago:remix-toggle-sound-mute', { soundId: id }),
         solo: (id, on) => this.mixerSoundAction('noctivago:solo', { soundId: id, active: on }),
+        preview: (id) => window.dispatchEvent(new CustomEvent('noctivago:remix-preview-sound', { detail: { soundId: id } })),
         editSound: (id) => this.editFromDetail('sound', id),
         editGroup: (id) => this.editFromDetail('group', id)
       }
@@ -2372,7 +2380,9 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     const volumes = live && status.soundVolumes ? status.soundVolumes : null
     const volumeOf = volumes ? (id) => volumes[id] : null
     const lib = this.baseLibrary ?? this.library ?? []
-    if (mode === 'group') return { top: groupDetail(this.groups.find((g) => g.id === this.selectedGroupId), preset, lib, volumeOf) }
+    // Solo (like Mute) acts on the Mixer's live mix; the member rows' play button previews from the library.
+    const rowStatus = { live, soloedId: status.soloedSoundId ?? null, previewId: status.previewSoundId ?? null }
+    if (mode === 'group') return { top: groupDetail(this.groups.find((g) => g.id === this.selectedGroupId), preset, lib, volumeOf), status: rowStatus }
     const top = presetDetail(preset, lib, volumeOf)
     let subView = null
     if (sub?.kind === 'group') subView = groupDetail(preset?.groups?.find((g) => g.id === sub.id), preset, lib, volumeOf)
@@ -2382,6 +2392,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       top,
       sub: subView,
       status: {
+        ...rowStatus,
         live,
         canMute: Array.isArray(status.mutedSoundIds),
         muted: isSound && (status.mutedSoundIds ?? []).includes(sub.id),
