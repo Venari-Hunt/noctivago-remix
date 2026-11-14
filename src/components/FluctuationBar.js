@@ -113,6 +113,7 @@ export function createFluctuationBar(canvas, { valueMin, valueMax, defaults, for
     drawHandle(values.max, accent)
     if (biasOn) drawHandle(values.bias, ink)
 
+    canvas.dataset.range = fmt(values.min) + ' to ' + fmt(values.max)
     ctx.fillStyle = mute
     ctx.font = `12px ${getComputedStyle(canvas).fontFamily || 'system-ui, sans-serif'}`
     ctx.textBaseline = 'top'

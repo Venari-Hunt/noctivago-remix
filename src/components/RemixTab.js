@@ -17,7 +17,7 @@ import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/m
 import { loadMarkers, saveMarkers } from '../domain/markerStore.js'
 import { mountMarkerUi, flashMarkerButton, renderMarkerChips, renderProgressTicks, openMarkerPopover, closeMarkerPopover, formatMarkerTime } from './markerUi.js'
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
-import { arrangeLayout, arrangeBar } from './layout.js'
+import { arrangeLayout, arrangeBar, driftSummary } from './layout.js'
 import { wireNameMarquee } from './nameMarquee.js'
 import { fluctuationTimingMarkup, driftAxisTogglesMarkup, shotAxisMarkup, mixFluctuationMarkup } from './markup.js'
 import { requestAnalyser, requestMixerStatus } from './mixerBridge.js'
@@ -1120,7 +1120,6 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       eqSolo: container.querySelector('#editor-eq-solo'),
       resetFilters: container.querySelector('#editor-reset-filters'),
       presetButtons: container.querySelectorAll('[data-preset]'),
-      fluctuationSection: container.querySelector('#editor-fluctuation-section'),
       fluctuationSavedNote: container.querySelector('#editor-fluctuation-saved-note'),
       flucVolEnabled: container.querySelector('#editor-fluc-vol-enabled'),
       flucVolBar: container.querySelector('#editor-fluc-vol-bar'),
@@ -3322,7 +3321,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     // pitch/volume randomization), and the Source classes for those modes
     // don't wire it up. Hide it rather than show an inert control.
     const flucHidden = playMode === 'scatter' || playMode === 'scheduled'
-    this.els.fluctuationSection.classList.toggle('hidden', flucHidden)
+    this.layout?.setDriftHidden?.(flucHidden)
     if (!flucHidden) {
       // Canvases measure 0 while their section is display:none - redraw once
       // it's back on screen so the bars aren't stuck at a stale size.
@@ -3435,7 +3434,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     // since only a fresh load ever ran the real check. Same Loop-mode-only
     // scoping setPlayModeControls already documents.
     const flucHidden = playMode === 'scatter' || playMode === 'scheduled'
-    this.els.fluctuationSection.classList.toggle('hidden', flucHidden)
+    this.layout?.setDriftHidden?.(flucHidden)
     if (!flucHidden) {
       this.flucVolBar?.redraw()
       this.flucPitchBar?.redraw()
@@ -3994,9 +3993,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     const reversed = this.els.reverse.checked
     const speedOn = speed !== 100 || pitch !== 0 || reversed
     const f = this.filterControls ? filterSummaries(this.filterControls.getValues()) : { tone: 'Off', clean: 'Off', space: 'Off' }
-    const drift = ['Vol', 'Pitch', 'Pan']
-      .map((axis, i) => (this.els[`fluc${axis}Enabled`]?.checked ? ['Volume', 'Pitch', 'Pan'][i] : null))
-      .filter(Boolean)
+    const driftOf = (axis) => driftSummary(this.els[`fluc${axis}Enabled`]?.checked, this.els[`fluc${axis}Bar`]?.dataset.range)
     const bands = this.eqEditorController?.getBands?.() ?? []
     const activeBands = bands.filter((b) => (b.type ?? 'peaking') !== 'off' && !b.muted).length
     this.layout.setSummaries({
@@ -4006,7 +4003,9 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       clean: [f.clean, f.clean !== 'Off'],
       space: [f.space, f.space !== 'Off'],
       eq: [activeBands ? `${activeBands} band${activeBands === 1 ? '' : 's'}` : 'Off', activeBands > 0],
-      drift: [drift.length ? drift.join(' · ') : 'Off', drift.length > 0],
+      'drift-vol': driftOf('Vol'),
+      'drift-pitch': driftOf('Pitch'),
+      'drift-pan': driftOf('Pan'),
       // One-shot looks: applying one sets the knobs, nothing stays selected.
       looks: ['None', false]
     })
