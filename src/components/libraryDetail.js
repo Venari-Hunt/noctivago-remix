@@ -5,6 +5,7 @@
 // domain/detailPanel.js; every write goes through the handlers.
 import { icon } from './icons.js'
 import { formatGain, formatPan, gainToFader, faderToGain } from '../domain/detailPanel.js'
+import { soundKey, groupKey } from '../domain/itemPreview.js'
 
 const ICON = { group: 'layers', preset: 'bookmark', sound: 'audio-waveform' }
 
@@ -96,6 +97,36 @@ function fader(doc, { value, pan = false, label, onInput, onCommit, onDragState 
   return f
 }
 
+const KIND_TXT = { loop: 'natural loop', random: 'random one-shot', scheduled: 'scheduled one-shot' }
+
+// Row preview (approved mock, 2026-11-14): Play previews the item with all
+// its settings, one item at a time; the same button stops it.
+function playButton(doc, key, name, what, h, status) {
+  const playing = status.previewKey === key
+  const b = iconButton(doc, playing ? 'square' : 'play', (playing ? 'Stop ' : 'Play ') + name, () => h.preview(key))
+  b.title = playing ? 'Stop ' + name : 'Play ' + name + what
+  b.classList.add('rx-mpv')
+  return b
+}
+
+// Loop sits under Play. A one-shot plays once; Loop keeps it repeating with
+// its own gap, as in the mix. Greyed for a natural loop (always loops).
+function loopButton(doc, id, name, h, status) {
+  const kind = status.kinds?.[id] ?? 'loop'
+  const b = iconButton(doc, 'repeat', 'Loop ' + name, () => h.loop(id))
+  b.classList.add('rx-mlp')
+  if (kind === 'loop') {
+    b.disabled = true
+    b.title = name + ' is a natural loop: it always loops'
+    b.setAttribute('aria-label', 'Loop (always on for a natural loop)')
+  } else {
+    const on = (status.loops ?? []).includes(id)
+    b.setAttribute('aria-pressed', String(on))
+    b.title = 'Loop: keep repeating ' + name + ' as it does in the mix (' + KIND_TXT[kind] + ')'
+  }
+  return b
+}
+
 function emptyNote(doc, title, text) {
   const n = el(doc, 'div', 'rx-det-empty', title ? '<b></b><span></span>' : '<span></span>')
   if (title) n.querySelector('b').textContent = title
@@ -103,25 +134,28 @@ function emptyNote(doc, title, text) {
   return n
 }
 
-// One member per two lines (approved mock, 2026-11-13): play/stop, the name,
-// S (Solo, preview only) and the arrow on the first; the volume fader and its
-// value under the name. Play previews that one sound from the library;
-// S needs the preset loaded in the Mixer and the sound in its mix.
+// One member per two lines (approved mock, 2026-11-14): Play, the name,
+// S (Solo, preview only) and the arrow on the first; Loop, the volume fader
+// and its value on the second. Play previews that sound with its settings
+// (Remix's own engine); S solos it in the Mixer's live mix.
 function memberRows(doc, group, h, status = {}) {
   if (!group.members.length) return emptyNote(doc, 'No sounds in this group yet', "Add sounds to it from a card's menu in the Mixer.")
   const rows = el(doc, 'div', 'rx-det-rows')
-  for (const m of group.members) {
+  for (const m of group.members) rows.appendChild(soundRow(doc, m, h, status))
+  return rows
+}
+
+// One member's two-line row: Play, name, S, arrow; Loop, fader, value.
+function soundRow(doc, m, h, status) {
+  {
     const soloed = status.soloedId === m.id
-    const r = el(doc, 'div', 'rx-mrow' + (m.inMix ? '' : ' rx-mrow-off') + (soloed ? ' rx-mrow-solo' : '') + (status.previewId === m.id ? ' rx-mrow-playing' : ''))
-    if (!m.missing) {
-      const playing = status.previewId === m.id
-      const pv = iconButton(doc, playing ? 'square' : 'play', playing ? 'Stop ' + m.name : 'Play ' + m.name, () => h.preview(m.id))
-      pv.classList.add('rx-mpv')
-      r.appendChild(pv)
-    } else r.appendChild(el(doc, 'span'))
+    const r = el(doc, 'div', 'rx-mrow' + (m.inMix ? '' : ' rx-mrow-off') + (soloed ? ' rx-mrow-solo' : '') + (status.previewKey === soundKey(m.id) ? ' rx-mrow-playing' : ''))
+    r.dataset.key = soundKey(m.id)
+    if (!m.missing) r.appendChild(playButton(doc, soundKey(m.id), m.name, ' with its settings', h, status))
+    else r.appendChild(el(doc, 'span'))
     const nm = el(doc, 'span', 'rx-mnm')
     nm.textContent = m.name
-    nm.title = m.inMix ? m.name : `${m.name} (not in this preset's mix)`
+    nm.title = m.inMix ? `${m.name} · ${KIND_TXT[status.kinds?.[m.id] ?? 'loop']}` : `${m.name} (not in this preset's mix)`
     const val = el(doc, 'span', 'rx-mval')
     val.textContent = m.inMix ? formatGain(m.gain) : 'off'
     r.appendChild(nm)
@@ -129,8 +163,8 @@ function memberRows(doc, group, h, status = {}) {
     so.type = 'button'
     so.setAttribute('aria-pressed', String(soloed))
     so.setAttribute('aria-label', 'Solo ' + m.name)
-    so.title = !status.live ? 'Load this preset in the Mixer first' : !m.inMix ? "Not in this preset's mix" : 'Solo: hear only this one while the group plays (preview only, never saved)'
-    so.disabled = !status.live || !m.inMix
+    so.title = !m.inMix ? "Not in this preset's mix" : !status.live ? 'Solo: loads this preset in the Mixer, then plays only this one (preview only, never saved)' : 'Solo: hear only this one while the preset plays (preview only, never saved)'
+    so.disabled = !m.inMix || Boolean(m.missing)
     so.addEventListener('click', () => h.solo(m.id, !soloed))
     r.appendChild(so)
     if (m.missing) r.appendChild(el(doc, 'span'))
@@ -139,6 +173,7 @@ function memberRows(doc, group, h, status = {}) {
       go.title = 'Edit in Sound mode'
       r.appendChild(go)
     }
+    if (!m.missing) r.appendChild(loopButton(doc, m.id, m.name, h, status))
     const mf = el(doc, 'div', 'rx-mf')
     if (m.inMix) {
       mf.appendChild(
@@ -156,9 +191,8 @@ function memberRows(doc, group, h, status = {}) {
     } else mf.appendChild(el(doc, 'span', 'rx-fader-none'))
     mf.appendChild(val)
     r.appendChild(mf)
-    rows.appendChild(r)
+    return r
   }
-  return rows
 }
 
 function goButton(doc, kind, text, onClick) {
@@ -244,9 +278,10 @@ function soundPanel(doc, sound, parent, h, status) {
   solo.type = 'button'
   solo.setAttribute('aria-pressed', String(status.soloed))
   for (const b of [mute, solo]) {
-    b.disabled = !live || (b === mute && !status.canMute)
-    if (!live) b.title = 'Load this preset in the Mixer first'
+    b.disabled = b === mute && (!live || !status.canMute)
+    if (b === mute && !live) b.title = 'Load this preset in the Mixer first'
     else if (b === mute && !status.canMute) b.title = 'Update Noctívago to mute from here'
+    else if (b === solo && !live) b.title = 'Loads this preset in the Mixer, then plays only this one (preview only, never saved)'
   }
   mute.addEventListener('click', () => h.mute(sound.id))
   solo.addEventListener('click', () => h.solo(sound.id, !status.soloed))
@@ -254,6 +289,15 @@ function soundPanel(doc, sound, parent, h, status) {
   frag.appendChild(pair)
   frag.appendChild(goButton(doc, 'sound', 'Edit in Sound mode', () => h.editSound(sound.id)))
   return frag
+}
+
+// A preset's row: Play, then Loop (a sound) or a blank (a group), then the
+// row that opens it (mock .prow).
+function previewRow(doc, key, transport, rowEl, playing) {
+  const r = el(doc, 'div', 'rx-drow' + (playing ? ' rx-drow-playing' : ''))
+  r.dataset.key = key
+  r.append(...transport, rowEl)
+  return r
 }
 
 function subRow(doc, kind, name, meta, onClick) {
@@ -273,7 +317,7 @@ function section(doc, label, count) {
   return s
 }
 
-function presetPanel(doc, preset, h) {
+function presetPanel(doc, preset, h, status = {}) {
   const frag = doc.createDocumentFragment()
   frag.appendChild(header(doc, { kind: 'preset', name: preset.name, meta: preset.meta, back: { label: 'Back to all presets', onClick: h.up } }))
   if (preset.empty) {
@@ -283,10 +327,20 @@ function presetPanel(doc, preset, h) {
   const rows = el(doc, 'div', 'rx-det-rows')
   if (preset.groups.length) {
     rows.appendChild(section(doc, 'Groups', preset.groups.length))
-    for (const g of preset.groups) rows.appendChild(subRow(doc, 'group', g.name, `${g.count} sound${g.count === 1 ? '' : 's'}`, () => h.openSub('group', g.id)))
+    for (const g of preset.groups) {
+      const key = groupKey(g.id)
+      const open = subRow(doc, 'group', g.name, `${g.count} sound${g.count === 1 ? '' : 's'}`, () => h.openSub('group', g.id))
+      rows.appendChild(previewRow(doc, key, [playButton(doc, key, g.name, ' as a group', h, status), el(doc, 'span')], open, status.previewKey === key))
+    }
   }
   rows.appendChild(section(doc, 'Sounds outside groups', preset.sounds.length))
-  if (preset.sounds.length) for (const s of preset.sounds) rows.appendChild(subRow(doc, 'sound', s.name, formatGain(s.gain), () => h.openSub('sound', s.id)))
+  if (preset.sounds.length)
+    for (const s of preset.sounds) {
+      const key = soundKey(s.id)
+      const open = subRow(doc, 'sound', s.name, formatGain(s.gain), () => h.openSub('sound', s.id))
+      const transport = s.missing ? [el(doc, 'span'), el(doc, 'span')] : [playButton(doc, key, s.name, ' with its settings', h, status), loopButton(doc, s.id, s.name, h, status)]
+      rows.appendChild(previewRow(doc, key, transport, open, status.previewKey === key))
+    }
   else rows.appendChild(emptyNote(doc, null, 'Every sound here is in a group.'))
   frag.appendChild(rows)
   return frag
@@ -302,7 +356,7 @@ export function renderDetail(host, view, h) {
   if (top.kind === 'group') wrap.appendChild(groupPanel(doc, top, null, h, view.status))
   else if (sub?.kind === 'group') wrap.appendChild(groupPanel(doc, sub, top.name, h, view.status))
   else if (sub?.kind === 'sound') wrap.appendChild(soundPanel(doc, sub, top.name, h, view.status))
-  else wrap.appendChild(presetPanel(doc, top, h))
+  else wrap.appendChild(presetPanel(doc, top, h, view.status))
   host.replaceChildren(wrap)
   return true
 }

@@ -919,7 +919,8 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
     setPan: (id, pan) => detail.setPan(id, pan),
     mute: (id) => detail.mute(id),
     solo: (id, on) => detail.solo(id, on),
-    preview: (id) => detail.preview(id),
+    preview: (key) => detail.preview(key),
+    loop: (id) => detail.loop(id),
     editSound: (id) => detail.editSound(id),
     editGroup: (id) => detail.editGroup(id)
   }
@@ -940,7 +941,8 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
     }
     list.classList.remove('rx-list-drill')
     const items = shown()
-    const key = JSON.stringify([state?.mode, state?.currentId, highlight, items])
+    const previewKey = detail?.rowStatus?.().previewKey ?? null
+    const key = JSON.stringify([state?.mode, state?.currentId, highlight, items, previewKey])
     if (key === lastKey) return
     lastKey = key
     list.replaceChildren()
@@ -967,6 +969,21 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
         renderList()
       })
       if (state.mode !== 'sound' && detail) b.insertAdjacentHTML('beforeend', `<span class="rx-chev">${icon('chevron-right')}</span>`)
+      // Group mode: Play before each group previews it as a group (mock .iw).
+      if (state.mode === 'group' && detail?.preview) {
+        const gk = 'g:' + it.id
+        const on = previewKey === gk
+        const w = el(doc, 'div', 'rx-iw' + (on ? ' rx-iw-playing' : ''))
+        w.dataset.key = gk
+        const pv = el(doc, 'button', 'rx-i rx-dib rx-mpv', icon(on ? 'square' : 'play'))
+        pv.type = 'button'
+        pv.title = on ? 'Stop ' + it.name : 'Play ' + it.name + ' as a group'
+        pv.setAttribute('aria-label', (on ? 'Stop ' : 'Play ') + it.name)
+        pv.addEventListener('click', () => detail.preview(gk))
+        w.append(pv, b)
+        list.appendChild(w)
+        return
+      }
       list.appendChild(b)
     })
   }

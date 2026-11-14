@@ -53,7 +53,7 @@ export function presetDetail(preset, library, volumeOf) {
   const vol = volumeGetter(preset, volumeOf)
   const groups = (preset.groups ?? []).map((g) => ({ id: g.id, name: g.name, count: g.soundIds?.length ?? 0 }))
   const grouped = new Set((preset.groups ?? []).flatMap((g) => g.soundIds ?? []))
-  const sounds = (preset.sounds ?? []).filter((s) => !grouped.has(s.soundId)).map((s) => ({ id: s.soundId, name: nameOf(library, s.soundId), gain: vol(s.soundId) }))
+  const sounds = (preset.sounds ?? []).filter((s) => !grouped.has(s.soundId)).map((s) => ({ id: s.soundId, name: nameOf(library, s.soundId), gain: vol(s.soundId), missing: !library.some((l) => l.id === s.soundId) }))
   const empty = !groups.length && !(preset.sounds ?? []).length
   return { kind: 'preset', id: preset.id, name: preset.name, groups, sounds, empty, meta: `Preset · ${empty ? 'empty' : `${plural(groups.length, 'group')}, ${plural(sounds.length, 'sound')}`}` }
 }
