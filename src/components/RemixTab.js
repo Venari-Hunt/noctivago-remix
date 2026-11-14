@@ -25,12 +25,18 @@ import { pushLevel, peakFromTimeDomain } from '../domain/levels.js'
 import { drawLevelHistory } from './levelHistory.js'
 import { escapeHtml } from '../domain/html.js'
 import { groupDetail, presetDetail, soundDetail, panOverride, withSoundVolume } from '../domain/detailPanel.js'
+import { ItemPreviewPlayer } from '../audio/ItemPreview.js'
+import { soundPlan, groupPlan, previewKind, effectiveSound } from '../domain/itemPreview.js'
 
 export default class EditorPlugin {
   constructor(app) {
     this.app = app
     this.api = app.noctivago
     this.engine = new AudioEngine()
+    // Row previews in Group and Preset mode (one item at a time) and the
+    // sounds whose Loop is on there. Preview only, never saved.
+    this.itemPreview = new ItemPreviewPlayer(this.engine, { onChange: () => this.layout?.refreshStudio?.(), onShot: (id) => this.flashShot(id) })
+    this.itemLoops = new Set()
 
     this.library = []
     this.currentEntry = null
@@ -282,6 +288,7 @@ export default class EditorPlugin {
       onHide: () => {
         this._tabActive = false
         window.dispatchEvent(new CustomEvent('noctivago:remix-preview-sound', { detail: { stop: true } }))
+        this.itemPreview.stop()
         this.activePreview()?.pause()
         this.stopPreviewTicking()
         this.setPlayPauseIcon(false)
@@ -995,7 +1002,9 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
         setPan: (id, pan) => this.setDetailPan(id, pan).catch((err) => console.error('Remix: pan save failed', err)),
         mute: (id) => this.mixerSoundAction('noctivago:remix-toggle-sound-mute', { soundId: id }),
         solo: (id, on) => this.soloInMixer(id, on),
-        preview: (id) => window.dispatchEvent(new CustomEvent('noctivago:remix-preview-sound', { detail: { soundId: id } })),
+        preview: (key) => this.toggleItemPreview(key).catch((err) => console.error('Remix: item preview failed', err)),
+        loop: (id) => this.toggleItemLoop(id),
+        rowStatus: () => ({ previewKey: this.itemPreview.key }),
         editSound: (id) => this.editFromDetail('sound', id),
         editGroup: (id) => this.editFromDetail('group', id)
       }
@@ -2285,6 +2294,8 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
   }
 
   setPlayPauseIcon(playing) {
+    // The main transport and a row preview never play at once.
+    if (playing) this.itemPreview?.stop()
     if (!this.els.playPause) return
     this.els.playPause.innerHTML = playing ? PAUSE_ICON_SVG : PLAY_ICON_SVG
     this.els.playPause.title = playing ? 'Pause' : 'Play'
@@ -2380,7 +2391,10 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     const volumeOf = volumes ? (id) => volumes[id] : null
     const lib = this.baseLibrary ?? this.library ?? []
     // Solo (like Mute) acts on the Mixer's live mix; the member rows' play button previews from the library.
-    const rowStatus = { live, soloedId: status.soloedSoundId ?? null, previewId: status.previewSoundId ?? null }
+    const kinds = {}
+    for (const s of preset?.sounds ?? []) kinds[s.soundId] = previewKind(effectiveSound(lib, preset, s.soundId))
+    for (const g of this.groups ?? []) for (const id of g.soundIds ?? []) if (!kinds[id]) kinds[id] = previewKind(effectiveSound(lib, preset, id))
+    const rowStatus = { live, soloedId: status.soloedSoundId ?? null, previewKey: this.itemPreview.key, loops: [...this.itemLoops], kinds }
     if (mode === 'group') return { top: groupDetail(this.groups.find((g) => g.id === this.selectedGroupId), preset, lib, volumeOf), status: rowStatus }
     const top = presetDetail(preset, lib, volumeOf)
     let subView = null
@@ -2450,6 +2464,51 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
       if (requestMixerStatus().activePresetId !== preset.id) return
     }
     this.mixerSoundAction('noctivago:solo', { soundId: id, active: on })
+  }
+
+  // A row's Play: the item with all its settings, from Remix's own engine
+  // (never the Mixer). key is 's:<soundId>' or 'g:<groupId>'; the same key
+  // again stops it.
+  async toggleItemPreview(key) {
+    if (this.itemPreview.isPlaying(key)) return this.itemPreview.stop()
+    this.activePreview()?.pause()
+    this.stopPreviewTicking()
+    this.setPlayPauseIcon(false)
+    window.dispatchEvent(new CustomEvent('noctivago:remix-preview-sound', { detail: { stop: true } }))
+    const preset = this.presets.find((p) => p.id === this.selectedPresetId) ?? null
+    const lib = this.baseLibrary ?? this.library ?? []
+    const status = requestMixerStatus()
+    const live = Boolean(preset) && status.activePresetId === preset.id
+    const gainOf = (id) => (live ? status.soundVolumes?.[id] : null)
+    const id = key.slice(2)
+    if (key.startsWith('g:')) {
+      const group = (preset?.groups ?? this.groups ?? []).find((g) => g.id === id)
+      // The group open in Group mode plays with its unsaved filters too.
+      const filters = group && id === this.selectedGroupId && this.mode === 'group' ? this.groupCurrent : group?.filters
+      const plan = groupPlan(lib, preset, group && { ...group, filters }, { gainOf })
+      return this.itemPreview.playGroup(key, plan)
+    }
+    return this.itemPreview.playSound(key, soundPlan(lib, preset, id, { repeat: this.itemLoops.has(id), gain: gainOf(id) }))
+  }
+
+  // A shot firing: a short amber flash on that sound's name (mock .shot).
+  // data-rx-shots counts them, for the e2e.
+  flashShot(id) {
+    if (!this.root) return
+    this.root.dataset.rxShots = String(Number(this.root.dataset.rxShots ?? 0) + 1)
+    for (const r of this.root.querySelectorAll(`[data-key="s:${CSS.escape(id)}"]`)) {
+      r.classList.remove('rx-shot')
+      void r.offsetWidth
+      r.classList.add('rx-shot')
+    }
+  }
+
+  toggleItemLoop(id) {
+    const on = !this.itemLoops.has(id)
+    if (on) this.itemLoops.add(id)
+    else this.itemLoops.delete(id)
+    this.itemPreview.setRepeat(id, on)
+    this.layout?.refreshStudio?.()
   }
 
   mixerSoundAction(eventName, detail) {
@@ -5103,6 +5162,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     if (this.mode === mode) return
     const leaving = this.mode
     this.mode = mode
+    this.itemPreview.stop()
 
     if (leaving === 'sound') {
       this.activePreview()?.pause()
