@@ -1,3 +1,7 @@
+/* Remix's own token: the dark well behind waveforms, spectra and the EQ graph
+   (markerLayer.js paints the same color on canvas). */
+:root { --rx-canvas: #0b0b0d; }
+
 .editor-picker {
   position: relative;
   margin-bottom: 12px;
@@ -1727,7 +1731,7 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: h
 .rx-tabs { justify-content: flex-start; gap: 24px; flex-wrap: nowrap; border-bottom: 1px solid var(--border); }
 .rx-scope .rx-tabs { min-height: 0; }
 .rx-vtabs { display: flex; gap: 24px; }
-.rx-vtabs button { position: relative; height: 40px; padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.rx-vtabs button { position: relative; height: 40px; min-width: 24px; padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; }
 .rx-vtabs button:hover { color: var(--text); }
 .rx-vtabs button[aria-pressed='true'] { color: var(--text); }
 .rx-vtabs button[aria-pressed='true']::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 1px; background: var(--accent); }
@@ -1736,7 +1740,7 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: h
 
 /* The canvas takes the room left in the pane (mock .canvas: flex 1, 200 min). */
 .rx-canvas > .rx-view { flex: 1 0 auto; }
-.rx-view #editor-canvas, .rx-view #editor-eq-canvas, .rx-view .editor-spectral-canvas, .rx-view-seam .editor-seam-canvas, .rx-scope .editor-mix-eq-canvas { flex: 1 1 220px; min-height: 200px; height: auto; aspect-ratio: auto; background: #0b0b0d; }
+.rx-view #editor-canvas, .rx-view #editor-eq-canvas, .rx-view .editor-spectral-canvas, .rx-view-seam .editor-seam-canvas, .rx-scope .editor-mix-eq-canvas { flex: 1 1 220px; min-height: 200px; height: auto; aspect-ratio: auto; background: var(--rx-canvas); }
 .rx-view > .editor-eq, .rx-view > .editor-spectral, .rx-view-seam .editor-crossfade:not(.hidden), .rx-scope .rx-scope-eq { flex: 1 0 auto; }
 
 /* Tools row under the canvas (mock .tools). */
