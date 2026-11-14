@@ -39,7 +39,9 @@ const ACCORDIONS = [
   ['eq', 'Parametric EQ'],
   ['clean', 'Cleanup'],
   ['space', 'Space'],
-  ['drift', 'Drift'],
+  ['drift-vol', 'Volume drift'],
+  ['drift-pitch', 'Pitch drift'],
+  ['drift-pan', 'Pan drift'],
   ['looks', 'Effect presets']
 ]
 
@@ -257,7 +259,9 @@ const SCOPE_ACCORDIONS = {
     ['eq', 'Parametric EQ'],
     ['space', 'Space'],
     ['occl', 'Occlusion'],
-    ['drift', 'Drift'],
+    ['drift-vol', 'Volume drift'],
+    ['drift-pitch', 'Pitch drift'],
+    ['drift-pan', 'Pan drift'],
     ['looks', 'Effect presets']
   ],
   // The mock also shows Occlusion here; the engine has no whole-mix
@@ -266,9 +270,28 @@ const SCOPE_ACCORDIONS = {
     ['tone', 'Tone'],
     ['eq', 'Parametric EQ'],
     ['space', 'Space'],
-    ['drift', 'Drift'],
+    ['drift-vol', 'Volume drift'],
     ['looks', 'Effect presets']
   ]
+}
+
+// Drift is one dropdown per type (owner, 2026-11-13: "all together is
+// confusing"; approved mock-noctivago-remix-drift). arrangeDrift leaves the
+// note and each axis as children of the section; this turns them into the
+// accordion bodies, the note on top of the first.
+const DRIFT_KEYS = { 'Volume drift': 'drift-vol', 'Pitch drift': 'drift-pitch', 'Pan drift': 'drift-pan' }
+function driftBodies(section, axes) {
+  const axisEls = axes.map(([idp]) => section.querySelector(`#${idp}-enabled`).closest('.rx-axis'))
+  const lead = [...section.children].filter((n) => !axisEls.includes(n))
+  const bodies = {}
+  axes.forEach(([, title], i) => {
+    bodies[DRIFT_KEYS[title]] = i === 0 ? [...lead, axisEls[i]] : [axisEls[i]]
+  })
+  return bodies
+}
+// Head value for one drift type: "On · -8 to 0 dB" or "Off".
+export function driftSummary(enabled, rangeText) {
+  return enabled ? [rangeText ? `On · ${rangeText}` : 'On', true] : ['Off', false]
 }
 
 // Group and Preset (mock screens remix-group, remix-preset): the EQ graph is
@@ -368,7 +391,7 @@ function arrangeScope(root, kind, getBands) {
   resetFilters.className = 'rx-b rx-ghost'
   resetFilters.innerHTML = `${icon('refresh-cw')}<span>Reset filters</span>`
 
-  const bodies = { tone: [tone], eq: [eqSide], space: [space], drift: [drift], looks: [looks, resetRow] }
+  const bodies = { tone: [tone], eq: [eqSide], space: [space], ...driftBodies(drift, SCOPE_DRIFT[kind].axes), looks: [looks, resetRow] }
   let members = null
   if (kind === 'group') {
     const nameRow = host.querySelector('.editor-mix-row')
@@ -407,12 +430,12 @@ function arrangeScope(root, kind, getBands) {
     })
     const bands = getBands?.(kind) ?? []
     const activeBands = bands.filter((b) => (b.type ?? 'peaking') !== 'off' && !b.muted).length
-    const axes = SCOPE_DRIFT[kind].axes.filter(([idp]) => $(`#${idp}-enabled`)?.checked).map(([, title]) => title.replace(' drift', ''))
+    const driftMap = Object.fromEntries(SCOPE_DRIFT[kind].axes.map(([idp, title]) => [DRIFT_KEYS[title], driftSummary($(`#${idp}-enabled`)?.checked, $(`#${idp}-bar`)?.dataset.range)]))
     const map = {
+      ...driftMap,
       tone: [f.tone, f.tone !== 'Off'],
       eq: [activeBands ? `${activeBands} band${activeBands === 1 ? '' : 's'}` : 'Off', activeBands > 0],
       space: [f.space, f.space !== 'Off'],
-      drift: [axes.length ? axes.join(' · ') : 'Off', axes.length > 0],
       looks: ['None', false]
     }
     if (kind === 'group') {
@@ -709,7 +732,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
     clean: [filterTargets.clean],
     space: [filterTargets.space],
     looks: [looks, resetFilters],
-    drift: [driftSection]
+    ...driftBodies(driftSection, DRIFT_AXES)
   }
   const { accordions, openAccordion, setSummaries } = buildAccordions(side, ACCORDIONS, BODIES)
   accordions.get('playback').querySelector('.rx-accv').classList.add('rx-on')
@@ -785,7 +808,13 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
 
   const studio = buildStudio(root, { getStudio, onPick, seekSlot, transport, detail })
 
-  return { setView, openAccordion, setPlayMode, setCompare, setSummaries, filterTargets, refreshScopes, refreshStudio: studio.refresh }
+  // Drift has no meaning for Random / Scheduled one-shots (see RemixTab's
+  // setPlayModeControls): hide its three dropdowns, not just their contents.
+  const setDriftHidden = (hidden) => {
+    for (const key of Object.values(DRIFT_KEYS)) accordions.get(key)?.classList.toggle('hidden', hidden)
+  }
+
+  return { setView, openAccordion, setDriftHidden, setPlayMode, setCompare, setSummaries, filterTargets, refreshScopes, refreshStudio: studio.refresh }
 }
 
 // Step 13d (mock-noctivago-remix-studio v2): three panes on the darkest
