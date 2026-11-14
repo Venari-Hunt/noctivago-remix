@@ -1,6 +1,7 @@
 import { icon } from './icons.js'
 import { eqMenuIcon } from './eqMenuIcons.js'
 import { PALETTE, withAlpha } from '../domain/palette.js'
+import { biquadQ } from '../domain/eqQ.js'
 import { EQ_MAX_BANDS, EMPTY_SLOT, qWhenTypeChanges, isEmptySlot, padEqSlots, compactEqSlots, freeSlotIndex } from '../domain/eqSlots.js'
 // Draggable-node parametric EQ editor - a scoped-down take on FL Studio's
 // "Fruity Parametric EQ 2" (the reference the user showed a screenshot of,
@@ -552,7 +553,7 @@ function computeResponseCurve(bands, width, soloIndex, viewMinHz, viewMaxHz) {
     const node = context.createBiquadFilter()
     node.type = band.type ?? 'peaking'
     node.frequency.value = band.freqHz
-    node.Q.value = band.q
+    node.Q.value = biquadQ(node.type, band.q)
     node.gain.value = band.gainDb
     node.getFrequencyResponse(freqs, mag, phase)
     const stages = eqBandStageCount(band)
