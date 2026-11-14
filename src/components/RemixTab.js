@@ -994,7 +994,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
         setVolume: (_mode, _sub, id, gain, commit) => this.setDetailVolume(id, gain, commit),
         setPan: (id, pan) => this.setDetailPan(id, pan).catch((err) => console.error('Remix: pan save failed', err)),
         mute: (id) => this.mixerSoundAction('noctivago:remix-toggle-sound-mute', { soundId: id }),
-        solo: (id, on) => this.mixerSoundAction('noctivago:solo', { soundId: id, active: on }),
+        solo: (id, on) => this.soloInMixer(id, on),
         preview: (id) => window.dispatchEvent(new CustomEvent('noctivago:remix-preview-sound', { detail: { soundId: id } })),
         editSound: (id) => this.editFromDetail('sound', id),
         editGroup: (id) => this.editFromDetail('group', id)
@@ -2438,6 +2438,18 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     const saved = updated?.sounds.find((s) => s.soundId === soundId)?.overrides ?? overrides
     window.dispatchEvent(new CustomEvent('noctivago:sound-override-changed', { detail: { presetId: preset.id, soundId, overrides: saved } }))
     await this.refreshLibrary()
+  }
+
+  // Solo needs this preset live in the Mixer: when it is not, load it first
+  // (what the owner wants to hear anyway), then solo once it is there.
+  async soloInMixer(id, on) {
+    const preset = this.presets.find((p) => p.id === this.selectedPresetId)
+    if (on && preset && requestMixerStatus().activePresetId !== preset.id) {
+      window.dispatchEvent(new CustomEvent('noctivago:remix-load-preset', { detail: { presetId: preset.id } }))
+      for (let i = 0; i < 40 && requestMixerStatus().activePresetId !== preset.id; i++) await new Promise((r) => setTimeout(r, 100))
+      if (requestMixerStatus().activePresetId !== preset.id) return
+    }
+    this.mixerSoundAction('noctivago:solo', { soundId: id, active: on })
   }
 
   mixerSoundAction(eventName, detail) {
