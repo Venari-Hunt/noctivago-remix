@@ -1,4 +1,5 @@
 import { drawWaveform, envelopeY, envelopeGainAtY, envelopeX } from '../audio/waveform.js'
+import { createMarkerLayer } from './markerLayer.js'
 
 const HANDLE_HIT_PX = 8
 const SNAP_PX = 12
@@ -171,6 +172,15 @@ export function createLoopEditorController(canvas) {
   let onViewportChange = () => {}
   let onDopplerChange = () => {}
   let onFadesChange = () => {}
+  // Timing markers (the Marker button / Ctrl+M): owned by RemixTab, which
+  // pushes the list in with setMarkers(); a tag drag reports back through
+  // onMarkersChange, a right/double-click through onMarkerEdit.
+  let onMarkersChange = () => {}
+  let onMarkerEdit = () => {}
+  const markerLayer = createMarkerLayer({
+    onChange: (list) => onMarkersChange(list),
+    onEdit: (marker, x, y) => onMarkerEdit(marker, x, y)
+  })
 
   // The currently visible time window - [0, duration] at full zoom-out.
   // Everything below maps time<->x through this, not through [0, duration]
@@ -221,7 +231,8 @@ export function createLoopEditorController(canvas) {
       fadeInSec: fadeIn,
       fadeOutSec: fadeOut,
       envelopeEnabled: envelopeEnabled && envelopeUiVisible,
-      envelopePoints: envelopePoints.map((p) => ({ time: envelopePointTime(p), gain: p.gain }))
+      envelopePoints: envelopePoints.map((p) => ({ time: envelopePointTime(p), gain: p.gain })),
+      markerLayer
     })
   }
 
@@ -328,6 +339,11 @@ export function createLoopEditorController(canvas) {
   // framing, even though this waveform is currently the only place with a
   // real snap target to disable).
   function snapToPlayhead(t, rect) {
+    // A marker wins over the playhead; the layer remembers which one it
+    // snapped to so the drag can show "Snapped to ...".
+    const snapped = markerLayer.snap(t, (viewEnd - viewStart) / rect.width, !ctrlHeld)
+    markerLayer.setSnapped(snapped.marker)
+    if (snapped.marker) return snapped.time
     if (ctrlHeld || playhead == null) return t
     const dist = Math.abs(timeToX(t, rect.width) - timeToX(playhead, rect.width))
     return dist <= SNAP_PX ? playhead : t
@@ -351,6 +367,24 @@ export function createLoopEditorController(canvas) {
 
     const rect = canvas.getBoundingClientRect()
     const x = evt.clientX - rect.left
+
+    // A marker's tag sits above everything else: drag it (left), or open its
+    // editor (right).
+    if (markerLayer.getMarkers().length && duration) {
+      const tag = markerLayer.hitTag(x, evt.clientY - rect.top, (t) => timeToX(t, rect.width))
+      if (tag) {
+        evt.preventDefault()
+        if (evt.button === 2) markerLayer.edit(tag, evt.clientX, evt.clientY)
+        else {
+          const timeAt = (clientX) => {
+            const r = canvas.getBoundingClientRect()
+            return xToTime(clientX - r.left, r.width)
+          }
+          markerLayer.startDrag(evt, tag, { timeAt, duration, redraw })
+        }
+        return
+      }
+    }
 
     // Right-click-drag anywhere inside the trimmed region slides the whole
     // loop (both loopStart and loopEnd, same offset) instead of moving just
@@ -461,6 +495,12 @@ export function createLoopEditorController(canvas) {
     if (loopEnd <= loopStart) return
     const rect = canvas.getBoundingClientRect()
     const x = evt.clientX - rect.left
+
+    const tag = markerLayer.hitTag(x, evt.clientY - rect.top, (t) => timeToX(t, rect.width))
+    if (tag) {
+      markerLayer.edit(tag, evt.clientX, evt.clientY)
+      return
+    }
 
     // Volume envelope: double-clicking an existing point resets its gain to
     // 1.0 (neutral) - same "double-click resets a control" convention as the
@@ -726,6 +766,10 @@ export function createLoopEditorController(canvas) {
   }
 
   function pointerUp() {
+    if (dragging === 'start' || dragging === 'end') {
+      markerLayer.setSnapped(null)
+      redraw()
+    }
     const wasZoomable = dragging === 'start' || dragging === 'end' || dragging === 'moveRegion'
     dragging = null
     draggingEnvelopePoint = null
@@ -916,6 +960,24 @@ export function createLoopEditorController(canvas) {
     },
     onDopplerChange(fn) {
       onDopplerChange = fn
+    },
+    // Markers (see the layer above): the list is RemixTab's, pushed in here.
+    setMarkers(list) {
+      markerLayer.setMarkers(list)
+      redraw()
+    },
+    selectMarker(id) {
+      markerLayer.select(id)
+      redraw()
+    },
+    getSelectedMarker() {
+      return markerLayer.getSelected()
+    },
+    onMarkersChange(fn) {
+      onMarkersChange = fn
+    },
+    onMarkerEdit(fn) {
+      onMarkerEdit = fn
     },
     onFadesChange(fn) {
       onFadesChange = fn
