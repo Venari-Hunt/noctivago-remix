@@ -838,7 +838,7 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
     doc,
     'aside',
     'rx-pane rx-lib',
-    `<div class="rx-lib-h"><h3>Remix</h3><button id="rx-new-group" class="rx-i rx-ib" type="button" title="New group" aria-label="New group">${icon('plus')}</button></div>` +
+    `<div class="rx-lib-h"><h3>Remix</h3><button id="rx-new-group" class="rx-i rx-ib" type="button" title="New group" aria-label="New group">${icon('plus')}</button><button id="rx-lib-hide" class="rx-i rx-ib rx-narrow-only" type="button" title="Hide the library" aria-label="Hide the library">${icon('chevron-left')}</button></div>` +
       '<div id="rx-chips" class="rx-chips" role="group" aria-label="What you remix"></div>' +
       '<label id="rx-in-preset" class="rx-in-preset"><span>In preset</span></label>' +
       `<label class="rx-search">${icon('search')}<input id="rx-lib-search" type="text" placeholder="Search sounds" aria-label="Search" autocomplete="off" /></label>` +
@@ -863,7 +863,8 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
     doc,
     'div',
     'rx-pane rx-head',
-    '<div class="rx-ht"><div id="rx-kind" class="rx-kind">Sound</div><h2 id="rx-title" class="rx-title"></h2><div id="rx-meta" class="rx-meta"></div></div><div id="rx-acts" class="rx-acts"></div>'
+    `<button id="rx-lib-show" class="rx-i rx-ib rx-narrow-only" type="button" title="Show the library" aria-label="Show the library">${icon('chevron-right')}</button>` +
+      '<div class="rx-ht"><div id="rx-kind" class="rx-kind">Sound</div><h2 id="rx-title" class="rx-title"></h2><div id="rx-meta" class="rx-meta"></div></div><div id="rx-acts" class="rx-acts"></div>'
   )
   // Controls the library replaces stay in the DOM (the tab still reads and
   // writes them), out of sight.
@@ -871,6 +872,45 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
   holder.hidden = true
   tab.prepend(lcol, head)
   tab.appendChild(holder)
+
+  // Below 1180 px the library slides over the editor from the left and the
+  // preview module moves under the canvas (styles.css "Small windows"). The
+  // library starts hidden there, comes back when the window grows past it,
+  // and closes on Esc, on a click outside it, and after a sound is picked.
+  const narrow = win.matchMedia?.('(max-width: 1179px)')
+  // In the one-column layout the tab scrolls, so the drawer is fixed to the
+  // visible part of the tab's scroll area; these vars place it there.
+  const placeDrawer = () => {
+    const box = (tab.closest('main') ?? tab).getBoundingClientRect()
+    tab.style.setProperty('--rx-drawer-top', box.top + 8 + 'px')
+    tab.style.setProperty('--rx-drawer-bottom', Math.max(0, win.innerHeight - box.bottom) + 8 + 'px')
+    tab.style.setProperty('--rx-drawer-left', box.left + 8 + 'px')
+  }
+  win.addEventListener('resize', () => isDrawer() && placeDrawer())
+  const setLib = (open, focus = false) => {
+    if (open) placeDrawer()
+    tab.dataset.rxLib = open ? 'on' : 'off'
+    if (focus) doc.getElementById(open ? 'rx-lib-search' : 'rx-lib-show')?.focus()
+  }
+  const isDrawer = () => Boolean(narrow?.matches) && tab.dataset.rxLib === 'on'
+  setLib(!narrow?.matches)
+  narrow?.addEventListener('change', () => setLib(!narrow.matches))
+  head.querySelector('#rx-lib-show').addEventListener('click', () => setLib(true, true))
+  lib.querySelector('#rx-lib-hide').addEventListener('click', () => setLib(false, true))
+  tab.addEventListener('pointerdown', (evt) => {
+    if (isDrawer() && !lib.contains(evt.target)) setLib(false)
+  })
+  // Capture: the search clears itself on Esc first; a filled search keeps the drawer.
+  lib.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Escape' && isDrawer() && !evt.target.value) setLib(false, true)
+  }, true)
+  // The empty state hides the head (and its chevron): Pick a sound opens the drawer.
+  doc.getElementById('rx-pick-sound')?.addEventListener('click', () => {
+    if (narrow?.matches) setLib(true, true)
+  })
+  const closeAfterPick = (mode) => {
+    if (isDrawer() && mode === 'sound') setLib(false)
+  }
 
   const search = lib.querySelector('#rx-lib-search')
   const list = lib.querySelector('#rx-lib-list')
@@ -967,6 +1007,7 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
         }
         onPick?.(state.mode, it.id)
         renderList()
+        closeAfterPick(state.mode)
       })
       if (state.mode !== 'sound' && detail) b.insertAdjacentHTML('beforeend', `<span class="rx-chev">${icon('chevron-right')}</span>`)
       // Group mode: Play before each group previews it as a group (mock .iw).
@@ -1022,7 +1063,10 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
     } else if (evt.key === 'Enter') {
       evt.preventDefault()
       const picked = items[highlight] ?? items[0]
-      if (picked) onPick?.(state.mode, picked.id)
+      if (picked) {
+        onPick?.(state.mode, picked.id)
+        closeAfterPick(state.mode)
+      }
     } else if (evt.key === 'Escape') {
       search.value = ''
       highlight = -1

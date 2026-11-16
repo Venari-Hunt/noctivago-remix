@@ -1539,14 +1539,6 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 .rx-empty h2 { margin: 8px 0 0; font-size: 20px; line-height: 28px; font-weight: 600; }
 .rx-empty p { margin: 0 0 8px; max-width: 440px; color: var(--text-dim); }
 
-/* Small windows: one column, the page scrolls. */
-@media (max-width: 900px) {
-  .editor-tab.rx { height: auto; min-height: 100%; }
-  .rx-grid:not(.hidden) { flex: none; grid-template: "canvas" auto "side" auto / minmax(0, 1fr); }
-  .rx-canvas, .rx-side { overflow: visible; min-height: auto; }
-  .rx-bar { grid-template-columns: 1fr; justify-items: center; }
-  .rx-bar-l, .rx-bar-r, .rx-bar-r .editor-sticky-mode-group { justify-content: center; flex-wrap: wrap; }
-}
 
 /* Gap: three small number fields in one row (the app keeps exact numbers
    where the mock draws a range bar). */
@@ -1762,14 +1754,51 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: var(--space-2); ov
 .rx-accv { font-size: 13px; }
 .rx-accb { padding: 4px 12px 16px; }
 
-@media (max-width: 900px) {
+/* Small windows (responsive step 2, 2026-11-16). The head wraps instead of
+   squeezing the title: the actions drop under it when the row is full. */
+.rx-head { flex-wrap: wrap; row-gap: 12px; }
+.rx-ht { flex: 1 1 160px; }
+.rx-narrow-only { display: none; }
+/* Below 1180 the three columns would leave the canvas under 560 px: the
+   library slides over the editor from the left (layout.js toggles
+   data-rx-lib), as the Mixer's library does below 860, and the preview
+   module sits under the canvas so Play stays in reach. */
+@media (max-width: 1179px) {
+  .editor-tab.rx { position: relative; grid-template-columns: minmax(0, 1fr) 320px; grid-template-rows: auto minmax(0, 1fr) auto; }
+  .rx-narrow-only { display: inline-grid; }
+  .rx-head > #rx-lib-show { align-self: flex-start; margin: -6px 0 0 -12px; }
+  .rx-head, .rx-canvas, .rx #editor-mix-group-empty:not(.hidden) { grid-column: 1; }
+  .rx-side { grid-column: 2; }
+  .rx .rx-empty:not(.hidden), .rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-head, .rx #editor-mix-group-empty:not(.hidden) { grid-column: 1 / -1; }
+  .rx-lcol { display: contents; }
+  .rx-lib { position: absolute; inset: 0 auto 0 0; z-index: 5; width: min(288px, 86%); box-shadow: var(--shadow-pop); }
+  .editor-tab.rx[data-rx-lib='off'] .rx-lib { display: none; }
+  .rx-prev { grid-column: 1; grid-row: 3; margin-top: 8px; }
+  .rx .rx-empty:not(.hidden) { grid-row: 1 / 3; }
+  /* Nothing open: no settings column, so the preview takes the whole width. */
+  .rx:has(.rx-empty:not(.hidden)) .rx-prev, .rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-prev { grid-column: 1 / -1; }
+}
+/* Below 860 the settings column would squeeze the canvas: one column, the
+   head, the canvas and the settings stack, and the tab scrolls. */
+@media (max-width: 859px) {
   main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { overflow-y: auto; }
-  .editor-tab.rx { display: flex; flex-direction: column; gap: 8px; height: auto; }
-  .rx-lcol { flex: none; }
-  .rx-lib { max-height: 360px; }
-  .rx-head, .rx-canvas, .rx-side, .rx .rx-empty:not(.hidden) { border-radius: 12px; }
-  .rx-head { flex-wrap: wrap; padding-bottom: 16px; }
-  .rx-canvas, .rx-side { overflow: visible; }
+  .editor-tab.rx { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto; row-gap: 0; height: auto; min-height: 100%; }
+  .rx-lib { position: fixed; inset: var(--rx-drawer-top, 0) auto var(--rx-drawer-bottom, 0) var(--rx-drawer-left, 0); }
+  /* The preview module comes last and stays pinned to the bottom edge while
+     the canvas and the settings scroll under it. */
+  .rx-prev { grid-row: 4; position: sticky; bottom: 0; z-index: 4; box-shadow: 0 -8px 0 var(--bg-studio); }
+  .rx-head, .rx-canvas, .rx-side, .rx .rx-empty:not(.hidden), .rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-head, .rx #editor-mix-group-empty:not(.hidden) { grid-column: 1; }
+  .rx-canvas { grid-row: 2; min-height: 420px; overflow: visible; }
+  .rx-side { grid-row: 3; margin-top: 8px; overflow: visible; min-height: auto; }
+  .rx .rx-empty:not(.hidden) { grid-row: 1 / 3; min-height: 280px; padding: 24px 16px; }
+  .rx:has(.rx-empty:not(.hidden)) .rx-prev, .rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-prev { grid-column: 1; }
+  .rx-head { padding: 16px 16px 0; }
+  .rx-canvas { padding: 16px; }
+}
+/* Short and narrow: the pinned preview module drops the empty-markers hint
+   (Ctrl+M still adds one; the chips come back with the first marker). */
+@media (max-width: 859px) and (max-height: 720px) {
+  .rx-prev .rx-mlist:has(> .rx-mnone) { display: none; }
 }
 
 /* The list is the only part of the library that shrinks. */
