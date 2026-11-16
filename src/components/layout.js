@@ -31,6 +31,23 @@ function requestRedraw(win) {
 
 // The side column holds settings only; anything with a big drawing (EQ graph,
 // spectrogram) is a canvas view on the left, as in the approved mock.
+// Each settings accordion leads with its icon (owner, 2026-11-16).
+const ACC_ICON = {
+  playback: 'play-circle',
+  envelope: 'chart-line',
+  speed: 'gauge',
+  tone: 'sliders-horizontal',
+  eq: 'equalizer',
+  clean: 'broom',
+  space: 'cube',
+  'drift-vol': 'speaker-high',
+  'drift-pitch': 'music-note',
+  'drift-pan': 'arrows-left-right',
+  looks: 'magic-wand',
+  members: 'list-bullets',
+  occl: 'wall'
+}
+
 const ACCORDIONS = [
   ['playback', 'Playback'],
   ['envelope', 'Volume envelope'],
@@ -228,7 +245,7 @@ function buildAccordions(side, list, bodies) {
     const acc = el(doc, 'div', 'rx-acc')
     acc.dataset.acc = key
     acc.dataset.open = 'false'
-    const head = el(doc, 'button', 'rx-acch', `<b>${title}</b><span class="rx-accv"></span>${icon('chevron-down')}`)
+    const head = el(doc, 'button', 'rx-acch', `<span class="rx-acci">${icon(ACC_ICON[key] ?? 'sliders-horizontal')}</span><b>${title}</b><span class="rx-accv"></span>${icon('chevron-down')}`)
     head.type = 'button'
     head.setAttribute('aria-expanded', 'false')
     head.addEventListener('click', () => openAccordion(acc.dataset.open === 'true' ? null : key))
