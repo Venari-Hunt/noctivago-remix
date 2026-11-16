@@ -1479,13 +1479,13 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 
 /* Accordions */
 .rx-acc { flex: none; border-radius: 12px; background: var(--surface); }
-.rx-acch { display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 12px 0 16px; border: 0; border-radius: 12px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.rx-acch { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto 16px; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 12px 0 16px; border: 0; border-radius: 12px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .rx-acch:hover { background: var(--surface-alt); }
 .rx-acch b { font-weight: 600; font-size: 13px; }
 .rx-accv { color: var(--text-dim); font-size: 12px; }
 .rx-accv.rx-on { color: var(--accent); font-weight: 600; }
-.rx-acch .rx-icon { color: var(--text-dim); transition: transform 120ms; }
-.rx-acc[data-open='true'] .rx-acch .rx-icon { transform: rotate(180deg); }
+.rx-acch > .rx-icon { color: var(--text-dim); transition: transform 120ms; }
+.rx-acc[data-open='true'] .rx-acch > .rx-icon { transform: rotate(180deg); }
 .rx-accb { display: flex; flex-direction: column; gap: 8px; padding: 4px 16px 16px; min-width: 0; }
 .rx-acc[data-open='false'] > .rx-accb { display: none; }
 /* A section the play mode hides leaves no empty accordion behind. */
@@ -1751,6 +1751,9 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: var(--space-2); ov
 .rx-acch:hover { background: var(--surface); }
 .rx-acc[data-open='true'] > .rx-acch { border-radius: 10px 10px 0 0; }
 .rx-acch b { font-size: 14px; }
+/* The setting's icon before its name: dim, the text color while open. */
+.rx-acci { display: grid; place-items: center; color: var(--text-dim); }
+.rx-acc[data-open='true'] .rx-acci, .rx-acch:hover .rx-acci { color: var(--text); }
 .rx-accv { font-size: 13px; }
 .rx-accb { padding: 4px 12px 16px; }
 
