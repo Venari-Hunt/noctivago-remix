@@ -1635,9 +1635,9 @@ select.rx-field { padding-right: 8px; appearance: auto; color-scheme: dark; }
    right. layout.js buildStudio() builds it; the mode panels and .rx-grid
    are display: contents so each mode's columns land in the cells.
    ========================================================================== */
-body:has(.tab-panel:not(.hidden) .editor-tab.rx) { background: #0f0f12; }
+body:has(.tab-panel:not(.hidden) .editor-tab.rx) { background: var(--bg-studio); }
 .tab-sticky-bar:has(> .rx-bar-host:not(.hidden)) { display: none; }
-main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 8px; overflow: hidden; }
+main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: var(--space-2); overflow: hidden; }
 
 .editor-tab.rx { display: grid; grid-template-columns: 264px minmax(0, 1fr) 320px; grid-template-rows: auto minmax(0, 1fr); gap: 0 8px; height: 100%; min-height: 0; }
 .rx #editor-mode-panel-sound:not(.hidden), .rx #editor-mode-panel-preset:not(.hidden), .rx #editor-mode-panel-group:not(.hidden), .rx-grid:not(.hidden) { display: contents; }
