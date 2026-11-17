@@ -359,14 +359,14 @@ export function heatTopDb(cols, refCols = null) {
   return maxDb + HEAT_HEADROOM_DB
 }
 
-function drawHeatmap(ctx, width, height, heat, viewMinHz, viewMaxHz) {
+function drawHeatmap(ctx, width, height, heat, viewMinHz, viewMaxHz, top = 0, bandH = height) {
   const cols = heatColumns(width, heat.binDb, heat.sampleRate, viewMinHz, viewMaxHz)
   const refCols = heat.refBinDb ? heatColumns(width, heat.refBinDb, heat.sampleRate, viewMinHz, viewMaxHz) : null
   const topDb = heatTopDb(cols, refCols)
   const stops = heat.before ? HEAT_STOPS_BEFORE : HEAT_STOPS
   for (let x = 0; x < cols.length; x++) {
     ctx.fillStyle = heatColor(heatLevel(cols[x], topDb), stops)
-    ctx.fillRect(x, 0, 1.5, height)
+    ctx.fillRect(x, top, 1.5, bandH)
   }
 }
 
@@ -598,6 +598,12 @@ function drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloInde
   // The heatmap is the graph's background, so grid and labels sit on it.
   const showHeat = mode !== 'spectrum' && display.heat
   if (showHeat) drawHeatmap(ctx, width, height, display.heat, viewMinHz, viewMaxHz)
+  // Heat + Both (owner, 2026-11-17: it showed only After): the Before heat in
+  // its cold hues as a strip across the top, After warm underneath, so both
+  // layers are on the graph and the gap between them reads at a glance.
+  if (showHeat && display.tap === 'both' && display.heatPre) {
+    drawHeatmap(ctx, width, height, display.heatPre, viewMinHz, viewMaxHz, 0, Math.round(height * 0.22))
+  }
 
   ctx.font = '11px "Segoe UI", sans-serif' // mock axis labels
   ctx.textBaseline = 'middle'
@@ -867,7 +873,8 @@ export function createEqEditorController(canvas) {
     const before = tapMode === 'before' && Boolean(heatPreDb)
     const shown = before ? heatPreDb : heatDb
     const heat = shown ? { binDb: shown, refBinDb: heatPreDb, sampleRate: heatSampleRate, before } : null
-    drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, getResponseCurve(width), hoveredIndex, viewMinHz, viewMaxHz, { mode: spectrumMode, heat, tap: tapMode })
+    const heatPre = tapMode === 'both' && heatPreDb ? { binDb: heatPreDb, refBinDb: heatPreDb, sampleRate: heatSampleRate, before: true } : null
+    drawEq(canvas, bands, selectedIndex, bandEnergy, liveSpectrum, soloIndex, getResponseCurve(width), hoveredIndex, viewMinHz, viewMaxHz, { mode: spectrumMode, heat, heatPre, tap: tapMode })
     if (rulerCanvas) drawRulers(rulerCanvas, viewMinHz, viewMaxHz)
     renderSlotStrip()
   }
