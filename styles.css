@@ -1458,6 +1458,8 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 .rx-kn { --p: 50; display: flex; flex-direction: column; align-items: center; width: 68px; text-align: center; }
 .rx-ring { position: relative; width: 48px; height: 48px; cursor: ew-resize; touch-action: none; }
 .rx-ring > svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(135deg); fill: none; pointer-events: none; }
+/* Selected (owner, 2026-11-14): the knob holds the focus, so the plain wheel turns it (app core knobSelect.js). */
+.rx-kn:focus-within .rx-ring { border-radius: 50%; outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .rx-ring .rx-trk, .rx-ring .rx-val { stroke-width: 8; stroke-linecap: round; }
 .rx-ring .rx-trk { stroke: var(--surface-hover); stroke-dasharray: 75 100; }
 .rx-ring .rx-val { stroke: var(--accent); stroke-dasharray: calc(var(--p) * .75) 100; }

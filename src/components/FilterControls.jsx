@@ -50,21 +50,16 @@ function normalize(key, value) {
 const hz = (v) => (v >= 1000 ? `${(v / 1000).toFixed(v % 1000 ? 1 : 0)} kHz` : `${v} Hz`)
 
 const DRAG_PX_FULL_RANGE = 160 // same as Knob.js and the mock
-const WHEEL_PER_STEP = 30
-const sideDelta = (evt) => {
-  if (Math.abs(evt.deltaX) > Math.abs(evt.deltaY)) return evt.deltaX
-  return evt.shiftKey ? evt.deltaY : 0
-}
 
 // The approved look's knob (same drawing as Knob.js's attachKnob, which wraps
 // plain DOM inputs). A React-controlled range input can't be wrapped that way,
 // so this draws the knob itself; the hidden input keeps keyboard and screen
-// reader use. Drag left/right, side-scroll, or double-click to reset.
+// reader use. Drag left/right or double-click to reset; the wheel turns it once
+// selected (data-knob, the app's core knobSelect.js).
 function Knob({ label, title, field, values, onEdit, format, dim = false }) {
   const { min, max, step, def } = RANGES[field]
   const value = values[field]
   const id = `editor-filter-${field}`
-  const knobRef = useRef(null)
   const latest = useRef(null)
   latest.current = { value, onEdit }
   const drag = useRef(null)
@@ -73,28 +68,11 @@ function Knob({ label, title, field, values, onEdit, format, dim = false }) {
     if (next !== latest.current.value) latest.current.onEdit({ [field]: next })
   }
 
-  useEffect(() => {
-    const node = knobRef.current
-    const onWheel = (evt) => {
-      const d = sideDelta(evt)
-      if (!d) return // the plain wheel still scrolls the panel
-      evt.preventDefault()
-      const unit = evt.deltaMode === 1 ? 40 : 1
-      const byWheel = (d * unit) / WHEEL_PER_STEP / 100
-      const oneStep = (step / (max - min)) * Math.sign(d)
-      const from = knobFraction(latest.current.value, min, max)
-      setFraction(from + (Math.abs(byWheel) > Math.abs(oneStep) ? byWheel : oneStep))
-    }
-    node.addEventListener('wheel', onWheel, { passive: false })
-    return () => node.removeEventListener('wheel', onWheel)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   return (
     <div
-      ref={knobRef}
+      data-knob=""
       className={`rx-kn${dim ? ' rx-kn-disabled' : ''}`}
-      title={title ? `${title} Side-scroll or drag.` : 'Side-scroll or drag'}
+      title={title ? `${title} Drag, or click and scroll.` : 'Drag, or click and scroll'}
       style={{ '--p': knobFraction(value, min, max) * 100 }}
     >
       <div

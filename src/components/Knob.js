@@ -3,17 +3,13 @@
 // listeners; the knob only sets input.value and fires the same 'input' and
 // 'change' events a slider drag would, so no wiring changes.
 //   attachKnob(input, { label, valueEl })
-// Drag left/right, or side-scroll (Shift + wheel without a side wheel).
+// Drag left/right. The wheel is the app's one knob rule (core knobSelect.js,
+// owner 2026-11-14): click the knob to select it, then the plain wheel turns
+// it; unselected, the wheel scrolls the panel. data-knob opts in.
 // Arrow keys work too, because the hidden input keeps the focus. Double-click
 // resets it to its default.
 
 const DRAG_PX_FULL_RANGE = 160 // same as the mock: 160 px of drag = the whole range
-const WHEEL_PER_STEP = 30
-
-const sideDelta = (evt) => {
-  if (Math.abs(evt.deltaX) > Math.abs(evt.deltaY)) return evt.deltaX
-  return evt.shiftKey ? evt.deltaY : 0
-}
 
 export function knobFraction(value, min, max) {
   if (!(max > min)) return 0
@@ -32,7 +28,8 @@ export function attachKnob(input, { label, valueEl } = {}) {
   const doc = input.ownerDocument
   const knob = doc.createElement('div')
   knob.className = 'rx-kn'
-  knob.title = 'Side-scroll or drag'
+  knob.dataset.knob = ''
+  knob.title = 'Drag, or click and scroll'
   knob.innerHTML =
     '<div class="rx-ring"><svg viewBox="0 0 72 72" aria-hidden="true"><circle class="rx-trk" cx="36" cy="36" r="31" pathLength="100"/><circle class="rx-val" cx="36" cy="36" r="31" pathLength="100"/></svg><i class="rx-unity"></i></div><label></label><output></output>'
   const ring = knob.querySelector('.rx-ring')
@@ -112,24 +109,6 @@ export function attachKnob(input, { label, valueEl } = {}) {
     input.dispatchEvent(new Event('change', { bubbles: true }))
   })
 
-  let wheelTimer = null
-  knob.addEventListener(
-    'wheel',
-    (evt) => {
-      const d = sideDelta(evt)
-      if (!d) return // the plain wheel still scrolls the panel
-      evt.preventDefault()
-      const unit = evt.deltaMode === 1 ? 40 : 1
-      const { min, max, step } = range()
-      // Never less than one step per notch, so a coarse input still moves.
-      const byWheel = (d * unit) / WHEEL_PER_STEP / 100
-      const oneStep = (step / (max - min)) * Math.sign(d)
-      setFraction(fractionNow() + (Math.abs(byWheel) > Math.abs(oneStep) ? byWheel : oneStep))
-      clearTimeout(wheelTimer)
-      wheelTimer = setTimeout(() => input.dispatchEvent(new Event('change', { bubbles: true })), 250)
-    },
-    { passive: false }
-  )
   input.addEventListener('input', sync)
   sync()
   return { el: knob, sync }
