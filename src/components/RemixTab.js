@@ -231,6 +231,19 @@ export default class EditorPlugin {
     }
     window.addEventListener('noctivago:active-preset-changed', this._onActivePresetChanged)
 
+    // The Presets window made, renamed, deleted or imported a preset. A
+    // full refreshMixPanel only when the open preset is gone: it reloads the
+    // preset controls from the saved copy, which would drop unsaved edits.
+    this._onPresetsChanged = async () => {
+      if (!this.els.soundSearch) return
+      await this.refreshLibrary().catch((err) => console.error('Editor: failed to refresh presets', err))
+      const open = this.selectedPresetId
+      if (open ? !this.presets.some((p) => p.id === open) : this.presets.length > 0) {
+        await this.refreshMixPanel().catch((err) => console.error('Editor: failed to refresh preset panel', err))
+      }
+    }
+    window.addEventListener('noctivago:presets-changed', this._onPresetsChanged)
+
     // The Mixer's right-click "Edit in Remix": come to the front and open
     // that sound in Sound mode. Unsaved edits on a different sound get the
     // usual leave prompt first; declining keeps the current sound open.
@@ -308,6 +321,7 @@ export default class EditorPlugin {
   async onunload() {
     if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown)
     if (this._onActivePresetChanged) window.removeEventListener('noctivago:active-preset-changed', this._onActivePresetChanged)
+    if (this._onPresetsChanged) window.removeEventListener('noctivago:presets-changed', this._onPresetsChanged)
     if (this._onEditSound) window.removeEventListener('noctivago:edit-sound', this._onEditSound)
     if (this._onPreviewState) window.removeEventListener('noctivago:remix-preview-state', this._onPreviewState)
     this.disposePreview()
@@ -2312,6 +2326,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.activePresetId = requestMixerStatus().activePresetId
     const [library, presets] = await Promise.all([this.api.library.list(), this.api.presets.list()])
     this.presets = presets
+    this.renderPresetSelectOptions()
     this.baseLibrary = library
     const activePreset = this.presets.find((p) => p.id === this.activePresetId)
     this.library = library.map((entry) => {
@@ -5417,14 +5432,26 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     // refreshes this.presets too.
     await this.refreshLibrary()
     const previous = this.selectedPresetId
-    this.els.mixPresetSelect.innerHTML = this.presets.length
-      ? this.presets.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')
-      : '<option value="">No presets saved yet</option>'
+    this.renderPresetSelectOptions()
 
     const stillThere = this.presets.some((p) => p.id === previous)
     const target = stillThere ? previous : (this.presets[0]?.id ?? null)
     this.els.mixPresetSelect.value = target ?? ''
     this.selectMixPreset(target, { silent: true })
+  }
+
+  // The "In preset" dropdown (Group mode). Called from refreshLibrary too,
+  // which every refresh path runs, so a preset made, renamed or deleted
+  // elsewhere shows here without a tab switch (owner, 2026-11-17: a new
+  // preset was missing from Remix's lists until a restart).
+  renderPresetSelectOptions() {
+    const select = this.els.mixPresetSelect
+    if (!select) return
+    const keep = select.value
+    select.innerHTML = this.presets.length
+      ? this.presets.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')
+      : '<option value="">No presets saved yet</option>'
+    if (this.presets.some((p) => p.id === keep)) select.value = keep
   }
 
   // `presetChanged` gates whether the currently-open group survives - a
