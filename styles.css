@@ -1871,7 +1871,7 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: var(--space-2); ov
 .rx-det-sec { color: var(--text-dim); font-size: 12px; line-height: 16px; font-weight: 600; margin: 4px 8px 0; display: flex; justify-content: space-between; }
 .rx-det-rows { display: flex; flex-direction: column; gap: 4px; overflow: auto; scrollbar-width: thin; min-height: 0; flex: 1 1 auto; }
 /* 4 px grid (approved mock, 2026-11-14): transport column at x 0 (Play over Loop), name 40, S and arrow at the end; lines at 4 and 36. */
-.rx-mrow { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px 32px; grid-auto-rows: 32px; align-items: center; gap: 4px 8px; padding: 4px 4px 4px 0; border-radius: 10px; }
+.rx-mrow { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px 32px; grid-auto-rows: 32px; align-items: center; gap: 8px 8px; padding: 4px 4px 4px 0; border-radius: 10px; }
 .rx-mf { grid-column: 2 / 4; grid-row: 2; display: grid; grid-template-columns: minmax(0, 1fr) 32px; align-items: center; gap: 8px; }
 .rx-mpv { width: 32px; height: 32px; border-radius: 50%; }
 .rx-mrow-playing .rx-mpv, .rx-drow-playing .rx-mpv, .rx-iw-playing .rx-mpv { background: var(--accent); color: #1a1500; }
