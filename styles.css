@@ -1881,7 +1881,7 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: var(--space-2); ov
 .rx-mlp[aria-pressed="true"] { background: var(--tint); color: var(--tint-ink); }
 .rx-mlp:disabled { opacity: .3; cursor: default; }
 /* A preset's row: Play 0, Loop 36, the row button 72. */
-.rx-drow { display: grid; grid-template-columns: 32px 32px minmax(0, 1fr); align-items: center; gap: 4px; }
+.rx-drow { display: grid; grid-template-columns: 32px 32px minmax(0, 1fr); align-items: center; gap: 8px; }
 .rx-drow .rx-grow { padding-left: 0; gap: 8px; }
 .rx-drow-playing .rx-gnm, .rx-iw-playing .rx-item b { color: var(--accent); }
 /* A shot firing while a one-shot repeats or a group plays: a short amber flash on the name. */
