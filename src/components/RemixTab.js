@@ -11,6 +11,7 @@ import { createWaveformScrollbar } from './WaveformScrollbar.js'
 import { createFluctuationBar } from './FluctuationBar.js'
 import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
+import { mountPlaybackPanel } from './PlaybackPanel.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
@@ -19,7 +20,7 @@ import { mountMarkerUi, flashMarkerButton, renderMarkerChips, renderProgressTick
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
 import { arrangeLayout, arrangeBar, driftSummary } from './layout.js'
 import { wireNameMarquee } from './nameMarquee.js'
-import { fluctuationTimingMarkup, driftAxisTogglesMarkup, shotAxisMarkup, mixFluctuationMarkup } from './markup.js'
+import { fluctuationTimingMarkup, driftAxisTogglesMarkup, mixFluctuationMarkup } from './markup.js'
 import { requestAnalyser, requestMixerStatus } from './mixerBridge.js'
 import { pushLevel, peakFromTimeDomain } from '../domain/levels.js'
 import { drawLevelHistory } from './levelHistory.js'
@@ -673,57 +674,7 @@ ${mixFluctuationMarkup('group')}
             </label>
           </div>
           <p id="editor-doppler-hint" class="editor-speed-pitch-hint hidden">Simulates a sound passing by: pitch rises approaching the closest point (the gold marker on the waveform - drag it to control how fast each side ramps, double-click to re-center), then falls as it recedes toward Start/End. Reverse flips that: Start/End become the natural-pitch points and the marker becomes the peak shift instead — a sharp close pass-by rather than an approach/recede. Intensity sets how many semitones the shift swings; Sharpness sets how abruptly it swings through the marker — low is a slow continuous glide, high sits flat and does the whole swing in a burst right at the marker (the real pass-by whoosh). Only takes effect once saved (loops under 10 minutes) - no live preview while dragging.</p>
-          <div class="editor-playmode">
-            <span class="editor-playmode-label">Playback mode</span>
-            <label class="editor-playmode-option">
-              <input type="radio" name="editor-playmode" id="editor-playmode-loop" value="loop" checked />
-              Loop
-            </label>
-            <label class="editor-playmode-option">
-              <input type="radio" name="editor-playmode" id="editor-playmode-scatter" value="scatter" />
-              Random interval
-            </label>
-            <label class="editor-playmode-option">
-              <input type="radio" name="editor-playmode" id="editor-playmode-scheduled" value="scheduled" />
-              Scheduled
-            </label>
-            <p class="editor-playmode-hint">Random interval replays this clip at a random gap instead of looping it back-to-back — good for a short, event-like sound (a creak, a bird call) inside a longer ambient mix. Scheduled instead plays it once at real-world clock times you set — a church bell at noon, an hourly chime.</p>
-          </div>
-          <div id="editor-fade-section" class="editor-fade-section hidden">
-            <div class="editor-fade-heading">Fade shot edges <span class="editor-fluctuation-sub">(eases each play's start/end instead of a hard cut — drag the pins at the trim edges on the waveform above, or set exact values here)</span></div>
-            <div id="editor-scatter-fade-fields" class="editor-fade-fields">
-              <label class="editor-fade-enable">
-                <input id="editor-scatter-fade-enabled" type="checkbox" />
-                <span>Fade</span>
-              </label>
-              <label>
-                <span>In</span>
-                <input id="editor-scatter-fade-in" type="number" min="0" max="10000" step="50" value="0" disabled />
-                <span class="editor-filter-value">ms</span>
-              </label>
-              <label>
-                <span>Out</span>
-                <input id="editor-scatter-fade-out" type="number" min="0" max="10000" step="50" value="0" disabled />
-                <span class="editor-filter-value">ms</span>
-              </label>
-            </div>
-            <div id="editor-schedule-fade-fields" class="editor-fade-fields">
-              <label class="editor-fade-enable">
-                <input id="editor-schedule-fade-enabled" type="checkbox" />
-                <span>Fade</span>
-              </label>
-              <label>
-                <span>In</span>
-                <input id="editor-schedule-fade-in" type="number" min="0" max="10000" step="50" value="0" disabled />
-                <span class="editor-filter-value">ms</span>
-              </label>
-              <label>
-                <span>Out</span>
-                <input id="editor-schedule-fade-out" type="number" min="0" max="10000" step="50" value="0" disabled />
-                <span class="editor-filter-value">ms</span>
-              </label>
-            </div>
-          </div>
+          <div id="rx-playback-host" style="display: contents"></div>
           <div id="editor-crossfade-section" class="editor-crossfade">
             <div class="editor-seam-heading">Loop seam</div>
             <canvas id="editor-seam-canvas" class="editor-seam-canvas" title="How the loop plays: the end of the trim crossfades into its start in the middle. Drag an edge of the crossfade to resize it, double-click an edge to reset it, click anywhere else to jump there."></canvas>
@@ -746,69 +697,6 @@ ${mixFluctuationMarkup('group')}
               Reset envelope
             </button>
             <p class="editor-crossfade-hint">Drag points directly on the waveform above to shape this sound's volume over time instead of one flat level (double-click empty space on the line to add a point, double-click a point to reset it to full, right-click a point to remove it). Attenuates only — never boosts above the sound's own level.</p>
-          </div>
-          <div id="editor-scatter-section" class="editor-scatter-controls hidden">
-            <div class="editor-fluctuation-axis editor-gap-axis">
-              <span class="editor-fluctuation-enable">Gap <span class="editor-fluctuation-sub">(how long to wait between replays)</span></span>
-              <div class="editor-gap-range">
-                <label>
-                  <span>Min</span>
-                  <input id="editor-scatter-gap-min" type="number" min="0" max="3600" step="1" value="5" />
-                  <span class="editor-filter-value">s</span>
-                </label>
-                <label>
-                  <span>Max</span>
-                  <input id="editor-scatter-gap-max" type="number" min="0" max="3600" step="1" value="35" />
-                  <span class="editor-filter-value">s</span>
-                </label>
-                <label>
-                  <span>Bias</span>
-                  <input id="editor-scatter-gap-bias" type="number" min="0" max="3600" step="1" value="20" />
-                  <span class="editor-filter-value">s</span>
-                </label>
-              </div>
-              <div class="editor-fluctuation-knobs">
-                <label class="editor-fluctuation-fullrandom">
-                  <input id="editor-scatter-gap-fully-random" type="checkbox" />
-                  <span>Fully random <span class="editor-fluctuation-sub">(a new random wait, 0–2 min, before every replay — ignores Min/Max above)</span></span>
-                </label>
-                <label class="editor-fluctuation-fullrandom">
-                  <input id="editor-scatter-gap-bias-enabled" type="checkbox" />
-                  <span>Bias <span class="editor-fluctuation-sub">(this gap wins more often than a plain random pick within Min/Max)</span></span>
-                </label>
-              </div>
-            </div>
-            <p id="editor-scatter-group-note" class="editor-scatter-hint hidden"></p>
-${shotAxisMarkup('editor-scatter-pitch', 'Pitch', '(a random shift every replay)')}
-${shotAxisMarkup('editor-scatter-volume', 'Volume', '(a random level every replay; never above the sound\'s own)')}
-${shotAxisMarkup('editor-scatter-pan', 'Pan', '(a random left/right position every replay)')}
-${shotAxisMarkup('editor-scatter-speed', 'Speed', '(a random tempo every replay, 50–200%)')}
-            <p class="editor-scatter-hint">Each replay picks a random gap, pitch, volume, pan, and speed within these ranges — or check "Fully random" to roll the whole range regardless of the min/max. Check "Bias" to make one value inside the range (the middle circle) win more often than a plain random pick. On the bars, drag the outer circles for the range; when they sit together there's no variation. Speed changes each shot's tempo/length with its pitch left alone. Fade (above, near the waveform) eases each shot's start/end instead of a hard cut. Sync group (next to the sound's name) makes two or more scatter sounds always fire together - one starts, all start.</p>
-          </div>
-          <div id="editor-schedule-section" class="editor-scatter-controls hidden">
-            <label class="editor-playmode-option">
-              <input type="radio" name="editor-schedule-type" id="editor-schedule-type-times" value="times" checked />
-              Fixed times
-            </label>
-            <label class="editor-playmode-option">
-              <input type="radio" name="editor-schedule-type" id="editor-schedule-type-interval" value="interval" />
-              Recurring interval
-            </label>
-            <label id="editor-schedule-times-row">
-              <span>Times (24h, comma-separated)</span>
-              <input id="editor-schedule-times" type="text" inputmode="numeric" placeholder="12:00, 00:00" />
-            </label>
-            <label id="editor-schedule-interval-row" class="hidden">
-              <span>Every</span>
-              <input id="editor-schedule-interval" type="number" min="1" max="1440" step="1" value="60" />
-              <span class="editor-filter-value">minutes</span>
-            </label>
-            <p id="editor-schedule-group-note" class="editor-scatter-hint hidden"></p>
-${shotAxisMarkup('editor-schedule-pitch', 'Pitch', '(a random shift every trigger)')}
-${shotAxisMarkup('editor-schedule-volume', 'Volume', '(a random level every trigger; never above the sound\'s own)')}
-${shotAxisMarkup('editor-schedule-pan', 'Pan', '(a random left/right position every trigger)')}
-${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigger, 50–200%)')}
-            <p class="editor-schedule-hint">Fixed times play once at each listed clock time (24h HH:MM), every day. Recurring interval plays every N minutes, aligned to midnight — 60 lands on the hour, 30 on the hour and half-hour, like a digital clock rather than counting from whenever the app started. Each trigger picks a random pitch, volume, pan, and speed within these ranges, same as Random Interval — or check "Fully random" to roll the whole range regardless of the circles. Check "Bias" to make the middle circle's value win more often than a plain random pick. When a bar's outer circles sit together there's no variation. Speed changes each trigger's tempo/length with its pitch left alone. Fade (above, near the waveform) eases each trigger's start/end instead of a hard cut.</p>
           </div>
           <div class="editor-speed-pitch">
             <label>
@@ -999,6 +887,7 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
         </div>
       </div>
     `
+    mountPlaybackPanel(container.querySelector('#rx-playback-host'))
 
     // Desktop 2.0 layout: wraps and moves the nodes above (layout.js).
     this.root = container

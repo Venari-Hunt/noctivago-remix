@@ -600,27 +600,11 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const side = el(doc, 'aside', 'rx-side')
   side.setAttribute('aria-label', 'Settings')
 
-  // Playback: three tiles from the three radio labels.
-  const playmode = $('.editor-playmode')
-  const tiles = el(doc, 'div', 'rx-tiles3')
-  tiles.setAttribute('role', 'radiogroup')
-  tiles.setAttribute('aria-label', 'Playback mode')
-  const TILE = {
-    'editor-playmode-loop': ['repeat', 'Loop'],
-    'editor-playmode-scatter': ['shuffle', 'Random'],
-    'editor-playmode-scheduled': ['clock', 'Scheduled']
-  }
-  for (const [id, [ic, text]] of Object.entries(TILE)) {
-    const input = $('#' + id)
-    const label = input.closest('label')
-    label.className = 'rx-tile'
-    input.setAttribute('aria-label', text)
-    label.replaceChildren(input, el(doc, 'span', 'rx-tile-face', `${icon(ic, 20)}${text}`))
-    tiles.appendChild(label)
-  }
-  const hintRandom = el(doc, 'p', 'rx-hint rx-hint-l rx-only-random', 'Replays this clip at a random gap instead of looping. Good for a creak or a bird call inside a longer mix.')
-  const hintScheduled = el(doc, 'p', 'rx-hint rx-hint-l rx-only-scheduled', 'Plays once at clock times, like a church bell at noon or an hourly chime.')
-  playmode.remove()
+  // Playback: PlaybackPanel.jsx rendered the tiles, hints and the Random,
+  // Scheduled and fade sections already (final markup).
+  const tiles = $('.rx-tiles3')
+  const hintRandom = $('.rx-only-random')
+  const hintScheduled = $('.rx-only-scheduled')
 
   const loopBody = el(doc, 'div', 'rx-only-loop rx-loop-body')
   const suggestRow = $('.editor-suggest-loop-row')
@@ -642,31 +626,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const syncInput = syncRow.querySelector('input')
   syncRow.querySelector('span').innerHTML = `Sync group <span class="editor-fluctuation-sub">${syncInput.title.replace(' - one starts, all start.', '')}</span>`
 
-  // Scheduled: Times and Every are two switches. Only one runs at a time for
-  // now, so they stay one radio group: turning one on turns the other off and
-  // the last one cannot be switched off.
   const schedule = $('#editor-schedule-section')
-  const SCHEDULE = [
-    ['editor-schedule-type-times', $('#editor-schedule-times-row'), 'Times (24h, comma-separated)', 'Plays once at each time, every day'],
-    ['editor-schedule-type-interval', $('#editor-schedule-interval-row'), 'Every', 'Or repeat, lined up with the clock']
-  ]
-  let scheduleAnchor = null
-  for (const [id, row, title, sub] of SCHEDULE) {
-    const input = $('#' + id)
-    const oldLabel = input.closest('label')
-    const axis = el(doc, 'div', 'rx-axis')
-    const head = el(doc, 'label', 'rx-srow', `<span class="rx-sl"><span>${title}</span><small>${sub}</small></span>`)
-    input.setAttribute('aria-label', title)
-    head.appendChild(input)
-    row.querySelector('span')?.remove() // the row's own caption repeats the head
-    row.classList.add('rx-trow')
-    axis.append(head, row)
-    if (scheduleAnchor) scheduleAnchor.after(axis)
-    else schedule.prepend(axis)
-    scheduleAnchor = axis
-    oldLabel.remove()
-  }
-
   const fade = $('#editor-fade-section')
 
   // Speed and pitch: two knobs, then Reverse as a switch row.
