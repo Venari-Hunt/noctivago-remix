@@ -12,6 +12,8 @@ import { createFluctuationBar } from './FluctuationBar.js'
 import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
+import { mountSoundPicker } from './SoundPicker.jsx'
+import { mountLoopRow } from './LoopRow.jsx'
 import { mountSpeedPitchPanel } from './SpeedPitchPanel.jsx'
 import { mountDrift } from './DriftPanel.jsx'
 import { mountEqView } from './EqView.jsx'
@@ -520,19 +522,10 @@ export default class EditorPlugin {
         </div>
 
         <div id="editor-mode-panel-sound">
-        <div class="editor-picker">
-          <input id="editor-sound-search" type="text" class="editor-sound-search" placeholder="Select a sound to edit…" autocomplete="off" />
-          <ul id="editor-sound-options" class="editor-sound-options hidden"></ul>
-        </div>
+        <div id="rx-picker-host" style="display: contents"></div>
         <div id="editor-panel" class="editor-panel hidden">
           <div id="rx-trim-host" style="display: contents"></div>
-          <div class="editor-suggest-loop-row">
-            <button id="editor-suggest-loop" class="btn btn-small btn-icon-text" type="button" title="Analyze the file and propose a seamless loop region. You can still adjust Start/End afterward.">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
-              Suggest a loop point
-            </button>
-            <span id="editor-suggest-status" class="editor-suggest-status"></span>
-          </div>
+          <div id="rx-looprow-host" style="display: contents"></div>
           <div id="rx-playback-host" style="display: contents"></div>
           <div id="rx-seam-host" style="display: contents"></div>
           <div id="rx-speed-host" style="display: contents"></div>
@@ -579,6 +572,8 @@ export default class EditorPlugin {
         </div>
       </div>
     `
+    mountSoundPicker(container.querySelector('#rx-picker-host'))
+    mountLoopRow(container.querySelector('#rx-looprow-host'))
     mountPlaybackPanel(container.querySelector('#rx-playback-host'))
     mountSpeedPitchPanel(container.querySelector('#rx-speed-host'))
     mountEqView(container.querySelector('#rx-eq-host-sound'), 'sound')

@@ -391,16 +391,8 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
 
   const loopBody = el(doc, 'div', 'rx-only-loop rx-loop-body')
   const suggestRow = $('.editor-suggest-loop-row')
-  const suggestBtn = $('#editor-suggest-loop')
-  suggestBtn.className = 'rx-b'
-  suggestBtn.innerHTML = `${icon('sparkles')}<span>Suggest a loop point</span>`
-  const openSeam = el(doc, 'button', 'rx-b', `${icon('headphones')}<span>Listen to the seam</span>`)
-  openSeam.type = 'button'
-  openSeam.id = 'rx-open-seam'
-  openSeam.title = 'Open the Loop seam view'
-  const loopButtons = el(doc, 'div', 'rx-srow1')
-  loopButtons.append(suggestBtn, openSeam)
-  suggestRow.prepend(loopButtons)
+  // LoopRow.jsx rendered the buttons and status line already (final markup).
+  const openSeam = $('#rx-open-seam')
   loopBody.appendChild(suggestRow)
 
   // Random: Sync group sits with the other Random settings, after Gap.
