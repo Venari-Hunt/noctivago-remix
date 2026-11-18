@@ -423,45 +423,17 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
 
   // Looked up before anything is detached: $ only sees nodes still under root.
   const syncRow = $('#editor-sync-group-row')
+  // Trim view: TrimView.jsx rendered the name row, canvas, scrollbar, times and
+  // the Doppler switch with its knobs.
   const times = $('.editor-times')
-  times.classList.add('rx-under')
-  const dopplerLabel = $('#editor-doppler').closest('label')
-  dopplerLabel.lastChild.textContent = ' Doppler pass-by'
-  $('#editor-doppler').setAttribute('aria-label', 'Doppler pass-by')
-  const segmentBtn = el(doc, 'button', 'rx-b', `${icon('copy')}<span>Save segment as new</span>`)
-  segmentBtn.id = 'editor-save-segment'
-  segmentBtn.type = 'button'
-  segmentBtn.title = 'Trim out just this segment and save it as a brand-new sound, with every other setting at its default'
-  times.appendChild(segmentBtn)
-
-  // Doppler: switch, then its two knobs and the Reverse switch.
-  const dopplerOptions = $('#editor-doppler-options')
-  dopplerOptions.classList.remove('editor-speed-pitch')
-  dopplerOptions.classList.add('rx-kgrid')
-  for (const [id, label] of [
-    ['editor-doppler-intensity', 'Intensity'],
-    ['editor-doppler-sharpness', 'Sharpness']
-  ]) {
-    const input = $('#' + id)
-    const row = input.closest('label')
-    const valueEl = $(`#${id}-value`)
-    const knob = attachKnob(input, { label, valueEl })
-    row.replaceWith(knob.el)
-  }
-  const dopplerOpt = el(doc, 'div', 'rx-opt2')
-  dopplerOpt.append(dopplerLabel, dopplerOptions)
+  const options = $('.rx-wrap2')
+  const dopplerHint = $('#editor-doppler-hint')
 
   // The volume envelope has its own accordion (owner, 2026-11-11: under the
   // trim controls it was hard to find and Reset sat badly under the switch):
   // SeamView.jsx rendered its body (switch row, Reset, how-to line).
   const crossfadeSection = $('#editor-crossfade-section')
   const envelopeBody = $('.rx-envelope-body')
-  const options = el(doc, 'div', 'rx-under rx-wrap2')
-  options.append(dopplerOpt)
-
-  const dopplerHint = $('#editor-doppler-hint')
-  dopplerHint.classList.remove('editor-speed-pitch-hint')
-  dopplerHint.classList.add('rx-hint')
 
   const seekSlot = el(doc, 'div', 'rx-seek-slot')
   seekSlot.id = 'rx-seek-slot'
