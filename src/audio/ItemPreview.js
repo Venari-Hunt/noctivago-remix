@@ -102,7 +102,7 @@ class SoundVoice {
 
 // The group's own filters on top of its members: gain, high and low pass,
 // EQ and pan (echo and occlusion stay in the Mixer).
-function groupBus(engine, filters) {
+function groupBus(engine, filters, destination = engine.masterGain) {
   const ctx = engine.context
   const f = filters ?? {}
   const nodes = []
@@ -129,7 +129,7 @@ function groupBus(engine, filters) {
   pan.pan.value = Math.min(1, Math.max(-1, Number(f.pan) || 0))
   nodes.push(pan)
   for (let i = 0; i < nodes.length - 1; i++) nodes[i].connect(nodes[i + 1])
-  pan.connect(engine.masterGain)
+  pan.connect(destination)
   return { input: gain, dispose: () => nodes.forEach((n) => n.disconnect()) }
 }
 
@@ -147,12 +147,30 @@ export class ItemPreviewPlayer {
     return this.key === key
   }
 
-  async playSound(key, plan) {
+  // The buses a preview runs through, innermost first (a sound's group,
+  // then the whole mix), chained into the master. Returns where a sound
+  // plugs in: the first bus's input, or the master when there are none.
+  buildBuses(layers) {
+    let dest = this.engine.masterGain
+    const built = []
+    for (const filters of [...layers].reverse()) {
+      if (!filters) continue
+      const bus = groupBus(this.engine, filters, dest)
+      built.unshift(bus)
+      dest = bus.input
+    }
+    this.bus = built.length ? { input: dest, dispose: () => built.forEach((x) => x.dispose()) } : null
+    return dest
+  }
+
+  // layers: filter sets on top of the sound, innermost first (group, then
+  // whole mix); the row's mode decides which apply.
+  async playSound(key, plan, layers = []) {
     this.stop({ quiet: true })
     if (!plan) return this.changed()
     await this.engine.resume()
     this.key = key
-    const voice = new SoundVoice(this.engine, plan, this.engine.masterGain, {
+    const voice = new SoundVoice(this.engine, plan, this.buildBuses(layers), {
       onShot: (id) => this.onShot?.(id),
       onDone: () => this.stop()
     })
@@ -161,15 +179,15 @@ export class ItemPreviewPlayer {
     await voice.start()
   }
 
-  async playGroup(key, plan) {
+  async playGroup(key, plan, outer = []) {
     this.stop({ quiet: true })
     if (!plan || !plan.members.length) return this.changed()
     await this.engine.resume()
     this.key = key
-    this.bus = groupBus(this.engine, plan.filters)
+    const dest = this.buildBuses([plan.filters, ...outer])
     this.voices = plan.members.map(
       (m) =>
-        new SoundVoice(this.engine, { ...m, waitFirst: true }, this.bus.input, {
+        new SoundVoice(this.engine, { ...m, waitFirst: true }, dest, {
           onShot: (id) => this.onShot?.(id),
           onDone: (v) => {
             this.voices = this.voices.filter((x) => x !== v)

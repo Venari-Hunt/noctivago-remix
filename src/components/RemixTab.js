@@ -2490,20 +2490,28 @@ ${shotAxisMarkup('editor-schedule-speed', 'Speed', '(a random tempo every trigge
     this.stopPreviewTicking()
     this.setPlayPauseIcon(false)
     window.dispatchEvent(new CustomEvent('noctivago:remix-preview-sound', { detail: { stop: true } }))
-    const preset = this.presets.find((p) => p.id === this.selectedPresetId) ?? null
+    const found = this.presets.find((p) => p.id === this.selectedPresetId) ?? null
     const lib = this.baseLibrary ?? this.library ?? []
+    // What a row's Play hears depends on the mode (owner, 2026-11-14):
+    // Sound = the sound's own settings; Group = + its group; Preset = + the
+    // preset's volume, overrides and whole-mix settings.
+    const inPreset = this.mode === 'preset'
+    const preset = inPreset ? found : null
     const status = requestMixerStatus()
-    const live = Boolean(preset) && status.activePresetId === preset.id
+    const live = inPreset && Boolean(found) && status.activePresetId === found.id
     const gainOf = (id) => (live ? status.soundVolumes?.[id] : null)
+    const groups = found?.groups ?? this.groups ?? []
+    const groupFilters = (g) => (g && g.id === this.selectedGroupId && this.mode === 'group' ? this.groupCurrent : g?.filters)
+    const wholeMix = inPreset ? (this.wholeMixCurrent ?? found?.wholeMix ?? null) : null
     const id = key.slice(2)
     if (key.startsWith('g:')) {
-      const group = (preset?.groups ?? this.groups ?? []).find((g) => g.id === id)
-      // The group open in Group mode plays with its unsaved filters too.
-      const filters = group && id === this.selectedGroupId && this.mode === 'group' ? this.groupCurrent : group?.filters
-      const plan = groupPlan(lib, preset, group && { ...group, filters }, { gainOf })
-      return this.itemPreview.playGroup(key, plan)
+      const group = groups.find((g) => g.id === id)
+      const plan = groupPlan(lib, preset, group && { ...group, filters: groupFilters(group) }, { gainOf })
+      return this.itemPreview.playGroup(key, plan, [wholeMix])
     }
-    return this.itemPreview.playSound(key, soundPlan(lib, preset, id, { repeat: this.itemLoops.has(id), gain: gainOf(id) }))
+    const inGroups = groups.filter((g) => (g.soundIds ?? []).includes(id))
+    const group = this.mode === 'sound' ? null : (inGroups.find((g) => g.id === this.selectedGroupId) ?? inGroups[0])
+    return this.itemPreview.playSound(key, soundPlan(lib, preset, id, { repeat: this.itemLoops.has(id), gain: gainOf(id) }), [group ? groupFilters(group) : null, wholeMix])
   }
 
   // A shot firing: a short amber flash on that sound's name (mock .shot).
