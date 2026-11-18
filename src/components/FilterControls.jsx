@@ -10,8 +10,8 @@
 // point. React only renders from the store via useSyncExternalStore.
 import { createRoot } from 'react-dom/client'
 import { createPortal } from 'react-dom'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { knobFraction, knobValueAt } from './Knob.js'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { Knob } from './Knob.jsx'
 import { formatPan } from './filterSummary.js'
 export { filterSummaries } from './filterSummary.js'
 
@@ -49,79 +49,23 @@ function normalize(key, value) {
 
 const hz = (v) => (v >= 1000 ? `${(v / 1000).toFixed(v % 1000 ? 1 : 0)} kHz` : `${v} Hz`)
 
-const DRAG_PX_FULL_RANGE = 160 // same as Knob.js and the mock
-
-// The approved look's knob (same drawing as Knob.js's attachKnob, which wraps
-// plain DOM inputs). A React-controlled range input can't be wrapped that way,
-// so this draws the knob itself; the hidden input keeps keyboard and screen
-// reader use. Drag left/right or double-click to reset; the wheel turns it once
-// selected (data-knob, the app's core knobSelect.js).
-function Knob({ label, title, field, values, onEdit, format, dim = false }) {
+// One knob for the tab (Knob.jsx); this adapts it to the store's field names.
+function FieldKnob({ label, title, field, values, onEdit, format, dim = false }) {
   const { min, max, step, def } = RANGES[field]
-  const value = values[field]
-  const id = `editor-filter-${field}`
-  const latest = useRef(null)
-  latest.current = { value, onEdit }
-  const drag = useRef(null)
-  const setFraction = (fraction) => {
-    const next = knobValueAt(fraction, min, max, step)
-    if (next !== latest.current.value) latest.current.onEdit({ [field]: next })
-  }
-
   return (
-    <div
-      data-knob=""
-      className={`rx-kn${dim ? ' rx-kn-disabled' : ''}`}
-      title={title ? `${title} Drag, or click and scroll.` : 'Drag, or click and scroll'}
-      style={{ '--p': knobFraction(value, min, max) * 100 }}
-    >
-      <div
-        className="rx-ring"
-        onPointerDown={(evt) => {
-          if (evt.button !== 0) return
-          drag.current = { x: evt.clientX, from: knobFraction(latest.current.value, min, max), moved: false }
-          evt.currentTarget.setPointerCapture(evt.pointerId)
-          evt.currentTarget.querySelector('input').focus({ preventScroll: true })
-          evt.preventDefault()
-        }}
-        onPointerMove={(evt) => {
-          const d = drag.current
-          if (!d) return
-          const dx = evt.clientX - d.x
-          if (Math.abs(dx) > 3) d.moved = true
-          if (d.moved) setFraction(d.from + dx / DRAG_PX_FULL_RANGE)
-        }}
-        onPointerUp={() => (drag.current = null)}
-        onPointerCancel={() => (drag.current = null)}
-        onDoubleClick={(e) => {
-          // The app-wide double-click reset (src/renderer/core/sliderReset.js)
-          // reads the input's native defaultValue, which React overwrites on
-          // every render of a controlled input - so the knob resets itself and
-          // keeps the event from reaching that document listener.
-          e.stopPropagation()
-          onEdit({ [field]: def })
-        }}
-      >
-        <svg viewBox="0 0 72 72" aria-hidden="true">
-          <circle className="rx-trk" cx="36" cy="36" r="31" pathLength="100" />
-          <circle className="rx-val" cx="36" cy="36" r="31" pathLength="100" />
-        </svg>
-        <i className="rx-unity" />
-        <input
-          id={id}
-          className="rx-kn-input"
-          type="range"
-          aria-label={label}
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(e) => onEdit({ [field]: Number(e.target.value) })}
-        />
-      </div>
-      <label htmlFor={id}>{label}</label>
-      <output className="editor-filter-value">{format(value)}</output>
-    </div>
+    <Knob
+      label={label}
+      title={title}
+      id={`editor-filter-${field}`}
+      value={values[field]}
+      min={min}
+      max={max}
+      step={step}
+      dim={dim}
+      valueText={format(values[field])}
+      onChange={(next) => onEdit({ [field]: next })}
+      onReset={() => onEdit({ [field]: def })}
+    />
   )
 }
 
@@ -158,19 +102,19 @@ function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
   const k = { values, onEdit }
   const tone = (
     <div className="rx-kgrid">
-      <Knob {...k} label="High-pass" field="highpassHz" title="Cuts rumble below this frequency." format={(v) => (v > 0 ? hz(v) : 'Off')} />
-      <Knob {...k} label="Low-pass" field="lowpassHz" title="Cuts hiss above this frequency." format={(v) => (v < 20000 ? hz(v) : 'Off')} />
-      <Knob {...k} label="Gain" field="gainDb" format={(v) => `${v > 0 ? '+' : ''}${v} dB`} />
-      <Knob {...k} label="Pan" field="pan" title="Stereo pan: move the sound toward the left or right speaker. Double-click to center." format={formatPan} />
+      <FieldKnob {...k} label="High-pass" field="highpassHz" title="Cuts rumble below this frequency." format={(v) => (v > 0 ? hz(v) : 'Off')} />
+      <FieldKnob {...k} label="Low-pass" field="lowpassHz" title="Cuts hiss above this frequency." format={(v) => (v < 20000 ? hz(v) : 'Off')} />
+      <FieldKnob {...k} label="Gain" field="gainDb" format={(v) => `${v > 0 ? '+' : ''}${v} dB`} />
+      <FieldKnob {...k} label="Pan" field="pan" title="Stereo pan: move the sound toward the left or right speaker. Double-click to center." format={formatPan} />
     </div>
   )
   const clean = (
     <>
       <div className="rx-kgrid">
-        <Knob {...k} label="Threshold" field="gateThresholdDb" title="Noise gate: quiets the sound whenever it drops below this level, to cut a hissy/rumbly noise floor between events. Left edge = off." format={(v) => (v > -80 ? `${v} dB` : 'Off')} />
-        <Knob {...k} label="Reduction" field="gateRangeDb" title="How much quieter the sound gets while the gate is closed (below the threshold). 0 = off." format={(v) => (v > 0 ? `${v} dB` : 'Off')} />
-        <Knob {...k} label="Attack" field="gateAttackMs" dim={!gateOn} title="How quickly the gate opens once the sound rises above the threshold." format={(v) => `${v} ms`} />
-        <Knob {...k} label="Release" field="gateReleaseMs" dim={!gateOn} title="How quickly the gate closes again once the sound falls back below the threshold. A longer release keeps a fading tail from chattering." format={(v) => `${v} ms`} />
+        <FieldKnob {...k} label="Threshold" field="gateThresholdDb" title="Noise gate: quiets the sound whenever it drops below this level, to cut a hissy/rumbly noise floor between events. Left edge = off." format={(v) => (v > -80 ? `${v} dB` : 'Off')} />
+        <FieldKnob {...k} label="Reduction" field="gateRangeDb" title="How much quieter the sound gets while the gate is closed (below the threshold). 0 = off." format={(v) => (v > 0 ? `${v} dB` : 'Off')} />
+        <FieldKnob {...k} label="Attack" field="gateAttackMs" dim={!gateOn} title="How quickly the gate opens once the sound rises above the threshold." format={(v) => `${v} ms`} />
+        <FieldKnob {...k} label="Release" field="gateReleaseMs" dim={!gateOn} title="How quickly the gate closes again once the sound falls back below the threshold. A longer release keeps a fading tail from chattering." format={(v) => `${v} ms`} />
       </div>
       <label
         className="rx-srow rx-nr-row"
@@ -183,7 +127,7 @@ function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
         <input type="checkbox" checked={values.denoiseEnabled} onChange={(e) => onEdit({ denoiseEnabled: e.target.checked })} />
       </label>
       <div className="rx-kgrid">
-        <Knob {...k} label="Strength" field="denoiseStrengthDb" dim={!values.denoiseEnabled} title="How aggressively to subtract the sampled noise profile. Higher removes more but can start to sound watery." format={(v) => `${v} dB`} />
+        <FieldKnob {...k} label="Strength" field="denoiseStrengthDb" dim={!values.denoiseEnabled} title="How aggressively to subtract the sampled noise profile. Higher removes more but can start to sound watery." format={(v) => `${v} dB`} />
       </div>
       <div className="rx-trow rx-noise-row">
         <span>Noise from</span>
@@ -201,10 +145,10 @@ function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
   )
   const space = (
     <div className="rx-kgrid">
-      <Knob {...k} label="Echo delay" field="echoDelayMs" format={(v) => (v > 0 ? `${v} ms` : 'Off')} />
-      <Knob {...k} label="Echo decay" field="echoDecay" format={(v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off')} />
-      <Knob {...k} label="Room size" field="reverbSizeMs" title="How long the reverb rings." format={(v) => (v > 0 ? `${(v / 1000).toFixed(1)} s` : 'Off')} />
-      <Knob {...k} label="Reverb mix" field="reverbMix" format={(v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off')} />
+      <FieldKnob {...k} label="Echo delay" field="echoDelayMs" format={(v) => (v > 0 ? `${v} ms` : 'Off')} />
+      <FieldKnob {...k} label="Echo decay" field="echoDecay" format={(v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off')} />
+      <FieldKnob {...k} label="Room size" field="reverbSizeMs" title="How long the reverb rings." format={(v) => (v > 0 ? `${(v / 1000).toFixed(1)} s` : 'Off')} />
+      <FieldKnob {...k} label="Reverb mix" field="reverbMix" format={(v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off')} />
     </div>
   )
   if (!targets) return <>{tone}{clean}{space}</>

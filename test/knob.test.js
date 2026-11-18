@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { knobFraction, knobValueAt } from '../src/components/Knob.js'
+import { knobFraction, knobValueAt } from '../src/components/knobMath.js'
 import { defaultScatter, defaultSchedule, defaultSpeedPitch } from '../src/domain/mixSettings.js'
 
 test('knob fraction is the value position in the range, clamped', () => {
