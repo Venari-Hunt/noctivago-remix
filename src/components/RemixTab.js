@@ -16,6 +16,7 @@ import { mountSpeedPitchPanel } from './SpeedPitchPanel.jsx'
 import { mountDrift } from './DriftPanel.jsx'
 import { mountEqView } from './EqView.jsx'
 import { mountTrimView } from './TrimView.jsx'
+import { mountStickyBar } from './StickyBar.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
@@ -1502,50 +1503,7 @@ export default class EditorPlugin {
   // scrollable panel body. Only ever called once, same lazy-mount-once
   // lifecycle mount() itself already has.
   mountSticky(container) {
-    container.innerHTML = `
-      <div class="rx-bar">
-        <div id="rx-bar-left" class="rx-bar-l"></div>
-        <div id="rx-bar-center" class="rx-bar-c"></div>
-        <div class="rx-bar-r">
-          <div id="editor-sticky-sound-controls" class="editor-sticky-mode-group">
-            <button id="editor-undo" class="rx-i" type="button" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>${icon('undo-2')}</button>
-            <button id="editor-redo" class="rx-i" type="button" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>${icon('redo-2')}</button>
-            <button id="editor-cancel" class="rx-b rx-ghost" type="button" title="Discard every change made since this sound was opened in Remix">Cancel</button>
-            <button id="editor-save-as-copy" class="rx-b" type="button" title="Save a new sound with this one's trim and every setting, without touching this one">${icon('copy')}<span>Save as copy</span></button>
-            <button id="editor-save" class="rx-b rx-pri editor-sticky-save" type="button">${icon('save')}<span id="editor-save-label">Save</span></button>
-          </div>
-          <div id="editor-sticky-mix-controls" class="editor-sticky-mode-group hidden">
-            <button id="editor-mix-play-pause" class="rx-i" type="button" title="Play" aria-label="Play">${PLAY_ICON_SVG}</button>
-            <span id="editor-mix-status" class="editor-sticky-time rx-num"></span>
-            <button id="editor-mix-save" class="rx-b rx-pri editor-sticky-save" type="button">${icon('save')}<span>Save</span></button>
-          </div>
-          <div id="rx-group-actions" class="rx-group-actions">
-            <button id="editor-mix-solo-group" class="rx-i editor-sticky-solo hidden" type="button" title="Solo group" aria-label="Solo group">S</button>
-            <span class="rx-i rx-copy-wrap" title="Copy this group to another preset">${icon('copy')}<select id="editor-mix-copy-group-to" class="hidden" aria-label="Copy this group to another preset" title="Copy this group's name, filters/EQ and members into another preset - it's governed entirely by whichever preset it ends up in from then on">
-              <option value="" selected disabled>Copy to preset…</option>
-            </select></span>
-            <button id="editor-mix-delete-group" class="rx-i hidden" type="button" title="Delete group" aria-label="Delete group">${icon('trash-2')}</button>
-          </div>
-        </div>
-      </div>
-      <div id="rx-transport-src" hidden>
-        <button id="editor-play-pause" class="rx-b rx-play" type="button" title="Play" aria-label="Preview">${PLAY_ICON_SVG}</button>
-        <button id="editor-loop-toggle" class="rx-i editor-loop-icon-btn editor-loop-icon-btn-active" type="button" title="Loop preview" aria-label="Loop preview" aria-pressed="true">${icon('repeat')}</button>
-        <button id="editor-sticky-solo" class="rx-i editor-sticky-solo" type="button" aria-label="Solo" title="Solo: mute every other sound already playing in the Mixer while you audition this one">S</button>
-        <span id="editor-sticky-time" class="editor-sticky-time rx-num">0:00 / 0:00</span>
-        <button id="editor-preview-mode-toggle" class="editor-preview-mode-toggle rx-live" type="button" disabled>Live edit</button>
-        <button id="editor-sticky-mute" class="rx-i" type="button" title="Mute">${VOLUME_ICON_SVG}</button>
-        <button id="editor-mix-mute" class="rx-i" type="button" title="Mute" aria-label="Mute">${VOLUME_ICON_SVG}</button>
-        <input id="editor-mix-volume" type="range" min="0" max="1000" value="500" class="editor-sticky-volume rx-fader" title="Volume (the app's master volume)" aria-label="Volume" />
-        <input id="editor-sticky-volume" type="range" min="0" max="100" value="${Math.round(this.previewVolume * 100)}" class="editor-sticky-volume rx-fader" title="Preview volume" aria-label="Preview volume" />
-        <div id="editor-sticky-progress" class="editor-sticky-progress" title="Drag to seek">
-          <div class="editor-sticky-progress-track">
-            <div id="editor-sticky-progress-fill" class="editor-sticky-progress-fill"></div>
-          </div>
-          <div id="editor-sticky-progress-thumb" class="editor-sticky-progress-thumb"></div>
-        </div>
-      </div>
-    `
+    mountStickyBar(container, { previewVolume: this.previewVolume })
 
     this.els.playPause = container.querySelector('#editor-play-pause')
     this.els.loopToggle = container.querySelector('#editor-loop-toggle')
