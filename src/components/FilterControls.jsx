@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Knob } from './Knob.jsx'
 import { formatPan } from './filterSummary.js'
+import { createStore } from '../state/remixStore.js'
 export { filterSummaries } from './filterSummary.js'
 
 const RANGES = {
@@ -173,23 +174,8 @@ function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
  *   setValues never calls onChange - same as setting a DOM input's .value.
  */
 export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop, targets }) {
-  let values = { ...DEFAULTS }
-  const listeners = new Set()
-  const store = {
-    get: () => values,
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    }
-  }
-  const setValues = (patch) => {
-    const next = { ...values }
-    for (const [key, value] of Object.entries(patch)) {
-      if (key in DEFAULTS && value !== undefined) next[key] = normalize(key, value)
-    }
-    values = next
-    for (const listener of listeners) listener()
-  }
+  const store = createStore(DEFAULTS, normalize)
+  const setValues = store.set
   const onEdit = (patch) => {
     setValues(patch)
     onChange()
@@ -197,5 +183,5 @@ export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop
 
   const root = createRoot(container)
   root.render(<FilterControls store={store} onEdit={onEdit} onNoiseSampleFromLoop={onNoiseSampleFromLoop} targets={targets} />)
-  return { getValues: () => values, setValues, unmount: () => root.unmount() }
+  return { getValues: store.get, setValues, unmount: () => root.unmount() }
 }
