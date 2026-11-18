@@ -14,6 +14,7 @@ import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
 import { mountSpeedPitchPanel } from './SpeedPitchPanel.jsx'
 import { mountDrift } from './DriftPanel.jsx'
+import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
@@ -632,27 +633,7 @@ export default class EditorPlugin {
           <ul id="editor-sound-options" class="editor-sound-options hidden"></ul>
         </div>
         <div id="editor-panel" class="editor-panel hidden">
-          <div class="editor-name-row">
-            <h3 id="editor-sound-name"></h3>
-            <label id="editor-sync-group-row" class="editor-sync-group-row hidden">
-              <span>Sync group</span>
-              <input id="editor-scatter-sync-group" type="text" placeholder="e.g. door-effects" title="Give two or more Random Interval sounds the same name to make them always fire together - one starts, all start." />
-            </label>
-          </div>
-          <canvas id="editor-canvas" width="640" height="160" title="Scroll to zoom, shift+scroll or middle-drag to pan. Right-click-drag inside the trimmed region to move it."></canvas>
-          <div id="editor-scrollbar" class="editor-scrollbar">
-            <div id="editor-scrollbar-thumb" class="editor-scrollbar-thumb"></div>
-          </div>
-          <p id="editor-waveform-status" class="editor-waveform-status"></p>
-          <div class="editor-times">
-            <label>Start <input id="editor-start-input" type="text" inputmode="numeric" placeholder="0:00" /></label>
-            <label>End <input id="editor-end-input" type="text" inputmode="numeric" placeholder="0:00" /></label>
-            <label>Length <input id="editor-length-input" type="text" inputmode="numeric" placeholder="0:00" /></label>
-            <label class="editor-reverse-toggle">
-              <input id="editor-doppler" type="checkbox" />
-              Doppler (pass-by)
-            </label>
-          </div>
+          <div id="rx-trim-host" style="display: contents"></div>
           <div class="editor-suggest-loop-row">
             <button id="editor-suggest-loop" class="btn btn-small btn-icon-text" type="button" title="Analyze the file and propose a seamless loop region. You can still adjust Start/End afterward.">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
@@ -660,23 +641,6 @@ export default class EditorPlugin {
             </button>
             <span id="editor-suggest-status" class="editor-suggest-status"></span>
           </div>
-          <div id="editor-doppler-options" class="editor-speed-pitch hidden">
-            <label>
-              <span>Intensity</span>
-              <input id="editor-doppler-intensity" type="range" min="1" max="12" value="5" step="1" />
-              <span id="editor-doppler-intensity-value" class="editor-filter-value">5 st</span>
-            </label>
-            <label>
-              <span>Sharpness</span>
-              <input id="editor-doppler-sharpness" type="range" min="0" max="100" value="50" step="1" />
-              <span id="editor-doppler-sharpness-value" class="editor-filter-value">50%</span>
-            </label>
-            <label class="editor-reverse-toggle">
-              <input id="editor-doppler-reversed" type="checkbox" />
-              Reverse (peak = furthest point, not closest)
-            </label>
-          </div>
-          <p id="editor-doppler-hint" class="editor-speed-pitch-hint hidden">Simulates a sound passing by: pitch rises approaching the closest point (the gold marker on the waveform - drag it to control how fast each side ramps, double-click to re-center), then falls as it recedes toward Start/End. Reverse flips that: Start/End become the natural-pitch points and the marker becomes the peak shift instead — a sharp close pass-by rather than an approach/recede. Intensity sets how many semitones the shift swings; Sharpness sets how abruptly it swings through the marker — low is a slow continuous glide, high sits flat and does the whole swing in a burst right at the marker (the real pass-by whoosh). Only takes effect once saved (loops under 10 minutes) - no live preview while dragging.</p>
           <div id="rx-playback-host" style="display: contents"></div>
           <div id="rx-seam-host" style="display: contents"></div>
           <div id="rx-speed-host" style="display: contents"></div>
@@ -794,6 +758,7 @@ export default class EditorPlugin {
     `
     mountPlaybackPanel(container.querySelector('#rx-playback-host'))
     mountSpeedPitchPanel(container.querySelector('#rx-speed-host'))
+    mountTrimView(container.querySelector('#rx-trim-host'))
     mountSeamView(container.querySelector('#rx-seam-host'))
     mountSpectrumView(container.querySelector('#rx-spectrum-host'))
     mountDrift({
