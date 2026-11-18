@@ -14,6 +14,7 @@ import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
 import { mountSpeedPitchPanel } from './SpeedPitchPanel.jsx'
 import { mountDrift } from './DriftPanel.jsx'
+import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
@@ -677,29 +678,7 @@ export default class EditorPlugin {
           </div>
           <p id="editor-doppler-hint" class="editor-speed-pitch-hint hidden">Simulates a sound passing by: pitch rises approaching the closest point (the gold marker on the waveform - drag it to control how fast each side ramps, double-click to re-center), then falls as it recedes toward Start/End. Reverse flips that: Start/End become the natural-pitch points and the marker becomes the peak shift instead — a sharp close pass-by rather than an approach/recede. Intensity sets how many semitones the shift swings; Sharpness sets how abruptly it swings through the marker — low is a slow continuous glide, high sits flat and does the whole swing in a burst right at the marker (the real pass-by whoosh). Only takes effect once saved (loops under 10 minutes) - no live preview while dragging.</p>
           <div id="rx-playback-host" style="display: contents"></div>
-          <div id="editor-crossfade-section" class="editor-crossfade">
-            <div class="editor-seam-heading">Loop seam</div>
-            <canvas id="editor-seam-canvas" class="editor-seam-canvas" title="How the loop plays: the end of the trim crossfades into its start in the middle. Drag an edge of the crossfade to resize it, double-click an edge to reset it, click anywhere else to jump there."></canvas>
-            <label>
-              <span>Loop crossfade</span>
-              <input id="editor-crossfade" type="range" min="0" max="2000" value="200" step="10" />
-              <span id="editor-crossfade-value" class="editor-filter-value">200 ms</span>
-            </label>
-            <div class="editor-seam-row">
-              <button id="editor-seam-listen" class="btn btn-small" type="button" title="Play the few seconds around the loop point, through the crossfade, then stop">Listen to the seam</button>
-              <span id="editor-seam-status" class="editor-suggest-status"></span>
-            </div>
-            <p class="editor-crossfade-hint">The saved loop is the second half of your trim, then the first half, with the end of the trim crossfading into its start in the middle, so the loop's own restart falls on one continuous recording. Longer crossfades help busy, textured audio (rain, fire, crowds); 0 turns blending off. Capped at a quarter of the trim, and the loop plays that much shorter.</p>
-            <label class="editor-reverse-toggle">
-              <input id="editor-envelope-enabled" type="checkbox" />
-              Volume envelope
-            </label>
-            <button id="editor-envelope-reset" class="btn btn-small btn-icon-text" type="button">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-              Reset envelope
-            </button>
-            <p class="editor-crossfade-hint">Drag points directly on the waveform above to shape this sound's volume over time instead of one flat level (double-click empty space on the line to add a point, double-click a point to reset it to full, right-click a point to remove it). Attenuates only — never boosts above the sound's own level.</p>
-          </div>
+          <div id="rx-seam-host" style="display: contents"></div>
           <div id="rx-speed-host" style="display: contents"></div>
           <div id="editor-filters" class="editor-filters"></div>
           <div class="editor-eq">
@@ -815,6 +794,7 @@ export default class EditorPlugin {
     `
     mountPlaybackPanel(container.querySelector('#rx-playback-host'))
     mountSpeedPitchPanel(container.querySelector('#rx-speed-host'))
+    mountSeamView(container.querySelector('#rx-seam-host'))
     mountSpectrumView(container.querySelector('#rx-spectrum-host'))
     mountDrift({
       sound: container.querySelector('#rx-drift-host-sound'),

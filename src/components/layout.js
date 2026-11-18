@@ -428,7 +428,6 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const dopplerLabel = $('#editor-doppler').closest('label')
   dopplerLabel.lastChild.textContent = ' Doppler pass-by'
   $('#editor-doppler').setAttribute('aria-label', 'Doppler pass-by')
-  $('#editor-envelope-enabled').setAttribute('aria-label', 'Volume envelope')
   const segmentBtn = el(doc, 'button', 'rx-b', `${icon('copy')}<span>Save segment as new</span>`)
   segmentBtn.id = 'editor-save-segment'
   segmentBtn.type = 'button'
@@ -454,19 +453,9 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
 
   // The volume envelope has its own accordion (owner, 2026-11-11: under the
   // trim controls it was hard to find and Reset sat badly under the switch):
-  // a switch row, then Reset and the how-to line while it is on.
+  // SeamView.jsx rendered its body (switch row, Reset, how-to line).
   const crossfadeSection = $('#editor-crossfade-section')
-  const envelopeReset = $('#editor-envelope-reset')
-  const envelopeHint = envelopeReset.nextElementSibling
-  const envelopeRow = toSwitchRow(doc, $('#editor-envelope-enabled').closest('label'), 'Shape the volume over time', 'With points on the Trim waveform')
-  envelopeReset.className = 'rx-b rx-ghost'
-  envelopeReset.innerHTML = `${icon('refresh-cw')}<span>Reset envelope</span>`
-  envelopeHint.className = 'rx-hint rx-hint-l rx-envelope-hint'
-  envelopeHint.textContent = 'Drag a point to change the volume there. Double-click the line to add a point, double-click a point to reset it to full, right-click a point to remove it. Only lowers the volume, never boosts it.'
-  const envelopeActions = el(doc, 'div', 'rx-srow1 rx-envelope-actions')
-  envelopeActions.appendChild(envelopeReset)
-  const envelopeBody = el(doc, 'div', 'rx-envelope-body')
-  envelopeBody.append(envelopeRow, envelopeActions, envelopeHint)
+  const envelopeBody = $('.rx-envelope-body')
   const options = el(doc, 'div', 'rx-under rx-wrap2')
   options.append(dopplerOpt)
 
@@ -483,23 +472,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   // the library (buildStudio), not under the Trim canvas.
   viewTrim.append($('.editor-name-row'), $('#editor-canvas'), $('#editor-scrollbar'), $('#editor-waveform-status'), times, options, dopplerHint)
 
-  // Loop seam view: what is left of the crossfade section.
-  const seamCanvas = $('#editor-seam-canvas')
-  const crossfade = $('#editor-crossfade')
-  const crossfadeRow = crossfade.closest('label')
-  const seamRow = $('.editor-seam-row')
-  const seamListen = $('#editor-seam-listen')
-  const seamStatus = $('#editor-seam-status')
-  seamListen.className = 'rx-b'
-  seamListen.innerHTML = `${icon('headphones')}<span>Listen to the seam</span>`
-  const crossfadeValue = $('#editor-crossfade-value')
-  const crossfadeKnob = attachKnob(crossfade, { label: 'Crossfade', valueEl: crossfadeValue })
-  const seamUnder = el(doc, 'div', 'rx-under')
-  seamUnder.append(seamListen, crossfadeKnob.el)
-  crossfadeRow.remove()
-  seamRow.remove()
-  seamCanvas.after(seamUnder, seamStatus)
-  crossfadeSection.querySelector('.editor-crossfade-hint').className = 'rx-hint'
+  // Loop seam view: SeamView.jsx rendered the canvas, knob and Listen button.
   viewSeam.appendChild(crossfadeSection)
 
   // EQ view: the graph, then its tools and the selected band's fields under
