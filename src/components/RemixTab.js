@@ -12,6 +12,7 @@ import { createFluctuationBar } from './FluctuationBar.js'
 import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
+import { mountSpeedPitchPanel } from './SpeedPitchPanel.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
@@ -698,24 +699,7 @@ ${mixFluctuationMarkup('group')}
             </button>
             <p class="editor-crossfade-hint">Drag points directly on the waveform above to shape this sound's volume over time instead of one flat level (double-click empty space on the line to add a point, double-click a point to reset it to full, right-click a point to remove it). Attenuates only — never boosts above the sound's own level.</p>
           </div>
-          <div class="editor-speed-pitch">
-            <label>
-              <span>Speed</span>
-              <input id="editor-speed" type="range" min="50" max="200" value="100" step="5" />
-              <span id="editor-speed-value" class="editor-filter-value">100%</span>
-            </label>
-            <label>
-              <span>Pitch</span>
-              <input id="editor-pitch" type="range" min="-12" max="12" value="0" step="1" />
-              <span id="editor-pitch-value" class="editor-filter-value">Off</span>
-            </label>
-            <label class="editor-reverse-toggle">
-              <input id="editor-reverse" type="checkbox" />
-              Reverse
-            </label>
-            <p class="editor-speed-pitch-hint">Speed applies live, even for sounds too long to bake into a clip. Reverse plays live too, for sounds up to 10 minutes long. Pitch only takes effect once saved (loops under 10 minutes) and previews approximately while dragging (briefly affects tempo too).</p>
-            <p id="editor-reverse-status" class="editor-speed-pitch-hint hidden" role="status"></p>
-          </div>
+          <div id="rx-speed-host" style="display: contents"></div>
           <div id="editor-filters" class="editor-filters"></div>
           <div class="editor-eq">
             <div class="editor-eq-header">
@@ -888,6 +872,7 @@ ${mixFluctuationMarkup('group')}
       </div>
     `
     mountPlaybackPanel(container.querySelector('#rx-playback-host'))
+    mountSpeedPitchPanel(container.querySelector('#rx-speed-host'))
 
     // Desktop 2.0 layout: wraps and moves the nodes above (layout.js).
     this.root = container
