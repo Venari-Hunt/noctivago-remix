@@ -10,6 +10,7 @@ import { icon } from './icons.js'
 import { attachKnob } from './Knob.js'
 import { filterSummaries } from './filterSummary.js'
 import { renderDetail } from './libraryDetail.js'
+import { mountAccordions } from './Accordion.jsx'
 
 const el = (doc, tag, className, html) => {
   const node = doc.createElement(tag)
@@ -231,40 +232,13 @@ function arrangeEqTools(eq, p) {
 function buildAccordions(side, list, bodies) {
   const doc = side.ownerDocument
   const win = doc.defaultView
-  const accordions = new Map()
   side.appendChild(el(doc, 'h3', 'rx-side-h', 'Settings'))
-  const openAccordion = (key) => {
-    for (const [k, acc] of accordions) {
-      const open = k === key
-      acc.dataset.open = String(open)
-      acc.firstElementChild.setAttribute('aria-expanded', String(open))
-    }
-    requestRedraw(win)
-  }
-  for (const [key, title] of list) {
-    const acc = el(doc, 'div', 'rx-acc')
-    acc.dataset.acc = key
-    acc.dataset.open = 'false'
-    const head = el(doc, 'button', 'rx-acch', `<span class="rx-acci">${icon(ACC_ICON[key] ?? 'sliders-horizontal')}</span><b>${title}</b><span class="rx-accv"></span>${icon('chevron-down')}`)
-    head.type = 'button'
-    head.setAttribute('aria-expanded', 'false')
-    head.addEventListener('click', () => openAccordion(acc.dataset.open === 'true' ? null : key))
-    const body = el(doc, 'div', 'rx-accb')
-    body.append(...bodies[key])
-    acc.append(head, body)
-    accordions.set(key, acc)
-    side.appendChild(acc)
-  }
-  // Head values ("100% · +1 st", "Off"); `on` lights the value in amber.
-  const setSummaries = (map) => {
-    for (const [key, [text, on]] of Object.entries(map)) {
-      const span = accordions.get(key)?.querySelector('.rx-accv')
-      if (!span) continue
-      if (span.textContent !== text) span.textContent = text
-      span.classList.toggle('rx-on', Boolean(on))
-    }
-  }
-  return { accordions, openAccordion, setSummaries }
+  const { elements, openAccordion, setSummaries } = mountAccordions(side, list, bodies, {
+    iconFor: (key) => icon(ACC_ICON[key] ?? 'sliders-horizontal'),
+    chevronHtml: icon('chevron-down'),
+    onOpenChange: () => requestRedraw(win)
+  })
+  return { accordions: elements, openAccordion, setSummaries }
 }
 
 const SCOPE_ACCORDIONS = {
@@ -752,8 +726,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
     ...driftBodies(driftSection, DRIFT_AXES)
   }
   const { accordions, openAccordion, setSummaries } = buildAccordions(side, ACCORDIONS, BODIES)
-  accordions.get('playback').querySelector('.rx-accv').classList.add('rx-on')
-  accordions.get('playback').querySelector('.rx-accv').textContent = 'Loop'
+  setSummaries({ playback: ['Loop', true] })
 
   panel.replaceChildren(canvasCol, side)
   openAccordion('playback')
@@ -809,9 +782,8 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
 
   // Called by the tab whenever the play mode is set, by the user or by a load.
   const MODE_LABEL = { loop: 'Loop', scatter: 'Random', scheduled: 'Scheduled' }
-  const playbackValue = accordions.get('playback').querySelector('.rx-accv')
   const setPlayMode = (mode) => {
-    playbackValue.textContent = MODE_LABEL[mode] ?? MODE_LABEL.loop
+    setSummaries({ playback: [MODE_LABEL[mode] ?? MODE_LABEL.loop, true] })
     // The Loop seam view only exists for loops (its tab hides in CSS).
     if ((mode === 'scatter' || mode === 'scheduled') && panel.dataset.view === 'seam') setView('trim')
   }
