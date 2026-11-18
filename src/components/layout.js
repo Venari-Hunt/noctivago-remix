@@ -629,28 +629,8 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const schedule = $('#editor-schedule-section')
   const fade = $('#editor-fade-section')
 
-  // Speed and pitch: two knobs, then Reverse as a switch row.
-  const speedPitch = $('#editor-speed').closest('.editor-speed-pitch')
-  const speedKnobs = el(doc, 'div', 'rx-kgrid')
-  for (const [id, label] of [
-    ['editor-speed', 'Speed'],
-    ['editor-pitch', 'Pitch']
-  ]) {
-    const input = $('#' + id)
-    const row = input.closest('label')
-    const knob = attachKnob(input, { label, valueEl: $(`#${id}-value`) })
-    row.remove()
-    speedKnobs.appendChild(knob.el)
-  }
-  const reverseRow = toSwitchRow(doc, $('#editor-reverse').closest('label'), 'Reverse', 'Plays live for sounds up to 10 minutes')
-  const speedHint = speedPitch.querySelector('.editor-speed-pitch-hint:not(#editor-reverse-status)')
-  speedHint.className = 'rx-hint rx-hint-l'
-  speedHint.textContent = 'Speed applies live. Pitch applies once saved (loops under 10 minutes) and previews roughly while you drag.'
-  const reverseStatus = $('#editor-reverse-status')
-  reverseStatus.classList.remove('editor-speed-pitch-hint')
-  reverseStatus.classList.add('rx-hint', 'rx-hint-l')
-  speedPitch.className = 'rx-speed-body'
-  speedPitch.prepend(speedKnobs, reverseRow)
+  // Speed and pitch: SpeedPitchPanel.jsx rendered the knobs, Reverse and the hints.
+  const speedPitch = $('.rx-speed-body')
 
   // Tone, Cleanup and Space: FilterControls.jsx renders a group into each.
   const filters = $('#editor-filters')

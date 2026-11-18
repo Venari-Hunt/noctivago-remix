@@ -350,41 +350,6 @@
   font-size: 12px;
 }
 
-.editor-playmode {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin: 16px 0 0;
-  padding: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.editor-playmode-label {
-  font-size: 12px;
-  color: var(--text-dim);
-  width: 82px;
-  flex-shrink: 0;
-}
-
-.editor-playmode-option {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.editor-playmode-hint {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
 /* Owner UI feedback (2026-09-17): Fade in/out used to sit at the very bottom
    of the Random Interval/Scheduled panel, far from the waveform above, which
    already shows the exact same fade as a pair of draggable pins at the trim
