@@ -14,6 +14,7 @@ import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
 import { mountSpeedPitchPanel } from './SpeedPitchPanel.jsx'
 import { mountDrift } from './DriftPanel.jsx'
+import { mountEqView } from './EqView.jsx'
 import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
@@ -416,62 +417,7 @@ export default class EditorPlugin {
                 <span class="editor-filter-value">s — eases the whole mix up when the preset loads</span>
               </label>
             </div>
-            <div class="editor-eq">
-              <div class="editor-eq-header">
-                <span class="editor-eq-label">Parametric EQ</span>
-                <div class="editor-eq-compare" role="group" aria-label="Compare current session vs. last saved">
-                  <button id="editor-mix-preset-eq-compare-a" class="editor-eq-compare-btn editor-eq-compare-btn-active" type="button" title="Current session (editable)">A</button>
-                  <button id="editor-mix-preset-eq-compare-b" class="editor-eq-compare-btn" type="button" title="Last saved mix (read-only)">B</button>
-                </div>
-                <button id="editor-mix-preset-eq-add-band" class="btn btn-svg-icon" type="button" title="Add a band">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                </button>
-                <button id="editor-mix-preset-eq-remove-band" class="btn btn-svg-icon" type="button" title="Delete the selected band (or drag a node here)">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m5 0V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2"/></svg>
-                </button>
-                <button id="editor-mix-preset-eq-reset" class="btn btn-small btn-icon-text" type="button">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-                  Reset EQ
-                </button>
-                <button id="editor-mix-preset-eq-zoom-out" class="btn btn-svg-icon" type="button" title="Zoom out on the frequency axis (or scroll over empty graph space)">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                </button>
-                <button id="editor-mix-preset-eq-zoom-in" class="btn btn-svg-icon" type="button" title="Zoom in on the frequency axis (or scroll over empty graph space)">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                </button>
-                <button id="editor-mix-preset-eq-invert" class="btn btn-small btn-icon-text" type="button" title="Flip every band's gain (boosts become cuts and vice versa)">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                  Invert
-                </button>
-              </div>
-              <button id="editor-mix-preset-eq-revert-banner" class="editor-eq-revert-banner hidden" type="button">Click to revert to previous session's mix</button>
-              <canvas id="editor-mix-preset-eq-canvas" class="editor-mix-eq-canvas" title="Drag a node to adjust frequency/gain (hold Ctrl while dragging for finer control). Scroll over a node to adjust its Q. Double-click a node to reset its gain; Alt+click for a full reset."></canvas>
-              <div class="editor-mix-eq-fields">
-                <label><span>Type</span>
-                  <select id="editor-mix-preset-eq-type">
-                    <option value="off">Off</option>
-                    <option value="lowpass">Low Pass</option>
-                    <option value="highpass">High Pass</option>
-                    <option value="bandpass">Band Pass</option>
-                    <option value="notch">Notch</option>
-                    <option value="lowshelf">Low Shelf</option>
-                    <option value="highshelf">High Shelf</option>
-                    <option value="peaking" selected>Peaking</option>
-                  </select>
-                </label>
-                <label id="editor-mix-preset-eq-slope-label"><span>Slope</span>
-                  <select id="editor-mix-preset-eq-slope">
-                    <option value="gentle" selected>Gentle</option>
-                    <option value="steep">Steep</option>
-                  </select>
-                </label>
-                <label><span>Freq</span><input id="editor-mix-preset-eq-freq" type="number" min="20" max="20000" step="1" /></label>
-                <label><span>Gain</span><input id="editor-mix-preset-eq-gain" type="number" min="-24" max="24" step="0.1" /></label>
-                <label><span>Q</span><input id="editor-mix-preset-eq-q" type="number" min="0.1" max="20" step="0.1" /></label>
-                <button id="editor-mix-preset-eq-mute" class="editor-eq-toggle-btn" type="button" title="Mute this band (keeps its settings, just stops applying it)">Mute</button>
-                <button id="editor-mix-preset-eq-solo" class="editor-eq-toggle-btn" type="button" title="Solo this band (hear only its effect, for auditioning while tuning)">Solo</button>
-              </div>
-            </div>
+            <div id="rx-eq-host-preset" style="display: contents"></div>
             <div class="editor-presets">
               <span class="editor-presets-label">Presets</span>
               <button class="btn btn-small" type="button" data-mix-preset-effect="muffled">Muffled</button>
@@ -550,62 +496,7 @@ export default class EditorPlugin {
                 <span id="editor-mix-group-occlusion-value" class="editor-filter-value">Off</span>
               </label>
             </div>
-            <div class="editor-eq">
-              <div class="editor-eq-header">
-                <span class="editor-eq-label">Parametric EQ</span>
-                <div class="editor-eq-compare" role="group" aria-label="Compare current session vs. last saved">
-                  <button id="editor-mix-group-eq-compare-a" class="editor-eq-compare-btn editor-eq-compare-btn-active" type="button" title="Current session (editable)">A</button>
-                  <button id="editor-mix-group-eq-compare-b" class="editor-eq-compare-btn" type="button" title="Last saved group (read-only)">B</button>
-                </div>
-                <button id="editor-mix-group-eq-add-band" class="btn btn-svg-icon" type="button" title="Add a band">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                </button>
-                <button id="editor-mix-group-eq-remove-band" class="btn btn-svg-icon" type="button" title="Delete the selected band (or drag a node here)">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m5 0V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2"/></svg>
-                </button>
-                <button id="editor-mix-group-eq-reset" class="btn btn-small btn-icon-text" type="button">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-                  Reset EQ
-                </button>
-                <button id="editor-mix-group-eq-zoom-out" class="btn btn-svg-icon" type="button" title="Zoom out on the frequency axis (or scroll over empty graph space)">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                </button>
-                <button id="editor-mix-group-eq-zoom-in" class="btn btn-svg-icon" type="button" title="Zoom in on the frequency axis (or scroll over empty graph space)">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                </button>
-                <button id="editor-mix-group-eq-invert" class="btn btn-small btn-icon-text" type="button" title="Flip every band's gain (boosts become cuts and vice versa)">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                  Invert
-                </button>
-              </div>
-              <button id="editor-mix-group-eq-revert-banner" class="editor-eq-revert-banner hidden" type="button">Click to revert to previous session's group</button>
-              <canvas id="editor-mix-group-eq-canvas" class="editor-mix-eq-canvas" title="Drag a node to adjust frequency/gain (hold Ctrl while dragging for finer control). Scroll over a node to adjust its Q. Double-click a node to reset its gain; Alt+click for a full reset."></canvas>
-              <div class="editor-mix-eq-fields">
-                <label><span>Type</span>
-                  <select id="editor-mix-group-eq-type">
-                    <option value="off">Off</option>
-                    <option value="lowpass">Low Pass</option>
-                    <option value="highpass">High Pass</option>
-                    <option value="bandpass">Band Pass</option>
-                    <option value="notch">Notch</option>
-                    <option value="lowshelf">Low Shelf</option>
-                    <option value="highshelf">High Shelf</option>
-                    <option value="peaking" selected>Peaking</option>
-                  </select>
-                </label>
-                <label id="editor-mix-group-eq-slope-label"><span>Slope</span>
-                  <select id="editor-mix-group-eq-slope">
-                    <option value="gentle" selected>Gentle</option>
-                    <option value="steep">Steep</option>
-                  </select>
-                </label>
-                <label><span>Freq</span><input id="editor-mix-group-eq-freq" type="number" min="20" max="20000" step="1" /></label>
-                <label><span>Gain</span><input id="editor-mix-group-eq-gain" type="number" min="-24" max="24" step="0.1" /></label>
-                <label><span>Q</span><input id="editor-mix-group-eq-q" type="number" min="0.1" max="20" step="0.1" /></label>
-                <button id="editor-mix-group-eq-mute" class="editor-eq-toggle-btn" type="button" title="Mute this band (keeps its settings, just stops applying it)">Mute</button>
-                <button id="editor-mix-group-eq-solo" class="editor-eq-toggle-btn" type="button" title="Solo this band (hear only its effect, for auditioning while tuning)">Solo</button>
-              </div>
-            </div>
+            <div id="rx-eq-host-group" style="display: contents"></div>
             <div class="editor-presets">
               <span class="editor-presets-label">Presets</span>
               <button class="btn btn-small" type="button" data-mix-group-effect="muffled">Muffled</button>
@@ -645,76 +536,7 @@ export default class EditorPlugin {
           <div id="rx-seam-host" style="display: contents"></div>
           <div id="rx-speed-host" style="display: contents"></div>
           <div id="editor-filters" class="editor-filters"></div>
-          <div class="editor-eq">
-            <div class="editor-eq-header">
-              <span class="editor-eq-label">Parametric EQ</span>
-              <div class="editor-eq-compare" role="group" aria-label="Compare current session vs. last saved">
-                <button id="editor-eq-compare-a" class="editor-eq-compare-btn editor-eq-compare-btn-active" type="button" title="Current session (editable)">A</button>
-                <button id="editor-eq-compare-b" class="editor-eq-compare-btn" type="button" title="Last saved mix (read-only)">B</button>
-              </div>
-              <button id="editor-eq-add-band" class="btn btn-svg-icon" type="button" title="Add a band">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              </button>
-              <button id="editor-eq-remove-band" class="btn btn-svg-icon" type="button" title="Delete the selected band (or drag a node here)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m5 0V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-              <button id="editor-eq-reset" class="btn btn-small btn-icon-text" type="button">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-                Reset EQ
-              </button>
-              <button id="editor-eq-zoom-out" class="btn btn-svg-icon" type="button" title="Zoom out on the frequency axis (or scroll over empty graph space)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-              </button>
-              <button id="editor-eq-zoom-in" class="btn btn-svg-icon" type="button" title="Zoom in on the frequency axis (or scroll over empty graph space)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-              </button>
-              <button id="editor-eq-invert" class="btn btn-small btn-icon-text" type="button" title="Flip every band's gain (boosts become cuts and vice versa)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                Invert
-              </button>
-            </div>
-            <button id="editor-eq-revert-banner" class="editor-eq-revert-banner hidden" type="button">Click to revert to previous session's mix</button>
-            <canvas id="editor-eq-canvas" width="640" height="140" title="Drag a node to adjust frequency/gain (hold Ctrl while dragging for finer control). Scroll over a node to adjust its Q. Double-click a node to reset its gain; Alt+click for a full reset."></canvas>
-            <div class="editor-eq-band-controls">
-              <label>
-                <span>Type</span>
-                <select id="editor-eq-type">
-                  <option value="off">Off</option>
-                  <option value="lowpass">Low Pass</option>
-                  <option value="highpass">High Pass</option>
-                  <option value="bandpass">Band Pass</option>
-                  <option value="notch">Notch</option>
-                  <option value="lowshelf">Low Shelf</option>
-                  <option value="highshelf">High Shelf</option>
-                  <option value="peaking" selected>Peaking</option>
-                </select>
-              </label>
-              <label id="editor-eq-slope-label">
-                <span>Slope</span>
-                <select id="editor-eq-slope">
-                  <option value="gentle" selected>Gentle</option>
-                  <option value="steep">Steep</option>
-                </select>
-              </label>
-              <label>
-                <span>Freq</span>
-                <input id="editor-eq-freq" type="number" min="20" max="20000" step="1" />
-                <span class="editor-filter-value">Hz</span>
-              </label>
-              <label>
-                <span>Gain</span>
-                <input id="editor-eq-gain" type="number" min="-24" max="24" step="0.1" />
-                <span class="editor-filter-value">dB</span>
-              </label>
-              <label>
-                <span>Q</span>
-                <input id="editor-eq-q" type="number" min="0.1" max="20" step="0.1" />
-              </label>
-              <button id="editor-eq-mute" class="editor-eq-toggle-btn" type="button" title="Mute this band (keeps its settings, just stops applying it)">Mute</button>
-              <button id="editor-eq-solo" class="editor-eq-toggle-btn" type="button" title="Solo this band (hear only its effect, for auditioning while tuning)">Solo</button>
-            </div>
-            <p class="editor-eq-hint">Double-click the graph (or click +) to add a band, drag it to shape it (hold Ctrl while dragging for finer control), or type exact values above for the selected (highlighted) band. Scroll over a node to adjust its Q. Right-click a node to change its type or slope, or turn it off; Delete turns the selected band off. Double-click a node resets its gain; Alt+click fully resets it. The trash button (or dragging a node onto it) deletes the selected band. Mute silences a band without losing its settings; Solo hears only that band while tuning. The spectrum line (live) and heatmap glow (long-term level, brightest where the sound is loudest) show After the EQ by default, so they react as you drag bands; Before shows the sound as it arrives, Both draws Before dimmed behind After. The red-shaded regions show which frequencies your current bands cut.</p>
-          </div>
+          <div id="rx-eq-host-sound" style="display: contents"></div>
           <div id="rx-spectrum-host" style="display: contents"></div>
           <div class="editor-presets">
             <span class="editor-presets-label">Presets</span>
@@ -758,6 +580,9 @@ export default class EditorPlugin {
     `
     mountPlaybackPanel(container.querySelector('#rx-playback-host'))
     mountSpeedPitchPanel(container.querySelector('#rx-speed-host'))
+    mountEqView(container.querySelector('#rx-eq-host-sound'), 'sound')
+    mountEqView(container.querySelector('#rx-eq-host-group'), 'group')
+    mountEqView(container.querySelector('#rx-eq-host-preset'), 'preset')
     mountTrimView(container.querySelector('#rx-trim-host'))
     mountSeamView(container.querySelector('#rx-seam-host'))
     mountSpectrumView(container.querySelector('#rx-spectrum-host'))

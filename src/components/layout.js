@@ -77,102 +77,15 @@ function toSwitchRow(doc, label, title, sub) {
   return label
 }
 
-// EQ tools under the graph, as in the mock: Add band, Delete band, Invert,
-// zoom, Mute band, Solo band, then the selected band's fields. Sound, Group
-// and Preset share the markup, only the id prefix differs. A/B and Reset are
-// settings, so they are handed back for the side column.
-function arrangeEqTools(eq, p) {
-  const $ = (id) => eq.querySelector(`#${p}-${id}`)
-  const header = eq.querySelector('.editor-eq-header')
-  const compare = header.querySelector('.editor-eq-compare')
-  compare.classList.add('rx-seg')
-  const reset = $('reset')
-  reset.className = 'rx-b rx-ghost'
-  reset.textContent = 'Reset'
-  reset.title = 'Remove every band'
-  const set = (node, className, html, label) => {
-    node.className = className
-    node.innerHTML = html
-    if (label) node.setAttribute('aria-label', label)
-    return node
-  }
-  const add = set($('add-band'), 'rx-b', `${icon('plus')}<span>Add band</span>`)
-  const del = set($('remove-band'), 'rx-b rx-ghost', `${icon('trash-2')}<span>Delete band</span>`)
-  del.title = 'Delete the selected band, or drag a node here'
-  const invert = set($('invert'), 'rx-b rx-ghost', '<span>Invert</span>')
-  invert.title = 'Boosts become cuts and vice versa'
-  const zoomOut = set($('zoom-out'), 'rx-i', icon('minus'), 'Zoom out')
-  const zoomIn = set($('zoom-in'), 'rx-i', icon('plus'), 'Zoom in')
-  // The tab toggles editor-eq-mute-active / editor-eq-solo-active on these.
-  const mute = $('mute')
-  const solo = $('solo')
-  mute.classList.replace('editor-eq-toggle-btn', 'rx-b')
-  solo.classList.replace('editor-eq-toggle-btn', 'rx-b')
-  mute.classList.add('rx-ghost')
-  solo.classList.add('rx-ghost')
-  mute.textContent = 'Mute band'
-  solo.textContent = 'Solo band'
-  // Step 13b: Spectrum / Both / Heatmap, as in the mock (EqEditor wires it).
-  const doc = eq.ownerDocument
-  const spec = doc.createElement('div')
-  spec.className = 'rx-seg'
-  spec.setAttribute('role', 'group')
-  spec.setAttribute('aria-label', 'Spectrum display')
-  for (const [mode, label] of [['spectrum', 'Spectrum'], ['both', 'Both'], ['heat', 'Heatmap']]) {
-    const b = doc.createElement('button')
-    b.type = 'button'
-    b.dataset.spec = mode
-    b.textContent = label
-    b.setAttribute('aria-pressed', String(mode === 'both'))
-    spec.appendChild(b)
-  }
-  // Step 13c: which signal the spectrum reads, like Pro-Q's Pre / Post /
-  // Pre+Post. After (what you hear) is the default; EqEditor wires it.
-  const tap = doc.createElement('div')
-  tap.className = 'rx-seg'
-  tap.setAttribute('role', 'group')
-  tap.setAttribute('aria-label', 'Spectrum signal')
-  for (const [mode, label, title] of [['before', 'Before', 'Spectrum before the EQ'], ['after', 'After', 'Spectrum after the EQ (what you hear)'], ['both', 'Both', 'Before dimmed behind After']]) {
-    const b = doc.createElement('button')
-    b.type = 'button'
-    b.dataset.tap = mode
-    b.textContent = label
-    b.title = title
-    b.setAttribute('aria-pressed', String(mode === 'after'))
-    tap.appendChild(b)
-  }
-  // Step 13d: the mock's tools row, left-aligned with hairline separators;
-  // the two display switches sit together at the end (they wrap as a pair).
-  header.className = 'rx-tools rx-eq-tools'
-  const sep = () => el(doc, 'span', 'rx-sep')
-  const segs = el(doc, 'span', 'rx-tools-end')
-  segs.append(tap, spec)
-  header.replaceChildren(add, del, invert, sep(), zoomOut, zoomIn, sep(), mute, solo, segs)
-  // Rulers above the graph: SUB to TREBLE, then the C of each octave.
-  const ruler = doc.createElement('canvas')
-  ruler.className = 'rx-eq-ruler'
-  ruler.setAttribute('aria-hidden', 'true')
-  $('canvas').before(ruler)
-
-  const fields = eq.querySelector('.editor-eq-band-controls, .editor-mix-eq-fields')
-  fields.className = 'rx-under rx-eq-fields'
-  // Fixed band slots (LYNX): numbered chips at the start of the fields row;
-  // EqEditor finds the strip by its canvas id and draws the chips.
-  const slots = el(doc, 'div', 'rx-eq-slots')
-  slots.setAttribute('role', 'group')
-  slots.setAttribute('aria-label', 'Band slots')
-  slots.dataset.eqSlotsFor = `${p}-canvas`
-  fields.prepend(slots)
-  for (const label of fields.querySelectorAll('label')) {
-    label.classList.add('rx-fl')
-    label.querySelector('.editor-filter-value')?.remove() // "Hz", "dB": the mock's fields carry no unit
-    label.querySelector('select, input')?.classList.add('rx-field')
-  }
-  const type = $('type')
-  const peaking = type.querySelector('option[value="peaking"]')
-  if (peaking) type.prepend(peaking) // the mock lists Peaking first
-  eq.querySelector('.editor-eq-hint')?.classList.add('rx-hint')
-  return { toolbar: header, fields, compare, reset }
+// EQ tools: EqView.jsx rendered the graph, the tools row, the band slots and
+// the fields as the final markup. A/B compare and Reset are settings, so they
+// sit in a spare box that is dropped here and handed back for the side column.
+function pickEqTools(eq) {
+  const extras = eq.querySelector('.rx-eq-extras')
+  const compare = extras.querySelector('.editor-eq-compare')
+  const reset = extras.querySelector(':scope > button')
+  extras.remove()
+  return { toolbar: eq.querySelector('.rx-eq-tools'), fields: eq.querySelector('.rx-eq-fields'), compare, reset }
 }
 
 // The settings column: one card per [key, title], the body nodes from
@@ -249,8 +162,7 @@ function arrangeScope(root, kind, getBands) {
   const eqCanvas = $(`#${p}-eq-canvas`)
   const eq = eqCanvas.closest('.editor-eq')
   eq.classList.add('rx-scope-eq')
-  const eqTools = arrangeEqTools(eq, `${p}-eq`)
-  eqCanvas.after(eqTools.toolbar)
+  const eqTools = pickEqTools(eq)
   const loudness = $(`#${p}-waveform`)
   const loudnessNote = loudness.previousElementSibling
   loudnessNote.classList.add('rx-hint')
@@ -450,9 +362,8 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   // EQ view: the graph, then its tools and the selected band's fields under
   // it. A/B compare and Reset are settings, so they stay in the side column.
   const eq = $('#editor-eq-canvas').closest('.editor-eq')
-  const eqTools = arrangeEqTools(eq, 'editor-eq')
+  const eqTools = pickEqTools(eq)
   const eqHeader = eqTools.toolbar
-  $('#editor-eq-canvas').after(eqHeader)
   viewEq.appendChild(eq)
   const openEq = el(doc, 'button', 'rx-b', '<span>Open EQ</span>')
   openEq.type = 'button'
