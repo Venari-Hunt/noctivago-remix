@@ -14,6 +14,7 @@ import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
 import { mountSpeedPitchPanel } from './SpeedPitchPanel.jsx'
 import { mountDrift } from './DriftPanel.jsx'
+import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
@@ -771,32 +772,7 @@ export default class EditorPlugin {
             </div>
             <p class="editor-eq-hint">Double-click the graph (or click +) to add a band, drag it to shape it (hold Ctrl while dragging for finer control), or type exact values above for the selected (highlighted) band. Scroll over a node to adjust its Q. Right-click a node to change its type or slope, or turn it off; Delete turns the selected band off. Double-click a node resets its gain; Alt+click fully resets it. The trash button (or dragging a node onto it) deletes the selected band. Mute silences a band without losing its settings; Solo hears only that band while tuning. The spectrum line (live) and heatmap glow (long-term level, brightest where the sound is loudest) show After the EQ by default, so they react as you drag bands; Before shows the sound as it arrives, Both draws Before dimmed behind After. The red-shaded regions show which frequencies your current bands cut.</p>
           </div>
-          <div id="editor-spectral-section" class="editor-spectral">
-            <div class="editor-eq-header">
-              <span class="editor-eq-label">Spectral repair</span>
-              <button id="editor-spectral-delete" class="btn btn-svg-icon" type="button" title="Delete the selected box" disabled>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m5 0V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-              <button id="editor-spectral-clear" class="btn btn-small btn-icon-text" type="button">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-                Clear all
-              </button>
-            </div>
-            <canvas id="editor-spectral-canvas" class="editor-spectral-canvas" title="Drag to draw a box around a sound to remove (or switch to Freehand and drag a loop around it). Drag a shape to move it, drag a box edge or a freehand corner dot to resize it, right-click it (or select it and press Delete) to remove it."></canvas>
-            <div class="editor-spectral-controls">
-              <div id="editor-spectral-shape" class="rx-seg" role="group" aria-label="Shape to draw">
-                <button type="button" data-shape="box" aria-pressed="true" title="Drag a rectangle around the sound">Box</button>
-                <button type="button" data-shape="free" aria-pressed="false" title="Drag a freehand loop around the sound">Freehand</button>
-              </div>
-              <span id="editor-spectral-selection" class="editor-spectral-selection">No box selected</span>
-              <label>
-                <span>Reduce by</span>
-                <input id="editor-spectral-reduction" type="range" min="6" max="80" step="1" value="40" disabled />
-                <span id="editor-spectral-reduction-value" class="editor-filter-value">40 dB</span>
-              </label>
-            </div>
-            <p class="editor-eq-hint">Removes a short sound hiding inside another one: a cough in the rain, a bird over the wind, a phone buzz. Find it as a bright spot on the spectrogram (time across, pitch up), drag a box around it, and just that box gets turned down. Everything outside the box stays as it was. You hear it live while previewing, and Save bakes the same result.</p>
-          </div>
+          <div id="rx-spectrum-host" style="display: contents"></div>
           <div class="editor-presets">
             <span class="editor-presets-label">Presets</span>
             <button class="btn btn-small" type="button" data-preset="muffled">Muffled</button>
@@ -839,6 +815,7 @@ export default class EditorPlugin {
     `
     mountPlaybackPanel(container.querySelector('#rx-playback-host'))
     mountSpeedPitchPanel(container.querySelector('#rx-speed-host'))
+    mountSpectrumView(container.querySelector('#rx-spectrum-host'))
     mountDrift({
       sound: container.querySelector('#rx-drift-host-sound'),
       group: container.querySelector('#rx-drift-host-group'),

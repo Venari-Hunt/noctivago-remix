@@ -516,26 +516,8 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const eqSide = el(doc, 'div', 'rx-srow1 rx-eq-side')
   eqSide.append(eqTools.compare, openEq, eqTools.reset)
 
-  // Spectrum view: the spectrogram, then Reduce by, Delete box and Clear all boxes.
+  // Spectrum view: SpectrumView.jsx rendered the spectrogram and its controls.
   const spectral = $('#editor-spectral-section')
-  const spectralControls = spectral.querySelector('.editor-spectral-controls')
-  spectralControls.classList.add('rx-under')
-  const reduction = $('#editor-spectral-reduction')
-  const reductionLabel = reduction.closest('label')
-  reduction.type = 'number' // the mock's small number field; the tab clamps it
-  reduction.classList.add('rx-field', 'rx-numf')
-  reductionLabel.className = 'rx-lrow2'
-  $('#editor-spectral-reduction-value').classList.add('rx-visually-hidden')
-  reductionLabel.appendChild(el(doc, 'span', 'rx-unit', 'dB'))
-  const spectralDelete = $('#editor-spectral-delete')
-  spectralDelete.className = 'rx-b rx-ghost'
-  spectralDelete.innerHTML = `${icon('trash-2')}<span>Delete box</span>`
-  const spectralClear = $('#editor-spectral-clear')
-  spectralClear.className = 'rx-b rx-ghost'
-  spectralClear.innerHTML = '<span>Clear all boxes</span>'
-  spectralControls.append(spectralDelete, spectralClear)
-  spectral.querySelector('.editor-eq-header').remove()
-  spectral.querySelector('.editor-eq-hint').classList.add('rx-hint')
   viewSpec.appendChild(spectral)
 
   const saveStatus = $('#editor-save-status')
