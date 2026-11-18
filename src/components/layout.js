@@ -11,6 +11,7 @@ import { attachKnob } from './Knob.js'
 import { filterSummaries } from './filterSummary.js'
 import { renderDetail } from './libraryDetail.js'
 import { mountAccordions } from './Accordion.jsx'
+import { DRIFT_KEYS, DRIFT_AXES, SCOPE_DRIFT } from './DriftPanel.jsx'
 
 const el = (doc, tag, className, html) => {
   const node = doc.createElement(tag)
@@ -74,59 +75,6 @@ function toSwitchRow(doc, label, title, sub) {
   if (!input.getAttribute('aria-label')) input.setAttribute('aria-label', title)
   label.replaceChildren(text, input)
   return label
-}
-
-// Drift: each axis is a switch row that opens its range bar, timing and
-// toggles (folded in CSS while the switch is off).
-const DRIFT_AXES = [
-  ['editor-fluc-vol', 'Volume drift', "Rides below the sound's set volume"],
-  ['editor-fluc-pitch', 'Pitch drift', 'Small shifts read as a gentle wobble'],
-  ['editor-fluc-pan', 'Pan drift', 'Wanders left and right from the Pan setting']
-]
-const SOUND_DRIFT_NOTE = 'Slow, random drift while the sound loops: wind gusting, rain swelling. Plays in Live edit here and always in the Mixer. Saves on its own.'
-// Group and Preset drift (mock screens remix-group and remix-preset). The
-// fourth item is the "Each sound on its own" line, group axes only.
-const SCOPE_DRIFT = {
-  group: {
-    note: "Slow, random drift on this group's sounds. Applies live in the Mixer and is baked into exports.",
-    axes: [
-      ['editor-mix-group-fluc', 'Volume drift', 'Only ever dips below the current level', "Every sound drifts separately, so they don't move together"],
-      ['editor-mix-group-flucpitch', 'Pitch drift', 'Small shifts read as a gentle wobble', 'Always on for pitch'],
-      ['editor-mix-group-flucpan', 'Pan drift', 'The whole group wanders together', 'Every sound wanders separately']
-    ]
-  },
-  preset: {
-    note: 'Slow, random drift on the whole mix: weather rolling through. Applies live in the Mixer and is baked into exports.',
-    axes: [['editor-mix-preset-fluc', 'Volume drift', 'Only ever dips below the current level']]
-  }
-}
-function arrangeDrift(doc, section, axes = DRIFT_AXES, noteText = SOUND_DRIFT_NOTE) {
-  const head = section.querySelector('.editor-fluctuation-head')
-  const note = el(doc, 'p', 'rx-hint rx-hint-l', noteText)
-  note.title = head.querySelector('.editor-fluctuation-hint').textContent.trim()
-  head.replaceWith(note)
-  for (const n of section.querySelectorAll(':scope > .editor-fluctuation-hint')) {
-    n.classList.remove('editor-fluctuation-hint')
-    n.classList.add('rx-hint', 'rx-hint-l')
-  }
-  for (const [idp, title, sub, perSoundSub] of axes) {
-    const $ = (id) => section.querySelector(`#${idp}-${id}`)
-    const axis = $('enabled').closest('.editor-fluctuation-axis')
-    axis.className = 'rx-axis rx-drift-axis'
-    const row = toSwitchRow(doc, $('enabled').closest('label'), title, sub)
-    const body = el(doc, 'div', 'rx-axb')
-    // Change every [6] to [14] s, Transition [8] s
-    const changeRow = el(doc, 'div', 'rx-trow', '<span>Change every</span>')
-    changeRow.append($('changemin'), el(doc, 'span', '', 'to'), $('changemax'), el(doc, 'span', '', 's'))
-    const transitionRow = el(doc, 'div', 'rx-trow', '<span>Transition</span>')
-    transitionRow.append($('transition'), el(doc, 'span', '', 's'))
-    const fullRandom = toSwitchRow(doc, $('fullrandom').closest('label'), 'Fully random', 'Ignore the circles and roam the whole range')
-    const bias = toSwitchRow(doc, $('bias').closest('label'), 'Bias', 'The middle circle wins most of the time')
-    body.append($('bar'))
-    if (perSoundSub && $('persound')) body.append(toSwitchRow(doc, $('persound').closest('label'), 'Each sound on its own', perSoundSub))
-    body.append(changeRow, transitionRow, fullRandom, bias)
-    axis.replaceChildren(row, body)
-  }
 }
 
 // EQ tools under the graph, as in the mock: Add band, Delete band, Invert,
@@ -267,10 +215,9 @@ const SCOPE_ACCORDIONS = {
 }
 
 // Drift is one dropdown per type (owner, 2026-11-13: "all together is
-// confusing"; approved mock-noctivago-remix-drift). arrangeDrift leaves the
+// confusing"; approved mock-noctivago-remix-drift). DriftPanel.jsx renders the
 // note and each axis as children of the section; this turns them into the
 // accordion bodies, the note on top of the first.
-const DRIFT_KEYS = { 'Volume drift': 'drift-vol', 'Pitch drift': 'drift-pitch', 'Pan drift': 'drift-pan' }
 function driftBodies(section, axes) {
   const axisEls = axes.map(([idp]) => section.querySelector(`#${idp}-enabled`).closest('.rx-axis'))
   const lead = [...section.children].filter((n) => !axisEls.includes(n))
@@ -370,8 +317,6 @@ function arrangeScope(root, kind, getBands) {
   eqSide.append(eqTools.compare, openEq, eqTools.reset)
 
   const drift = host.querySelector('.editor-fluctuation')
-  arrangeDrift(doc, drift, SCOPE_DRIFT[kind].axes, SCOPE_DRIFT[kind].note)
-
   const looks = host.querySelector(`.editor-presets:has([data-mix-${kind}-effect])`)
   looks.className = 'rx-looks'
   looks.querySelector('.editor-presets-label')?.remove()
@@ -652,7 +597,6 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   for (const btn of looks.querySelectorAll('[data-preset]')) btn.className = 'rx-chip'
 
   const driftSection = $('#editor-fluctuation-section')
-  arrangeDrift(doc, driftSection)
 
   const BODIES = {
     playback: [tiles, hintRandom, hintScheduled, loopBody, scatter, schedule, fade],

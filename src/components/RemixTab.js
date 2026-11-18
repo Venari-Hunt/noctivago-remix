@@ -13,6 +13,7 @@ import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
 import { mountSpeedPitchPanel } from './SpeedPitchPanel.jsx'
+import { mountDrift } from './DriftPanel.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
@@ -21,7 +22,6 @@ import { mountMarkerUi, flashMarkerButton, renderMarkerChips, renderProgressTick
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
 import { arrangeLayout, arrangeBar, driftSummary } from './layout.js'
 import { wireNameMarquee } from './nameMarquee.js'
-import { fluctuationTimingMarkup, driftAxisTogglesMarkup, mixFluctuationMarkup } from './markup.js'
 import { requestAnalyser, requestMixerStatus } from './mixerBridge.js'
 import { pushLevel, peakFromTimeDomain } from '../domain/levels.js'
 import { drawLevelHistory } from './levelHistory.js'
@@ -485,7 +485,7 @@ export default class EditorPlugin {
                 Reset filters
               </button>
             </div>
-${mixFluctuationMarkup('preset')}
+            <div id="rx-drift-host-preset" style="display: contents"></div>
             <p id="editor-mix-preset-hint" class="editor-mix-status">Pick a preset in the list. These settings are saved on it and heard live on the whole mix whenever it's loaded in the Mixer.</p>
           </div>
         </div>
@@ -619,7 +619,7 @@ ${mixFluctuationMarkup('preset')}
                 Reset filters
               </button>
             </div>
-${mixFluctuationMarkup('group')}
+            <div id="rx-drift-host-group" style="display: contents"></div>
           </div>
           <p id="editor-mix-group-empty" class="editor-mix-status">Pick a preset under the chips, then make or pick a group to EQ some of its sounds together (e.g. crickets + toads to sound like they're outside).</p>
         </div>
@@ -813,41 +813,7 @@ ${mixFluctuationMarkup('group')}
               Reset filters
             </button>
           </div>
-          <div id="editor-fluctuation-section" class="editor-fluctuation">
-            <div class="editor-fluctuation-head">
-              <span class="editor-fluctuation-label">Fluctuation</span>
-              <span class="editor-fluctuation-hint">Slow, random drift while the sound loops — wind gusting stronger and weaker, rain swelling and fading, something drifting closer and further. On each bar: drag the outer circles for the lowest/highest it reaches, the middle circle for where it sits most of the time. "Change every" is the seconds between new targets (a random value in that range); "Transition" is roughly how long each glide takes. "Fully random" ignores the circles and roams the whole range. Applies live in the Mixer and the preview, and is baked into exports. Saves on its own the moment you let go of a control — no need to hit Save.</span>
-            </div>
-            <p id="editor-fluc-group-note" class="editor-fluctuation-hint hidden"></p>
-            <p id="editor-fluctuation-saved-note" class="editor-fluctuation-hint hidden">Drift only plays in the <strong>Live edit</strong> preview — the <strong>Saved audio</strong> preview is the baked clip, which never contains it. Switch the preview toggle to Live edit to hear it.</p>
-            <div class="editor-fluctuation-axis">
-              <label class="editor-fluctuation-enable">
-                <input id="editor-fluc-vol-enabled" type="checkbox" />
-                Volume drift <span class="editor-fluctuation-sub">(rides below the sound's set volume)</span>
-              </label>
-              <canvas id="editor-fluc-vol-bar" class="editor-fluctuation-bar" title="Drag the circles. Double-click one to reset it."></canvas>
-              ${fluctuationTimingMarkup('editor-fluc-vol')}
-              ${driftAxisTogglesMarkup('editor-fluc-vol')}
-            </div>
-            <div class="editor-fluctuation-axis">
-              <label class="editor-fluctuation-enable">
-                <input id="editor-fluc-pitch-enabled" type="checkbox" />
-                Pitch drift <span class="editor-fluctuation-sub">(small shifts read as a gentle wobble)</span>
-              </label>
-              <canvas id="editor-fluc-pitch-bar" class="editor-fluctuation-bar" title="Drag the circles. Double-click one to reset it."></canvas>
-              ${fluctuationTimingMarkup('editor-fluc-pitch')}
-              ${driftAxisTogglesMarkup('editor-fluc-pitch')}
-            </div>
-            <div class="editor-fluctuation-axis">
-              <label class="editor-fluctuation-enable">
-                <input id="editor-fluc-pan-enabled" type="checkbox" />
-                Pan drift <span class="editor-fluctuation-sub">(wanders left/right, starting from the Pan slider's position)</span>
-              </label>
-              <canvas id="editor-fluc-pan-bar" class="editor-fluctuation-bar" title="Drag the circles. Double-click one to reset it."></canvas>
-              ${fluctuationTimingMarkup('editor-fluc-pan')}
-              ${driftAxisTogglesMarkup('editor-fluc-pan')}
-            </div>
-          </div>
+          <div id="rx-drift-host-sound" style="display: contents"></div>
           <p id="editor-save-status" class="editor-save-status"></p>
         </div>
         <p id="editor-empty" class="editor-empty">Select a sound above to trim and apply filters.</p>
@@ -873,6 +839,11 @@ ${mixFluctuationMarkup('group')}
     `
     mountPlaybackPanel(container.querySelector('#rx-playback-host'))
     mountSpeedPitchPanel(container.querySelector('#rx-speed-host'))
+    mountDrift({
+      sound: container.querySelector('#rx-drift-host-sound'),
+      group: container.querySelector('#rx-drift-host-group'),
+      preset: container.querySelector('#rx-drift-host-preset')
+    })
 
     // Desktop 2.0 layout: wraps and moves the nodes above (layout.js).
     this.root = container
