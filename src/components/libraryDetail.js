@@ -134,9 +134,9 @@ function emptyNote(doc, title, text) {
   return n
 }
 
-// One member per two lines (approved mock, 2026-11-14): Play, the name,
-// S (Solo, preview only) and the arrow on the first; Loop, the volume fader
-// and its value on the second. Play previews that sound with its settings
+// One member per two lines (approved mock, 2026-11-14; Loop moved 2026-11-17): Play, the name,
+// S (Solo, preview only) and the arrow on the first; the volume fader, its
+// value and Loop (under the arrow) on the second. Play previews that sound with its settings
 // (Remix's own engine); S solos it in the Mixer's live mix.
 function memberRows(doc, group, h, status = {}) {
   if (!group.members.length) return emptyNote(doc, 'No sounds in this group yet', "Add sounds to it from a card's menu in the Mixer.")
@@ -145,7 +145,7 @@ function memberRows(doc, group, h, status = {}) {
   return rows
 }
 
-// One member's two-line row: Play, name, S, arrow; Loop, fader, value.
+// One member's two-line row: Play, name, S, arrow; fader, value, Loop.
 function soundRow(doc, m, h, status) {
   {
     const soloed = status.soloedId === m.id
@@ -173,7 +173,6 @@ function soundRow(doc, m, h, status) {
       go.title = 'Edit in Sound mode'
       r.appendChild(go)
     }
-    if (!m.missing) r.appendChild(loopButton(doc, m.id, m.name, h, status))
     const mf = el(doc, 'div', 'rx-mf')
     if (m.inMix) {
       mf.appendChild(
@@ -191,6 +190,7 @@ function soundRow(doc, m, h, status) {
     } else mf.appendChild(el(doc, 'span', 'rx-fader-none'))
     mf.appendChild(val)
     r.appendChild(mf)
+    if (!m.missing) r.appendChild(loopButton(doc, m.id, m.name, h, status))
     return r
   }
 }
