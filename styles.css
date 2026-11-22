@@ -1751,34 +1751,38 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: var(--space-2); ov
   /* Nothing open: no settings column, so the preview takes the whole width. */
   .rx:has(.rx-empty:not(.hidden)) .rx-prev, .rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-prev { grid-column: 1 / -1; }
 }
-/* Below 860 the settings column would squeeze the canvas: one column, the
-   head, the canvas and the settings stack, and the tab scrolls. */
+/* Below 860 (owner, 2026-11-21): one column. The canvas fills the tab, the
+   preview module sits in its own row under it (never pinned over the canvas,
+   so the spectrum needle stays grabbable), and Settings slide in from the
+   right like the library does from the left (layout.js toggles data-rx-side).
+   Only a window too short for the canvas's minimum makes the tab scroll. */
+.rx-xs-only { display: none; }
 @media (max-width: 859px) {
   main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { overflow-y: auto; }
-  .editor-tab.rx { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto; row-gap: 0; height: auto; min-height: 100%; }
+  .editor-tab.rx { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(280px, 1fr) auto; row-gap: 0; height: 100%; min-height: 0; }
+  .rx-xs-only { display: inline-flex; }
   .rx-lib { position: fixed; inset: var(--rx-drawer-top, 0) auto var(--rx-drawer-bottom, 0) var(--rx-drawer-left, 0); }
-  /* The preview module comes last and stays pinned to the bottom edge while
-     the canvas and the settings scroll under it. */
-  .rx-prev { grid-row: 4; position: sticky; bottom: 0; z-index: 4; box-shadow: 0 -8px 0 var(--bg-studio); }
-  .rx-head, .rx-canvas, .rx-side, .rx .rx-empty:not(.hidden), .rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-head, .rx #editor-mix-group-empty:not(.hidden) { grid-column: 1; }
-  .rx-canvas { grid-row: 2; min-height: 420px; overflow: visible; }
-  .rx-side { grid-row: 3; margin-top: 8px; overflow: visible; min-height: auto; }
+  .rx-prev { grid-row: 3; margin-top: 8px; }
+  .rx-head, .rx-canvas, .rx .rx-empty:not(.hidden), .rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-head, .rx #editor-mix-group-empty:not(.hidden) { grid-column: 1; }
+  .rx-canvas { grid-row: 2; min-height: 0; }
+  .rx-side { position: fixed; inset: var(--rx-drawer-top, 0) var(--rx-drawer-right, 0) var(--rx-drawer-bottom, 0) auto; z-index: 5; width: min(336px, 92%); box-sizing: border-box; overflow: auto; box-shadow: var(--shadow-pop); }
+  .editor-tab.rx:not([data-rx-side='on']) .rx-side { display: none; }
+  .rx-side-hide { position: absolute; top: 10px; right: 8px; }
   .rx .rx-empty:not(.hidden) { grid-row: 1 / 3; min-height: 280px; padding: 24px 16px; }
   .rx:has(.rx-empty:not(.hidden)) .rx-prev, .rx[data-rx-mode='group']:has(#editor-mix-group-editor.hidden) .rx-prev { grid-column: 1; }
   .rx-head { padding: 16px 16px 0; }
+  .rx-head > #rx-side-show { margin-left: auto; }
   .rx-canvas { padding: 16px; }
 }
-/* Short and narrow: the pinned preview module drops the empty-markers hint
+/* Short and narrow: the preview module drops the empty-markers hint
    (Ctrl+M still adds one; the chips come back with the first marker). */
 @media (max-width: 859px) and (max-height: 720px) {
   .rx-prev .rx-mlist:has(> .rx-mnone) { display: none; }
 }
-/* Narrow and short (under 760 high): a pinned strip would cover the bottom of
-   the canvas (the spectrum needle could not be grabbed), so the preview module
-   scrolls in its own row between the canvas and the settings. */
-@media (max-width: 859px) and (max-height: 759px) {
-  .rx-prev { grid-row: 3; position: static; box-shadow: none; margin-top: 8px; }
-  .rx-side { grid-row: 4; }
+/* Very short (under 600 high, down to the 560 minimum): the rows no longer fit,
+   so the tab grows with its content and scrolls instead of overlapping. */
+@media (max-width: 859px) and (max-height: 599px) {
+  .editor-tab.rx { height: auto; min-height: 100%; }
 }
 
 /* The list is the only part of the library that shrinks. */

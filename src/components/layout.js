@@ -94,6 +94,8 @@ function buildAccordions(side, list, bodies) {
   const doc = side.ownerDocument
   const win = doc.defaultView
   side.appendChild(el(doc, 'h3', 'rx-side-h', 'Settings'))
+  // Below 860 the settings slide in from the right; this closes them (styles.css "Small windows").
+  side.insertAdjacentHTML('beforeend', `<button class="rx-i rx-ib rx-side-hide rx-xs-only" type="button" title="Hide settings" aria-label="Hide settings">${icon('x')}</button>`)
   const { elements, openAccordion, setSummaries } = mountAccordions(side, list, bodies, {
     iconFor: (key) => icon(ACC_ICON[key] ?? 'sliders-horizontal'),
     chevronHtml: icon('chevron-down'),
@@ -567,7 +569,8 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
     'div',
     'rx-pane rx-head',
     `<button id="rx-lib-show" class="rx-i rx-ib rx-narrow-only" type="button" title="Show the library" aria-label="Show the library">${icon('chevron-right')}</button>` +
-      '<div class="rx-ht"><div id="rx-kind" class="rx-kind">Sound</div><h2 id="rx-title" class="rx-title"></h2><div id="rx-meta" class="rx-meta"></div></div><div id="rx-acts" class="rx-acts"></div>'
+      '<div class="rx-ht"><div id="rx-kind" class="rx-kind">Sound</div><h2 id="rx-title" class="rx-title"></h2><div id="rx-meta" class="rx-meta"></div></div><div id="rx-acts" class="rx-acts"></div>' +
+      `<button id="rx-side-show" class="rx-b rx-ghost rx-xs-only" type="button" aria-expanded="false">${icon('sliders-horizontal')}Settings</button>`
   )
   // Controls the library replaces stay in the DOM (the tab still reads and
   // writes them), out of sight.
@@ -614,6 +617,42 @@ function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
   const closeAfterPick = (mode) => {
     if (isDrawer() && mode === 'sound') setLib(false)
   }
+
+  // Below 860 the canvas fills the tab, the preview module gets its own row
+  // under it, and Settings slide in from the right like the library does from
+  // the left (owner, 2026-11-21). Opening one drawer closes the other; Esc, a
+  // click outside, or growing past 860 closes it. The settings column is
+  // rebuilt per sound or group, so it is looked up on every use.
+  const xs = win.matchMedia?.('(max-width: 859px)')
+  const sideShow = head.querySelector('#rx-side-show')
+  // The sound and the group editor each have a settings column; use the one not hidden.
+  const sideOf = () => [...tab.querySelectorAll('.rx-side')].find((n) => !n.closest('.hidden')) ?? null
+  const isSideDrawer = () => Boolean(xs?.matches) && tab.dataset.rxSide === 'on'
+  const setSide = (open, focus = false) => {
+    if (open) {
+      placeDrawer()
+      const box = (tab.closest('main') ?? tab).getBoundingClientRect()
+      tab.style.setProperty('--rx-drawer-right', Math.max(0, win.innerWidth - box.right) + 8 + 'px')
+      if (isDrawer()) setLib(false)
+    }
+    tab.dataset.rxSide = open ? 'on' : 'off'
+    sideShow.setAttribute('aria-expanded', String(open))
+    if (focus) (open ? sideOf()?.querySelector('.rx-side-hide') : sideShow)?.focus()
+  }
+  setSide(false)
+  xs?.addEventListener('change', () => setSide(false))
+  sideShow.addEventListener('click', () => setSide(tab.dataset.rxSide !== 'on', true))
+  head.querySelector('#rx-lib-show').addEventListener('click', () => isSideDrawer() && setSide(false))
+  tab.addEventListener('click', (evt) => {
+    if (evt.target.closest?.('.rx-side-hide')) setSide(false, true)
+  })
+  tab.addEventListener('pointerdown', (evt) => {
+    if (isSideDrawer() && !sideOf()?.contains(evt.target) && !sideShow.contains(evt.target)) setSide(false)
+  })
+  tab.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Escape' && isSideDrawer() && sideOf()?.contains(evt.target)) setSide(false, true)
+  })
+  win.addEventListener('resize', () => isSideDrawer() && setSide(true))
 
   const search = lib.querySelector('#rx-lib-search')
   const list = lib.querySelector('#rx-lib-list')
