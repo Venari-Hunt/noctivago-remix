@@ -23,13 +23,14 @@ test('pan reads Center, then side and percent', () => {
 })
 
 test('every group reads Off at the defaults', () => {
-  assert.deepEqual(filterSummaries(OFF), { tone: 'Off', clean: 'Off', space: 'Off' })
+  assert.deepEqual(filterSummaries(OFF), { tone: 'Off', clean: 'Off', noise: 'Off', space: 'Off' })
 })
 
 test('summaries name what is on', () => {
-  const s = filterSummaries({ ...OFF, highpassHz: 200, gainDb: 3, gateThresholdDb: -40, gateRangeDb: 12, denoiseEnabled: true, reverbSizeMs: 800, reverbMix: 0.3 })
+  const s = filterSummaries({ ...OFF, highpassHz: 200, gainDb: 3, gateThresholdDb: -40, gateRangeDb: 12, denoiseEnabled: true, denoiseSampleStartSec: 0.3, denoiseSampleEndSec: 1.4, reverbSizeMs: 800, reverbMix: 0.3 })
   assert.equal(s.tone, 'High-pass · +3 dB')
-  assert.equal(s.clean, 'Gate · Noise reduction')
+  assert.equal(s.clean, 'Gate')
+  assert.equal(s.noise, 'On · 0.3–1.4 s')
   assert.equal(s.space, 'Reverb')
 })
 

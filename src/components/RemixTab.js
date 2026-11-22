@@ -4,7 +4,7 @@ import { BakedClipPreview } from '../audio/BakedClipPreview.js'
 import { createLoopEditorController } from './LoopEditor.js'
 import { createSeamViewController } from './SeamView.js'
 import { createSpectralRepairController } from './SpectralRepairView.js'
-import { formatHz, normalizeRegions } from '../domain/spectralLayout.js'
+import { formatHz, GOOD_NOISE_SEC, noiseBandFromShape, normalizeRegions } from '../domain/spectralLayout.js'
 import { loopLayout, clipToSource, sourceToClip } from '../domain/loopLayout.js'
 import { createEqEditorController, Q_MIN, Q_MAX, SLOPE_CAPABLE_EQ_TYPES } from './EqEditor.js'
 import { createWaveformScrollbar } from './WaveformScrollbar.js'
@@ -650,6 +650,9 @@ export default class EditorPlugin {
       spectralShape: container.querySelector('#editor-spectral-shape'),
       spectralDelete: container.querySelector('#editor-spectral-delete'),
       spectralClear: container.querySelector('#editor-spectral-clear'),
+      spectralUseNoise: container.querySelector('#editor-spectral-use-noise'),
+      spectralLegendNoise: container.querySelector('#editor-spectral-legend-noise'),
+      spectralLegendNoiseText: container.querySelector('#editor-spectral-legend-noise-text'),
       spectralSelection: container.querySelector('#editor-spectral-selection'),
       spectralReduction: container.querySelector('#editor-spectral-reduction'),
       spectralReductionValue: container.querySelector('#editor-spectral-reduction-value'),
@@ -934,9 +937,15 @@ export default class EditorPlugin {
     this.els.spectralShape.addEventListener('click', (evt) => {
       const btn = evt.target.closest('[data-shape]')
       if (!btn) return
-      this.spectralView.setShape(btn.dataset.shape)
-      for (const b of this.els.spectralShape.querySelectorAll('[data-shape]')) b.setAttribute('aria-pressed', String(b === btn))
+      this.setSpectralTool(btn.dataset.shape)
     })
+    // The Noise sample band: dragging it moves the From/To fields live and
+    // applies once the drag ends, the same as typing them.
+    this.spectralView.onNoiseChange(({ startSec, endSec, final }) => {
+      this.filterControls.setValues({ denoiseSampleStartSec: startSec, denoiseSampleEndSec: endSec, ...(final ? { denoiseEnabled: true } : {}) })
+      if (final) this.applyFilterControls()
+    })
+    this.els.spectralUseNoise.addEventListener('click', () => this.useShapeAsNoiseSample())
     this.els.spectralDelete.addEventListener('click', () => this.spectralView.removeSelected())
     this.els.spectralClear.addEventListener('click', () => this.spectralView.clear())
     // Needs app 0.1.237's getSpectrogram; hide the panel on an older app
@@ -1310,6 +1319,12 @@ export default class EditorPlugin {
     this.filterControls = mountFilterControls(this.els.filters, {
       targets: this.layout.filterTargets,
       onChange: () => this.applyFilterControls(),
+      // "Mark on spectrum": open the Repair view with the Noise sample tool; pressed again, back to boxes.
+      onMarkNoiseSample: () => {
+        const on = this.spectralView.getShape() !== 'noise'
+        this.setSpectralTool(on ? 'noise' : 'box')
+        if (on) this.layout.setView('spec')
+      },
       onNoiseSampleFromLoop: () => {
         const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
         const end = Math.min(loopEnd, loopStart + Math.min(1.5, (loopEnd - loopStart) / 3))
@@ -2374,6 +2389,7 @@ export default class EditorPlugin {
       this.spectralView.setRegions(filters.spectralRepairs)
       this.updateSpectralControls()
     }
+    this.syncNoiseBand()
   }
 
   currentFilters() {
@@ -2548,6 +2564,7 @@ export default class EditorPlugin {
   applyFilterControls() {
     this.previewSource?.setFilters(this.previewFilters())
     this.updateSaveButtonState()
+    this.syncNoiseBand()
   }
 
   currentCrossfadeMs() {
@@ -2634,11 +2651,47 @@ export default class EditorPlugin {
     }, 250)
   }
 
+  // Picks what a drag on the spectrogram does: 'box', 'free' or 'noise' (the
+  // Noise sample band). Keeps the tool buttons and "Mark on spectrum" in step.
+  setSpectralTool(tool) {
+    this.spectralView.setShape(tool)
+    const now = this.spectralView.getShape()
+    for (const b of this.els.spectralShape.querySelectorAll('[data-shape]')) b.setAttribute('aria-pressed', String(b.dataset.shape === now))
+    this.filterControls?.setMarkOn(now === 'noise')
+  }
+
+  // Draws the From/To fields as a band on the spectrogram and words the legend.
+  syncNoiseBand() {
+    if (!this.spectralView || !this.filterControls) return
+    const v = this.filterControls.getValues()
+    this.spectralView.setNoiseSample(v.denoiseSampleStartSec, v.denoiseSampleEndSec)
+    const band = this.spectralView.getNoiseSample()
+    this.els.spectralLegendNoise.classList.toggle('hidden', !band)
+    if (band) {
+      const length = band.endSec - band.startSec
+      const state = !v.denoiseEnabled ? 'Noise reduction is off' : length < GOOD_NOISE_SEC ? 'short: 0.5 s or more works best' : 'learned'
+      this.els.spectralLegendNoiseText.textContent = `Noise sample ${band.startSec.toFixed(1)}–${band.endSec.toFixed(1)} s (${state})`
+    }
+  }
+
+  // "Use shape N as noise sample": the shape's whole time range, every
+  // frequency in it (owner, 2026-11-21, option A).
+  useShapeAsNoiseSample() {
+    const band = noiseBandFromShape(this.spectralView.getSelected())
+    if (!band) return
+    this.filterControls.setValues({ denoiseSampleStartSec: band.startSec, denoiseSampleEndSec: band.endSec, denoiseEnabled: true })
+    this.applyFilterControls()
+  }
+
   updateSpectralControls() {
     const box = this.spectralView.getSelected()
     this.els.spectralDelete.disabled = !box
     this.els.spectralReduction.disabled = !box
     this.els.spectralClear.disabled = this.spectralView.getRegions().length === 0
+    const index = this.spectralView.getSelectedIndex()
+    const useNoise = this.els.spectralUseNoise
+    useNoise.disabled = !noiseBandFromShape(box)
+    useNoise.querySelector('span').textContent = box ? `Use shape ${index + 1} as noise sample` : 'Use shape as noise sample'
     if (!box) {
       const count = this.spectralView.getRegions().length
       this.els.spectralSelection.textContent = count ? `${count} box${count === 1 ? '' : 'es'}. Click one to change it.` : 'No box selected'
@@ -3663,7 +3716,7 @@ export default class EditorPlugin {
     const pitchText = pitch === 0 ? '0 st' : `${pitch > 0 ? '+' : ''}${pitch} st`
     const reversed = this.els.reverse.checked
     const speedOn = speed !== 100 || pitch !== 0 || reversed
-    const f = this.filterControls ? filterSummaries(this.filterControls.getValues()) : { tone: 'Off', clean: 'Off', space: 'Off' }
+    const f = this.filterControls ? filterSummaries(this.filterControls.getValues()) : { tone: 'Off', clean: 'Off', noise: 'Off', space: 'Off' }
     const driftOf = (axis) => driftSummary(this.els[`fluc${axis}Enabled`]?.checked, this.els[`fluc${axis}Bar`]?.dataset.range)
     const bands = this.eqEditorController?.getBands?.() ?? []
     const activeBands = bands.filter((b) => (b.type ?? 'peaking') !== 'off' && !b.muted).length
@@ -3672,6 +3725,7 @@ export default class EditorPlugin {
       speed: [`${speed}% · ${pitchText}${reversed ? ' · Reversed' : ''}`, speedOn],
       tone: [f.tone, f.tone !== 'Off'],
       clean: [f.clean, f.clean !== 'Off'],
+      noise: [f.noise, f.noise !== 'Off'],
       space: [f.space, f.space !== 'Off'],
       eq: [activeBands ? `${activeBands} band${activeBands === 1 ? '' : 's'}` : 'Off', activeBands > 0],
       'drift-vol': driftOf('Vol'),
@@ -4076,6 +4130,7 @@ export default class EditorPlugin {
     this.loopEditorController.setEnvelope(filters.volumeEnvelope?.enabled ?? false, filters.volumeEnvelope?.points)
     this.spectralView.setRegions(filters.spectralRepairs ?? [])
     this.updateSpectralControls()
+    this.syncNoiseBand()
     this._spectrogramKey = null
     this.syncSpectralView()
     // BUG FIX (caught live testing this feature, not by review): loadSound()

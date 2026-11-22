@@ -14,8 +14,10 @@ export function filterSummaries(v) {
     v.pan !== 0 && formatPan(v.pan)
   ].filter(Boolean)
   const gate = v.gateThresholdDb > -80 && v.gateRangeDb > 0
-  const clean = [gate && 'Gate', v.denoiseEnabled && 'Noise reduction'].filter(Boolean)
+  const clean = [gate && 'Gate'].filter(Boolean)
   const space = [v.echoDelayMs > 0 && v.echoDecay > 0 && 'Echo', v.reverbSizeMs > 0 && v.reverbMix > 0 && 'Reverb'].filter(Boolean)
   const join = (list) => (list.length ? list.join(' · ') : 'Off')
-  return { tone: join(tone), clean: join(clean), space: join(space) }
+  // Noise reduction lives in the Repair tab's own accordion, with its sample range.
+  const noise = v.denoiseEnabled ? `On · ${Number(v.denoiseSampleStartSec ?? 0).toFixed(1)}–${Number(v.denoiseSampleEndSec ?? 0).toFixed(1)} s` : 'Off'
+  return { tone: join(tone), clean: join(clean), noise, space: join(space) }
 }
