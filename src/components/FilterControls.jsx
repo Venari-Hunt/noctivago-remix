@@ -97,6 +97,38 @@ function SecondsField({ label, title, field, values, onEdit }) {
   )
 }
 
+// Past this strength, spectral subtraction starts to sound watery (Audition, Audacity say the same).
+const WATERY_DB = 24
+const PROFILE_W = 296
+const PROFILE_H = 56
+const PROFILE_RANGE_DB = 60
+
+// The learned noise profile (dB per log-spaced frequency, from noiseProfileCurve),
+// drawn as in the approved Repair mock: a 2 px line with a 12% fill. Only the
+// shape means anything, so the loudest point sits near the top.
+function NoiseProfile({ curve }) {
+  if (!curve || !curve.length) {
+    return (
+      <div id="editor-noise-profile" className="rx-nr-profile rx-nr-profile-empty" aria-label="Learned noise profile">
+        Mark a noise sample to see its profile
+      </div>
+    )
+  }
+  const top = Math.max(...curve)
+  const pts = Array.from(curve, (v, i) => {
+    const x = (i / (curve.length - 1)) * PROFILE_W
+    const y = 6 + Math.min(1, Math.max(0, (top - v) / PROFILE_RANGE_DB)) * (PROFILE_H - 12)
+    return `${x.toFixed(1)} ${y.toFixed(1)}`
+  })
+  const line = `M${pts.join(' L')}`
+  return (
+    <svg id="editor-noise-profile" className="rx-nr-profile" viewBox={`0 0 ${PROFILE_W} ${PROFILE_H}`} preserveAspectRatio="none" aria-label="Learned noise profile">
+      <path className="rx-nr-area" d={`M0 ${PROFILE_H} L${pts.join(' L')} L${PROFILE_W} ${PROFILE_H} Z`} />
+      <path d={line} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}
+
 // Three settings groups, as in the approved mock: Tone, Cleanup, Space.
 function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkNoiseSample, targets }) {
   const values = useSyncExternalStore(store.subscribe, store.get)
@@ -159,9 +191,13 @@ function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkN
           Use loop start
         </button>
       </div>
+      <NoiseProfile curve={ui.profile} />
       <div className="rx-kgrid">
         <FieldKnob {...k} label="Strength" field="denoiseStrengthDb" dim={!values.denoiseEnabled} title="How aggressively to subtract the sampled noise profile. Higher removes more but can start to sound watery." format={(v) => `${v} dB`} />
       </div>
+      {values.denoiseStrengthDb > WATERY_DB && (
+        <p id="editor-noise-warn" className="rx-hint rx-hint-l rx-nr-hint" dangerouslySetInnerHTML={{ __html: `${icon('info')}<span>Above ${WATERY_DB} dB the sound can turn watery.</span>` }} />
+      )}
       <p className="rx-hint rx-hint-l rx-nr-hint" dangerouslySetInnerHTML={{ __html: `${icon('info')}<span>0.5 s or more works best.</span>` }} />
     </>
   )
@@ -198,7 +234,7 @@ function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkN
  */
 export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop, onMarkNoiseSample, targets }) {
   const store = createStore(DEFAULTS, normalize)
-  const uiStore = createStore({ markOn: false })
+  const uiStore = createStore({ markOn: false, profile: null })
   const setValues = store.set
   const onEdit = (patch) => {
     setValues(patch)
@@ -207,5 +243,5 @@ export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop
 
   const root = createRoot(container)
   root.render(<FilterControls store={store} uiStore={uiStore} onEdit={onEdit} onNoiseSampleFromLoop={onNoiseSampleFromLoop} onMarkNoiseSample={onMarkNoiseSample} targets={targets} />)
-  return { getValues: store.get, setValues, setMarkOn: (on) => uiStore.set({ markOn: Boolean(on) }), unmount: () => root.unmount() }
+  return { getValues: store.get, setValues, setMarkOn: (on) => uiStore.set({ markOn: Boolean(on) }), setNoiseProfile: (curve) => uiStore.set({ profile: curve || null }), unmount: () => root.unmount() }
 }
