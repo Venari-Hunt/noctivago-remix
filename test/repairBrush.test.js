@@ -145,3 +145,12 @@ test('the hint line names the tool\'s keys', () => {
   assert.match(toolHint('brush', 24), /Alt.*size <b>24 px/)
   assert.match(toolHint('select'), /Delete/)
 })
+
+test('a lasso loop thinner than the rounding still makes a shape', () => {
+  const thin = { view: { start: 0, end: 20 }, W: 880, H: 200 }
+  const v = (hz) => 1 - Math.log(hz / 30) / Math.log(20000 / 30)
+  const loop = [[0.01, v(1900)], [0.99, v(1900)], [0.99, v(1200)], [0.01, v(1200)]]
+  const r = commitMask([], -1, raster(loop), 'new', thin, 40)
+  assert.equal(r.regions.length, 1)
+  assert.ok(r.regions[0].handles.length >= MIN_HANDLES)
+})

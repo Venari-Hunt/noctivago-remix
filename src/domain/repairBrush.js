@@ -260,7 +260,11 @@ export function regionFromHandles(handles, reductionDb) {
 
 // Every blob in the mask becomes a shape (the biggest first).
 export function shapesFrom(g, reductionDb, frame) {
-  return outlines(soften(g, frame), frame)
+  // A shape thinner than the rounding (a thin lasso loop, the smallest brush)
+  // would vanish in it: then it is used as drawn.
+  let blobs = outlines(soften(g, frame), frame)
+  if (!blobs.length) blobs = outlines(g, frame)
+  return blobs
     .map((px) => regionFromHandles(resampleClosed(smoothRing(px)).map(([x, y]) => handleAt(x, y, frame)), reductionDb))
     .filter((r) => r.handles.length >= 3 && isUsableRegion(r))
 }
