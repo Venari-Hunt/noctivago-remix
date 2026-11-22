@@ -1574,7 +1574,8 @@ select.rx-field { padding-right: 8px; appearance: auto; color-scheme: dark; }
 .rx-nr-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 16px; color: var(--text-dim); }
 .rx-nr-field input { box-sizing: border-box; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: var(--surface-alt); color: var(--text); font: inherit; font-size: 13px; }
 .rx .rx-b.rx-on:not(.rx-ghost):not(.rx-pri):not(:disabled), .rx .rx-b.rx-on:not(.rx-ghost):not(.rx-pri):not(:disabled):hover { background: var(--tint); color: var(--tint-ink); }
-.rx-nr-actions { justify-content: flex-start; }
+.rx-nr-actions { justify-content: flex-start; flex-wrap: nowrap; gap: 4px; }
+.rx-nr-actions .rx-b { padding-inline: 8px; min-width: 0; }
 .rx-nr-hint { display: flex; align-items: flex-start; gap: 8px; }
 .rx-nr-hint .rx-icon { flex: none; margin-top: 0; }
 
