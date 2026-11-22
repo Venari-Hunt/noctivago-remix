@@ -43,6 +43,9 @@ function TrimView() {
       <p id="editor-waveform-status" className="editor-waveform-status" />
       <div className="editor-times rx-under">
         <label>
+          Needle <input id="editor-needle-input" type="text" inputMode="numeric" placeholder="0:00" title="Where the needle is now. Type a time to move it." />
+        </label>
+        <label>
           Start <input id="editor-start-input" type="text" inputMode="numeric" placeholder="0:00" />
         </label>
         <label>

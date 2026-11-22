@@ -623,6 +623,7 @@ export default class EditorPlugin {
       scrollbarTrack: container.querySelector('#editor-scrollbar'),
       scrollbarThumb: container.querySelector('#editor-scrollbar-thumb'),
       waveformStatus: container.querySelector('#editor-waveform-status'),
+      needleInput: container.querySelector('#editor-needle-input'),
       startInput: container.querySelector('#editor-start-input'),
       endInput: container.querySelector('#editor-end-input'),
       lengthInput: container.querySelector('#editor-length-input'),
@@ -1239,6 +1240,8 @@ export default class EditorPlugin {
     this.els.startInput.addEventListener('change', () => this.applyManualLoopPoints())
     this.els.endInput.addEventListener('change', () => this.applyManualLoopPoints())
     this.els.lengthInput.addEventListener('change', () => this.applyManualLength())
+    this.els.needleInput.addEventListener('change', () => this.applyManualNeedle())
+    this.els.needleInput.addEventListener('input', () => this.els.needleInput.removeAttribute('aria-invalid'))
     this.els.suggestLoopBtn.addEventListener('click', () => this.suggestLoopPoint())
 
     this.els.playModeLoop.addEventListener('change', () => this.applyPlayModeControl())
@@ -2251,6 +2254,35 @@ export default class EditorPlugin {
     const end = parseDuration(this.els.endInput.value)
     if (start == null || end == null) return
     this.loopEditorController.setLoopPoints(start, end) // triggers commitLoopPoints via onLoopChange
+  }
+
+  // Needle field: typing a time (original-file seconds, like Start/End) moves
+  // the needle, clamped to the trimmed region. Bad text stays and the field
+  // shows aria-invalid; it clears on the next keystroke.
+  applyManualNeedle() {
+    const input = this.els.needleInput
+    const active = this.activePreview()
+    const points = this.loopEditorController?.getLoopPoints()
+    const t = parseDuration(input.value)
+    if (t == null) {
+      input.setAttribute('aria-invalid', 'true')
+      return
+    }
+    input.removeAttribute('aria-invalid')
+    if (!active || !points) return
+    const source = Math.min(Math.max(t, points.loopStart), points.loopEnd)
+    if (this.previewMode === 'saved') {
+      const clip = this.sourceTimeToClip(source)
+      active.scrubTo(clip)
+      this.updateStickyProgress(clip)
+    } else {
+      active.scrubTo(source)
+      this.updateStickyProgress(source)
+    }
+    this.loopEditorController.setPlayhead(source)
+    this.spectralView?.setPlayhead(source)
+    this.updateSeamPlayhead(source)
+    input.value = formatDuration(source)
   }
 
   // Resizes the region from its current Start (a fixed anchor), rather than
@@ -3829,6 +3861,16 @@ export default class EditorPlugin {
     this.els.stickyProgressFill.style.width = `${pct}%`
     this.els.stickyProgressThumb.style.left = `${pct}%`
     this.els.stickyTime.textContent = `${formatDuration(elapsed)} / ${formatDuration(span)}`
+    this.updateNeedleField(this.previewMode === 'saved' && this.bakedPreview ? this.clipTimeToSource(currentTime) : currentTime)
+  }
+
+  // Needle field follows the needle (original-file seconds) on every tick. It
+  // only writes when the text changes (whole seconds) and never while typed in.
+  updateNeedleField(sourceTime) {
+    const input = this.els.needleInput
+    if (!input || input === input.ownerDocument.activeElement) return
+    const text = formatDuration(sourceTime)
+    if (input.value !== text) input.value = text
   }
 
   disposePreview() {
@@ -3853,6 +3895,7 @@ export default class EditorPlugin {
       this.els.stickyProgressThumb.style.left = '0%'
       this.els.stickyTime.textContent = '0:00 / 0:00'
     }
+    if (this.els.needleInput) this.els.needleInput.value = '0:00'
     this.setPlayPauseIcon(false)
   }
 

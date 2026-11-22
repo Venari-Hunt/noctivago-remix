@@ -1401,8 +1401,11 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: 0 24px 16px; }
 
 /* Start, End, Length */
 .rx-under.editor-times { font-size: 12px; line-height: 16px; color: var(--text-dim); }
-.rx-under.editor-times label { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 96px; }
+.rx-under.editor-times label { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 96px; flex: 0 0 96px; padding: 0; line-height: 16px; white-space: nowrap; }
+.rx-under.editor-times label > input { box-sizing: border-box; margin: 0; }
 .rx-under.editor-times input[type='text'] { width: 100%; height: 32px; padding: 0 12px; border: 0; border-radius: 12px; background: var(--surface-alt); color: var(--text); font: inherit; font-size: 14px; }
+
+.rx-under.editor-times input[type='text'][aria-invalid='true'] { box-shadow: inset 0 0 0 1px var(--danger, #f87171); color: var(--danger, #f87171); }
 
 /* Doppler and volume envelope */
 .rx-wrap2 { align-items: flex-start; gap: 24px; }
