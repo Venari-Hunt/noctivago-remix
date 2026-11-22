@@ -4097,7 +4097,8 @@ export default class EditorPlugin {
       looping: this.looping,
       crossfadeSeconds: crossfadeMs / 1000,
       speedPitch,
-      fluctuation
+      fluctuation,
+      onNoiseProfile: (curve) => this.filterControls?.setNoiseProfile(curve)
     })
     this.previewMode = 'live'
     // Constructed unconditionally (cheap - a plain <audio> pointed at the

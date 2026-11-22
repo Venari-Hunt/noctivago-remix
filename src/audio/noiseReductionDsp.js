@@ -73,6 +73,28 @@ export function computeNoiseProfile(channels, sampleRate, fromSec, toSec) {
   return out
 }
 
+// The learned profile as a small curve for the Repair tab: `points` levels in dB
+// (relative, only the shape means anything) at log-spaced frequencies from
+// minHz up to the top of the profile (capped at maxHz). Each point is the average
+// power of the bins in its slice. Read only: the reduction never uses this.
+export function noiseProfileCurve(profile, sampleRate, points = 64, minHz = 50, maxHz = 20000) {
+  const bins = profile.length
+  const binHz = sampleRate / 2 / (bins - 1)
+  const top = Math.min(maxHz, sampleRate / 2)
+  const ratio = Math.pow(top / minHz, 1 / points)
+  const out = new Float32Array(points)
+  for (let i = 0; i < points; i++) {
+    const lo = minHz * Math.pow(ratio, i)
+    const hi = lo * ratio
+    const k0 = Math.min(bins - 1, Math.floor(lo / binHz))
+    const k1 = Math.min(bins - 1, Math.max(k0, Math.ceil(hi / binHz) - 1))
+    let sum = 0
+    for (let k = k0; k <= k1; k++) sum += profile[k]
+    out[i] = 10 * Math.log10(sum / (k1 - k0 + 1) + 1e-12)
+  }
+  return out
+}
+
 export class NoiseReductionChannel extends StftChannel {
   constructor() {
     super(NOISE_FRAME)

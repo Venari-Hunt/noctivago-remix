@@ -5,7 +5,7 @@ import { NoiseGate } from './NoiseGate.js'
 import { PitchStage } from './PitchStage.js'
 import { SpectralStage } from './SpectralStage.js'
 import { NoiseStage } from './NoiseStage.js'
-import { computeNoiseProfile, resolveNoiseWindow } from './noiseReductionDsp.js'
+import { computeNoiseProfile, noiseProfileCurve, resolveNoiseWindow } from './noiseReductionDsp.js'
 import { dopplerSemitones } from '../domain/doppler.js'
 import { rampEqualPower } from './equalPowerRamp.js'
 import { biquadQ } from '../domain/eqQ.js'
@@ -309,8 +309,9 @@ function disposeVoice(voice) {
 // playback has everywhere else in this app) - good enough to judge "does
 // this duration sound right," not a substitute for the real bake.
 export class PreviewSource {
-  constructor(engine, { soundId, loopStart, loopEnd, volume, looping = true, crossfadeSeconds = 0, speedPitch = null, fluctuation = null }) {
+  constructor(engine, { soundId, loopStart, loopEnd, volume, looping = true, crossfadeSeconds = 0, speedPitch = null, fluctuation = null, onNoiseProfile = null }) {
     this.engine = engine
+    this.onNoiseProfile = onNoiseProfile
     this.loopStart = loopStart ?? 0
     this.loopEnd = loopEnd ?? null
     this.volume = volume
@@ -525,6 +526,7 @@ export class PreviewSource {
     const token = ++this._noiseToken
     const off = () => {
       for (const voice of this.voices) voice.noiseStage.set(null, 12)
+      this.onNoiseProfile?.(null)
     }
     if (!filters?.denoiseEnabled) return off()
     const fileDuration = await this.waitForMetadata()
@@ -545,6 +547,8 @@ export class PreviewSource {
       const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c))
       const profile = computeNoiseProfile(channels, buffer.sampleRate, window.start, window.end)
       for (const voice of this.voices) voice.noiseStage.set(profile, filters.denoiseStrengthDb ?? 12)
+      // The learned profile as a small curve for the Repair tab (read only).
+      this.onNoiseProfile?.(profile ? noiseProfileCurve(profile, buffer.sampleRate) : null)
     } catch (err) {
       console.error('Live noise reduction preview failed', err)
       this._decoded = null

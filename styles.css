@@ -1582,6 +1582,10 @@ select.rx-field { padding-right: 8px; appearance: auto; color-scheme: dark; }
 .rx-nr-actions .rx-b { padding-inline: 8px; min-width: 0; }
 .rx-nr-hint { display: flex; align-items: flex-start; gap: 8px; }
 .rx-nr-hint .rx-icon { flex: none; margin-top: 0; }
+.rx-nr-profile { display: block; box-sizing: border-box; width: 100%; height: 56px; border-radius: 8px; background: var(--surface-alt); color: var(--text-dim); }
+.rx-nr-profile path { stroke: currentColor; }
+.rx-nr-profile .rx-nr-area { fill: currentColor; fill-opacity: 0.12; stroke: none; }
+.rx-nr-profile-empty { display: flex; align-items: center; justify-content: center; padding: 0 8px; text-align: center; font-size: 12px; line-height: 16px; }
 
 /* Scopes: the same grid as Sound, the EQ graph drawn like the Sound one. */
 .rx #editor-mode-panel-preset:not(.hidden), .rx #editor-mode-panel-group:not(.hidden) { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0; }
