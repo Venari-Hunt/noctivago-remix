@@ -20,7 +20,18 @@ export async function loadCore(relPath, ref = 'master') {
   } catch {
     return null
   }
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'noctivago-core-')), path.basename(relPath))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'noctivago-core-'))
+  const file = path.join(dir, path.basename(relPath))
   fs.writeFileSync(file, text)
+  // A file that imports a sibling (noiseReductionDsp.js -> spectralRepairDsp.js) needs it next to it.
+  for (const [, sibling] of text.matchAll(/from '\.\/([\w.-]+\.js)'/g)) {
+    try {
+      const res = await fetch(BASE + ref + '/' + path.posix.join(path.posix.dirname(relPath), sibling))
+      if (!res.ok) return null
+      fs.writeFileSync(path.join(dir, sibling), await res.text())
+    } catch {
+      return null
+    }
+  }
   return { text, module: await import(pathToFileURL(file).href) }
 }
