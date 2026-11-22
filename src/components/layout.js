@@ -41,6 +41,7 @@ const ACC_ICON = {
   tone: 'sliders-horizontal',
   eq: 'equalizer',
   clean: 'broom',
+  noise: 'noise',
   space: 'cube',
   'drift-vol': 'speaker-high',
   'drift-pitch': 'music-note',
@@ -57,6 +58,7 @@ const ACCORDIONS = [
   ['tone', 'Tone'],
   ['eq', 'Parametric EQ'],
   ['clean', 'Cleanup'],
+  ['noise', 'Noise reduction'],
   ['space', 'Space'],
   ['drift-vol', 'Volume drift'],
   ['drift-pitch', 'Pitch drift'],
@@ -306,7 +308,8 @@ const VIEWS = [
   ['trim', 'Trim'],
   ['seam', 'Loop seam'],
   ['eq', 'EQ'],
-  ['spec', 'Spectrum']
+  // Was "Spectrum"; Noise reduction and shape repair live here (owner, 2026-11-21).
+  ['spec', 'Repair']
 ]
 
 // Called once from mount(), right after the markup is written and before any
@@ -374,7 +377,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const eqSide = el(doc, 'div', 'rx-srow1 rx-eq-side')
   eqSide.append(eqTools.compare, openEq, eqTools.reset)
 
-  // Spectrum view: SpectrumView.jsx rendered the spectrogram and its controls.
+  // Repair view: SpectrumView.jsx rendered the spectrogram and its controls.
   const spectral = $('#editor-spectral-section')
   viewSpec.appendChild(spectral)
 
@@ -412,7 +415,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   // Tone, Cleanup and Space: FilterControls.jsx renders a group into each.
   const filters = $('#editor-filters')
   const filterTargets = {}
-  for (const key of ['tone', 'clean', 'space']) {
+  for (const key of ['tone', 'clean', 'noise', 'space']) {
     filterTargets[key] = el(doc, 'div', 'rx-filter-group')
     filterTargets[key].id = `rx-filters-${key}`
   }
@@ -437,6 +440,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
     tone: [filterTargets.tone, filters],
     eq: [eqSide],
     clean: [filterTargets.clean],
+    noise: [filterTargets.noise],
     space: [filterTargets.space],
     looks: [looks, resetFilters],
     ...driftBodies(driftSection, DRIFT_AXES)
@@ -452,6 +456,8 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
     if (panel.dataset.view === view) return
     panel.dataset.view = view
     for (const btn of tabs.querySelectorAll('[data-rx-view]')) btn.setAttribute('aria-pressed', String(btn.dataset.rxView === view))
+    // The Repair view's own settings: its Noise reduction card opens with it.
+    if (view === 'spec') openAccordion('noise')
     requestRedraw(win)
     onView?.(view)
   }

@@ -14,6 +14,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Knob } from './Knob.jsx'
 import { formatPan } from './filterSummary.js'
 import { createStore } from '../state/remixStore.js'
+import { icon } from './icons.js'
 export { filterSummaries } from './filterSummary.js'
 
 const RANGES = {
@@ -97,8 +98,9 @@ function SecondsField({ label, title, field, values, onEdit }) {
 }
 
 // Three settings groups, as in the approved mock: Tone, Cleanup, Space.
-function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
+function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkNoiseSample, targets }) {
   const values = useSyncExternalStore(store.subscribe, store.get)
+  const ui = useSyncExternalStore(uiStore.subscribe, uiStore.get)
   const gateOn = values.gateThresholdDb > -80 && values.gateRangeDb > 0
   const k = { values, onEdit }
   const tone = (
@@ -117,31 +119,50 @@ function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
         <FieldKnob {...k} label="Attack" field="gateAttackMs" dim={!gateOn} title="How quickly the gate opens once the sound rises above the threshold." format={(v) => `${v} ms`} />
         <FieldKnob {...k} label="Release" field="gateReleaseMs" dim={!gateOn} title="How quickly the gate closes again once the sound falls back below the threshold. A longer release keeps a fading tail from chattering." format={(v) => `${v} ms`} />
       </div>
+    </>
+  )
+  // Noise reduction (Repair tab, owner 2026-11-21): the sample is marked on the
+  // spectrogram or typed here; "Use loop start" stays as the quick default.
+  const noise = (
+    <>
       <label
         className="rx-srow rx-nr-row"
-        title="Reduce steady background noise (hiss, hum, an air conditioner). Mark a stretch of the trimmed region that is noise only in the fields below, then Save. You hear it live while previewing, and Save bakes the same result."
+        title="Reduce steady background noise (hiss, hum, an air conditioner). Mark a stretch of the trimmed region that is noise only, then Save. You hear it live while previewing, and Save bakes the same result."
       >
         <span className="rx-sl">
-          <span>Noise reduction</span>
-          <small>Plays live; saved the same way</small>
+          <span>Reduce steady noise</span>
+          <small>Learns the hiss from the noise sample</small>
         </span>
         <input type="checkbox" checked={values.denoiseEnabled} onChange={(e) => onEdit({ denoiseEnabled: e.target.checked })} />
       </label>
+      <div className="rx-nr-fields">
+        <label className="rx-nr-field">
+          <span>Sample from (s)</span>
+          <SecondsField {...k} label="Sample from" field="denoiseSampleStartSec" title="Start of the noise-only sample, in seconds into the file." />
+        </label>
+        <label className="rx-nr-field">
+          <span>to (s)</span>
+          <SecondsField {...k} label="Sample to" field="denoiseSampleEndSec" title="End of the noise-only sample, in seconds into the file." />
+        </label>
+      </div>
+      <div className="rx-srow1 rx-nr-actions">
+        <button
+          id="editor-noise-mark"
+          className={`rx-b${ui.markOn ? ' rx-on' : ''}`}
+          type="button"
+          aria-pressed={ui.markOn}
+          title="Drag across the spectrogram to mark a stretch that is noise only (N)"
+          onClick={onMarkNoiseSample}
+          dangerouslySetInnerHTML={{ __html: `${icon('noise')}<span>Mark on spectrum</span>` }}
+        />
+        <button id="editor-noise-loop" className="rx-b rx-ghost" type="button" title="Set the noise sample to the first ~1.5 seconds of the trimmed loop region" onClick={onNoiseSampleFromLoop}>
+          Use loop start
+        </button>
+      </div>
       <div className="rx-kgrid">
         <FieldKnob {...k} label="Strength" field="denoiseStrengthDb" dim={!values.denoiseEnabled} title="How aggressively to subtract the sampled noise profile. Higher removes more but can start to sound watery." format={(v) => `${v} dB`} />
       </div>
-      <div className="rx-trow rx-noise-row">
-        <span>Noise from</span>
-        <SecondsField {...k} label="Noise from" field="denoiseSampleStartSec" title="Start of the noise-only sample, in seconds into the file. Pick a stretch of the trimmed loop region with only background noise and no events, ideally near its start." />
-        <span>s to</span>
-        <SecondsField {...k} label="Noise to" field="denoiseSampleEndSec" title="End of the noise-only sample, in seconds into the file." />
-        <span>s</span>
-      </div>
-      <div className="rx-srow1">
-        <button className="rx-b" type="button" title="Set the noise sample to the first ~1.5 seconds of the trimmed loop region" onClick={onNoiseSampleFromLoop}>
-          Sample from loop start
-        </button>
-      </div>
+      <p className="rx-hint rx-hint-l rx-nr-hint" dangerouslySetInnerHTML={{ __html: `${icon('info')}<span>0.5 s or more works best.</span>` }} />
     </>
   )
   const space = (
@@ -152,11 +173,12 @@ function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
       <FieldKnob {...k} label="Reverb mix" field="reverbMix" format={(v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off')} />
     </div>
   )
-  if (!targets) return <>{tone}{clean}{space}</>
+  if (!targets) return <>{tone}{clean}{noise}{space}</>
   return (
     <>
       {createPortal(tone, targets.tone)}
       {createPortal(clean, targets.clean)}
+      {createPortal(noise, targets.noise)}
       {createPortal(space, targets.space)}
     </>
   )
@@ -166,15 +188,17 @@ function FilterControls({ store, onEdit, onNoiseSampleFromLoop, targets }) {
  * Renders the filter knobs.
  *
  * @param {HTMLElement} container
- * @param {{ onChange: () => void, onNoiseSampleFromLoop: () => void, targets?: { tone: HTMLElement, clean: HTMLElement, space: HTMLElement } }} callbacks
+ * @param {{ onChange: () => void, onNoiseSampleFromLoop: () => void, onMarkNoiseSample: () => void, targets?: { tone: HTMLElement, clean: HTMLElement, noise: HTMLElement, space: HTMLElement } }} callbacks
  *   onChange fires after every user edit, once the new values are readable
  *   through getValues(). targets: where each settings group renders
- *   (portals); without it all three render into `container`.
- * @returns {{ getValues: () => object, setValues: (patch: object) => void, unmount: () => void }}
+ *   (portals); without it all four render into `container`.
+ * @returns {{ getValues: () => object, setValues: (patch: object) => void, setMarkOn: (on: boolean) => void, unmount: () => void }}
  *   setValues never calls onChange - same as setting a DOM input's .value.
+ *   setMarkOn lights the "Mark on spectrum" button (the Noise sample tool is on).
  */
-export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop, targets }) {
+export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop, onMarkNoiseSample, targets }) {
   const store = createStore(DEFAULTS, normalize)
+  const uiStore = createStore({ markOn: false })
   const setValues = store.set
   const onEdit = (patch) => {
     setValues(patch)
@@ -182,6 +206,6 @@ export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop
   }
 
   const root = createRoot(container)
-  root.render(<FilterControls store={store} onEdit={onEdit} onNoiseSampleFromLoop={onNoiseSampleFromLoop} targets={targets} />)
-  return { getValues: store.get, setValues, unmount: () => root.unmount() }
+  root.render(<FilterControls store={store} uiStore={uiStore} onEdit={onEdit} onNoiseSampleFromLoop={onNoiseSampleFromLoop} onMarkNoiseSample={onMarkNoiseSample} targets={targets} />)
+  return { getValues: store.get, setValues, setMarkOn: (on) => uiStore.set({ markOn: Boolean(on) }), unmount: () => root.unmount() }
 }

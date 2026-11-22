@@ -76,6 +76,48 @@ export function isUsableRegion(region) {
   return region.endSec - region.startSec >= 0.02 && region.highHz / region.lowHz >= 1.06
 }
 
+// The Noise sample is a time band across all frequencies, in absolute file
+// seconds like the typed From/To fields. Under this length the band is a
+// click, not a drag.
+export const MIN_NOISE_SEC = 0.1
+// Below this the learned profile gets thin; the hint says "0.5 s or more".
+export const GOOD_NOISE_SEC = 0.5
+
+// A band from two times, ordered, clamped to the shown window, rounded to the
+// fields' 10 ms. null when it is too short to mean anything.
+export function noiseBand(aSec, bSec, view) {
+  const clampSec = (s) => Math.min(Math.max(s, view.start), view.end)
+  const start = round(clampSec(Math.min(aSec, bSec)), 2)
+  const end = round(clampSec(Math.max(aSec, bSec)), 2)
+  return end - start >= MIN_NOISE_SEC - 1e-9 ? { startSec: start, endSec: end } : null
+}
+
+// What a typed From/To pair draws: ordered, clipped to the window, or null
+// when it is empty or lies outside it.
+export function visibleNoiseBand(startSec, endSec, view) {
+  const a = Number(startSec)
+  const b = Number(endSec)
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !(b > a)) return null
+  if (b <= view.start || a >= view.end) return null
+  return { startSec: Math.max(a, view.start), endSec: Math.min(b, view.end) }
+}
+
+// A band moved by `deltaSec`, kept inside the window at the same length.
+export function moveNoiseBand(band, deltaSec, view) {
+  const length = band.endSec - band.startSec
+  const start = Math.min(Math.max(band.startSec + deltaSec, view.start), view.end - length)
+  return { startSec: round(start, 2), endSec: round(start + length, 2) }
+}
+
+// The time range of a repair shape, which "Use shape N as noise sample" takes
+// whole (every frequency in that time range). null when it is too short.
+export function noiseBandFromShape(region) {
+  if (!region) return null
+  const start = round(region.startSec, 2)
+  const end = round(region.endSec, 2)
+  return end - start >= MIN_NOISE_SEC - 1e-9 ? { startSec: start, endSec: end } : null
+}
+
 function round(n, digits) {
   const f = 10 ** digits
   return Math.round(n * f) / f

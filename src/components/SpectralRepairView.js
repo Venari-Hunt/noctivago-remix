@@ -7,12 +7,16 @@ import {
   MIN_HZ,
   hzToY,
   isUsableRegion,
+  MIN_NOISE_SEC,
+  moveNoiseBand,
+  noiseBand,
   normalizeRegions,
   pointInShape,
   regionFromCorners,
   regionFromPoints,
   secToX,
   spectrogramColor,
+  visibleNoiseBand,
   xToSec,
   yToHz
 } from '../domain/spectralLayout.js'
@@ -23,8 +27,14 @@ import {
 // resize it, right-click it (or select it and press Delete) to remove it.
 // Boxes are in absolute file seconds + Hz, the shape the app bakes
 // (spectralRepair.js). Bake-only: nothing here touches live audio.
+//
+// The Noise sample tool (Repair tab) drags a time band across every frequency:
+// the stretch that is noise only, which Noise reduction learns from. Its
+// edges have handles; the band is in absolute file seconds, like the fields.
 
 const EDGE_HIT_PX = 6
+const NOISE_EDGE_HIT_PX = 8
+const NOISE_HANDLE = { w: 8, h: 24 }
 const VERTEX_HIT_PX = 8
 const LASSO_STEP_PX = 4
 const GRID_HZ = [100, 1000, 10000]
@@ -37,7 +47,10 @@ const COLORS = {
   box: 'rgba(255, 255, 255, 0.7)',
   selected: PALETTE.accent,
   draft: 'rgba(255, 255, 255, 0.9)',
-  playhead: PALETTE.accent
+  playhead: PALETTE.accent,
+  noiseHatch: withAlpha(PALETTE.textDim, 0.28),
+  noiseEdge: PALETTE.textDim,
+  noiseHandle: PALETTE.text
 }
 
 const SELECTED_STYLE = { stroke: COLORS.selected, lineWidth: 2 }
@@ -49,9 +62,15 @@ export function createSpectralRepairController(canvas) {
   let status = ''
   let regions = []
   let selected = -1
-  let drag = null // { kind: 'create' | 'lasso' | 'move' | 'resize' | 'vertex' | 'seek', ... }
-  // What a drag on empty space draws: a 'box' or a 'free' (lasso) shape.
+  let drag = null // { kind: 'create' | 'lasso' | 'move' | 'resize' | 'vertex' | 'seek' | 'noise-create' | 'noise-edge' | 'noise-move', ... }
+  // What a drag on empty space draws: a 'box', a 'free' (lasso) shape, or the
+  // 'noise' sample band.
   let shape = 'box'
+  // The noise sample, { startSec, endSec } in absolute file seconds (null =
+  // none), and the band being dragged right now (shown instead of it).
+  let noise = null
+  let draftNoise = null
+  const noiseListeners = []
   // Playback needle in absolute file seconds (null = hidden), so the
   // spectrogram shows which part of the sound is playing.
   let playhead = null
@@ -160,6 +179,37 @@ export function createSpectralRepairController(canvas) {
     for (const cb of seekListeners) cb(sec)
   }
 
+  // --- Noise sample band ---
+  // The band as drawn: the dragged draft, else the stored sample clipped to
+  // the shown window. Edges clipped by the window have no handle.
+  function shownNoise() {
+    const band = draftNoise ?? noise
+    const vis = band && visibleNoiseBand(band.startSec, band.endSec, view)
+    if (!vis) return null
+    return { ...vis, clippedStart: band.startSec < view.start, clippedEnd: band.endSec > view.end }
+  }
+
+  // What the point grabs on the band: an edge handle, or (Noise sample tool
+  // only) an edge anywhere along its height, or the body to move it.
+  function noiseHit(p) {
+    const band = shownNoise()
+    if (!band) return null
+    const { width, height } = size()
+    const x0 = secToX(band.startSec, view, width)
+    const x1 = secToX(band.endSec, view, width)
+    const toolOn = shape === 'noise'
+    const onHandleRow = Math.abs(p.y - height / 2) <= NOISE_HANDLE.h / 2 + 4
+    const near = (x) => Math.abs(p.x - x) <= NOISE_EDGE_HIT_PX && (toolOn || onHandleRow)
+    if (!band.clippedStart && near(x0)) return { kind: 'edge', edge: 'start' }
+    if (!band.clippedEnd && near(x1)) return { kind: 'edge', edge: 'end' }
+    if (toolOn && p.x > x0 && p.x < x1) return { kind: 'body' }
+    return null
+  }
+
+  function emitNoise(band, final) {
+    for (const cb of noiseListeners) cb({ startSec: band.startSec, endSec: band.endSec, final })
+  }
+
   function onPointerDown(event) {
     if (event.button !== 0) return
     canvas.focus()
@@ -174,6 +224,20 @@ export function createSpectralRepairController(canvas) {
       canvas.setPointerCapture(event.pointerId)
       drag = { kind: 'seek' }
       seekTo(p)
+      return
+    }
+    const nh = noiseHit(p)
+    if (nh) {
+      canvas.setPointerCapture(event.pointerId)
+      drag = nh.kind === 'edge' ? { kind: 'noise-edge', edge: nh.edge, original: { ...noise } } : { kind: 'noise-move', from: p, original: { ...noise } }
+      draw()
+      return
+    }
+    if (shape === 'noise') {
+      canvas.setPointerCapture(event.pointerId)
+      select(-1)
+      drag = { kind: 'noise-create', from: snapPoint(p, event) }
+      draw()
       return
     }
     const hit = hitTest(p)
@@ -197,7 +261,8 @@ export function createSpectralRepairController(canvas) {
   function onPointerMove(event) {
     const p = pointAt(event)
     if (!drag) {
-      canvas.style.cursor = markerAt(p) ? 'grab' : nearNeedle(p) ? 'ew-resize' : cursorFor(hitTest(p))
+      const nh = noiseHit(p)
+      canvas.style.cursor = markerAt(p) ? 'grab' : nearNeedle(p) ? 'ew-resize' : nh ? (nh.kind === 'edge' ? 'ew-resize' : 'move') : shape === 'noise' ? 'col-resize' : cursorFor(hitTest(p))
       return
     }
     if (drag.kind === 'seek') {
@@ -205,6 +270,29 @@ export function createSpectralRepairController(canvas) {
       return
     }
     markerLayer.setSnapped(null)
+    if (drag.kind === 'noise-create' || drag.kind === 'noise-edge' || drag.kind === 'noise-move') {
+      let band = null
+      if (drag.kind === 'noise-create') {
+        band = noiseBand(drag.from.sec, snapPoint(p, event).sec, view)
+      } else if (drag.kind === 'noise-edge') {
+        const o = drag.original
+        const fixed = drag.edge === 'start' ? o.endSec : o.startSec
+        const sec = snapPoint(p, event).sec
+        // Never shorter than a click: the dragged edge stops short of the other.
+        const dir = sec >= fixed ? 1 : -1
+        const clamped = Math.abs(sec - fixed) < MIN_NOISE_SEC ? fixed + dir * MIN_NOISE_SEC : sec
+        band = noiseBand(fixed, clamped, view)
+      } else {
+        band = moveNoiseBand(drag.original, p.sec - drag.from.sec, view)
+      }
+      draftNoise = band
+      if (band) {
+        emitNoise(band, false)
+        drag.live = true
+      }
+      draw()
+      return
+    }
     if (drag.kind === 'lasso') {
       const last = drag.pts[drag.pts.length - 1]
       if (Math.hypot(p.x - last.x, p.y - last.y) >= LASSO_STEP_PX) drag.pts.push(p)
@@ -257,6 +345,19 @@ export function createSpectralRepairController(canvas) {
     const finished = drag
     drag = null
     if (finished.kind === 'seek') return
+    if (finished.kind === 'noise-create' || finished.kind === 'noise-edge' || finished.kind === 'noise-move') {
+      const band = draftNoise
+      draftNoise = null
+      // A click (no band) changes nothing; a drag that ended on a valid band commits it.
+      if (band) {
+        noise = band
+        emitNoise(band, true)
+      } else if (finished.live && noise) {
+        emitNoise(noise, false) // the fields followed the drag; put them back
+      }
+      draw()
+      return
+    }
     if (finished.kind === 'lasso') {
       const region = regionFromPoints(finished.pts, DEFAULT_REDUCTION_DB)
       if (region) {
@@ -371,6 +472,38 @@ export function createSpectralRepairController(canvas) {
     ctx.setLineDash([])
   }
 
+  // The noise sample: a hatched full-height band, an outline, and a handle on
+  // each edge that is really the band's edge (as in the approved mock).
+  function drawNoiseBand(width, height) {
+    const band = shownNoise()
+    if (!band) return
+    const x0 = secToX(band.startSec, view, width)
+    const x1 = secToX(band.endSec, view, width)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(x0, 0, x1 - x0, height)
+    ctx.clip()
+    ctx.strokeStyle = COLORS.noiseHatch
+    ctx.lineWidth = 3
+    for (let x = x0 - height; x < x1; x += 8) {
+      ctx.beginPath()
+      ctx.moveTo(x, height)
+      ctx.lineTo(x + height, 0)
+      ctx.stroke()
+    }
+    ctx.restore()
+    ctx.strokeStyle = COLORS.noiseEdge
+    ctx.lineWidth = 1.5
+    ctx.strokeRect(x0 + 0.75, 0.75, x1 - x0 - 1.5, height - 1.5)
+    ctx.fillStyle = COLORS.noiseHandle
+    for (const [x, clipped] of [[x0, band.clippedStart], [x1, band.clippedEnd]]) {
+      if (clipped) continue
+      ctx.beginPath()
+      ctx.roundRect(x - NOISE_HANDLE.w / 2, (height - NOISE_HANDLE.h) / 2, NOISE_HANDLE.w, NOISE_HANDLE.h, 3)
+      ctx.fill()
+    }
+  }
+
   function draw() {
     const { width, height, dpr } = resizeCanvasForDisplay(canvas)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -378,6 +511,7 @@ export function createSpectralRepairController(canvas) {
     ctx.fillRect(0, 0, width, height)
     drawImage(width, height)
     drawGrid(width, height)
+    drawNoiseBand(width, height)
     regions.forEach((region, i) => {
       if (i === selected) return
       drawBox(region, width, height, { stroke: COLORS.box, lineWidth: 1, dash: [4, 3] })
@@ -489,9 +623,24 @@ export function createSpectralRepairController(canvas) {
       if (selected >= regions.length) select(-1)
       draw()
     },
-    // 'box' (drag a rectangle) or 'free' (drag a freehand loop around the sound).
+    // 'box' (drag a rectangle), 'free' (drag a freehand loop around the sound)
+    // or 'noise' (drag a time band: the noise sample).
     setShape(mode) {
-      shape = mode === 'free' ? 'free' : 'box'
+      shape = mode === 'free' || mode === 'noise' ? mode : 'box'
+      canvas.style.cursor = shape === 'noise' ? 'col-resize' : 'crosshair'
+    },
+    getShape: () => shape,
+    // The noise sample in absolute file seconds, or null/empty for none.
+    // Never calls the listeners (the fields are the source of truth).
+    setNoiseSample(startSec, endSec) {
+      noise = Number.isFinite(startSec) && Number.isFinite(endSec) && endSec > startSec ? { startSec, endSec } : null
+      draw()
+    },
+    getNoiseSample: () => (noise ? { ...noise } : null),
+    // Fired with { startSec, endSec, final } while the band is dragged
+    // (final: false) and when the drag ends (final: true).
+    onNoiseChange(cb) {
+      noiseListeners.push(cb)
     },
     getRegions,
     getSelectedIndex: () => selected,
