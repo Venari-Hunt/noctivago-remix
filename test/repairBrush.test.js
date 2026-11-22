@@ -141,7 +141,89 @@ test('old polygon shapes and boxes still turn into masks, and handles survive a 
   assert.ok(hzToY(1000, 1) > 0)
 })
 
+// A box as a mask, the way the Box tool turns its corners into one.
+const boxMask = (x0, y0, x1, y1) => maskOf(boxAt(x0, y0, x1, y1), frame)
+
+test('Shift: a box onto the selected shape joins it into one shape that keeps its level', () => {
+  const a = boxAt(100, 100, 300, 200, 30)
+  const r = commitMask([a], 0, boxMask(250, 150, 450, 260), 'add', frame, 40)
+  assert.equal(r.changed, true)
+  assert.equal(r.regions.length, 1, 'the box joined the shape')
+  assert.equal(r.regions[0].reductionDb, 30)
+  assert.equal(r.selected, 0)
+  assert.ok(Array.isArray(r.regions[0].handles), 'a smooth shape now')
+  const m = maskOf(r.regions[0], frame)
+  const cell = (x, y) => m[Math.floor((y / frame.H) * 85) * 220 + Math.floor((x / frame.W) * 220)]
+  assert.equal(cell(150, 150), 1)
+  assert.equal(cell(400, 230), 1)
+  inView(r.regions[0])
+})
+
+test('Shift joins only the selected shape, not other shapes the box touches', () => {
+  const a = boxAt(100, 100, 300, 200, 30)
+  const b = boxAt(400, 100, 600, 200, 12)
+  const r = commitMask([a, b], 0, boxMask(250, 120, 450, 180), 'add', frame, 40)
+  assert.equal(r.regions.length, 2, 'a and the box are one; b stays its own shape')
+  assert.equal(r.regions[0].reductionDb, 30)
+  assert.equal(r.regions[1], b)
+})
+
+test('Shift with no selected shape acts as plain: the box is a new shape', () => {
+  const r = commitMask([], -1, boxMask(250, 150, 450, 260), 'add', frame, 40)
+  assert.equal(r.regions.length, 1)
+  assert.equal(r.regions[0].reductionDb, 40)
+})
+
+test('Alt: a box through the middle of the selected shape splits it into two', () => {
+  const a = boxAt(100, 100, 700, 200, 30)
+  const r = commitMask([a], 0, boxMask(380, 60, 420, 260), 'cutSelected', frame, 40)
+  assert.equal(r.changed, true)
+  assert.equal(r.regions.length, 2)
+  assert.equal(r.regions[0].reductionDb, 30)
+  for (const s of r.regions) inView(s)
+  const [left, right] = [...r.regions].sort((p, q) => p.startSec - q.startSec)
+  assert.ok(left.endSec < right.startSec)
+})
+
+test('Alt: a box that covers the whole shape removes it', () => {
+  const a = boxAt(100, 100, 300, 200)
+  const keep = boxAt(500, 100, 600, 200)
+  const r = commitMask([a, keep], 0, boxMask(60, 60, 340, 240), 'cutSelected', frame, 40)
+  assert.equal(r.changed, true)
+  assert.deepEqual(r.regions, [keep])
+  assert.equal(r.selected, -1)
+})
+
+test('Alt cuts only the selected shape, even where the box touches another', () => {
+  const a = boxAt(100, 100, 300, 200)
+  const b = boxAt(320, 100, 500, 200)
+  const r = commitMask([a, b], 0, boxMask(280, 60, 340, 240), 'cutSelected', frame, 40)
+  assert.equal(r.regions.length, 2)
+  assert.equal(r.regions[1], b, 'the other shape is untouched')
+})
+
+test('Alt with no selected shape, or one the box misses, does nothing', () => {
+  const a = boxAt(100, 100, 300, 200)
+  assert.equal(commitMask([a], -1, boxMask(150, 120, 250, 180), 'cutSelected', frame, 40).changed, false)
+  assert.equal(commitMask([a], 0, boxMask(500, 120, 600, 180), 'cutSelected', frame, 40).changed, false)
+})
+
+test('Shift and Alt work the same with a lasso loop', () => {
+  const loop = (cx, cy, rx, ry) => {
+    const pts = []
+    for (let i = 0; i < 90; i++) pts.push([cx + rx * Math.cos((i / 90) * 2 * Math.PI), cy + ry * Math.sin((i / 90) * 2 * Math.PI)])
+    return pts
+  }
+  const first = commitMask([], -1, raster(loop(0.3, 0.5, 0.12, 0.2)), 'new', frame, 40)
+  const added = commitMask(first.regions, 0, raster(loop(0.45, 0.5, 0.12, 0.2)), 'add', frame, 40)
+  assert.equal(added.regions.length, 1, 'the lasso joined the shape')
+  const cut = commitMask(added.regions, 0, raster(loop(0.37, 0.5, 0.03, 0.4)), 'cutSelected', frame, 40)
+  assert.equal(cut.regions.length, 2, 'a lasso through the middle splits it')
+})
+
 test('the hint line names the tool\'s keys', () => {
+  assert.match(toolHint('box'), /Shift.*adds to the selected shape.*Alt.*cuts from it/)
+  assert.match(toolHint('lasso'), /Shift.*adds to the selected shape.*Alt.*cuts from it/)
   assert.match(toolHint('brush', 24), /Alt.*size <b>24 px/)
   assert.match(toolHint('select'), /Delete/)
 })

@@ -23,9 +23,9 @@ function SpectrumView() {
       <div className="editor-spectral-controls rx-under">
         <div id="editor-spectral-shape" className="rx-seg" role="group" aria-label="Tool">
           <button type="button" data-shape="select" aria-pressed="false" style={{ width: 84 }} title="Select (V): drag a shape or its handles" dangerouslySetInnerHTML={{ __html: `${icon('cursor')}<span>Select</span>` }} />
-          <button type="button" data-shape="box" aria-pressed="true" style={{ width: 72 }} title="Box (R): drag a rectangle around the sound" dangerouslySetInnerHTML={{ __html: `${icon('square')}<span>Box</span>` }} />
+          <button type="button" data-shape="box" aria-pressed="false" style={{ width: 72 }} title="Box (R): drag a rectangle around the sound" dangerouslySetInnerHTML={{ __html: `${icon('square')}<span>Box</span>` }} />
           <button type="button" data-shape="lasso" aria-pressed="false" style={{ width: 80 }} title="Lasso (L): drag a loop around the sound" dangerouslySetInnerHTML={{ __html: `${icon('lasso')}<span>Lasso</span>` }} />
-          <button type="button" data-shape="brush" aria-pressed="false" style={{ width: 80 }} title="Brush (B): paint over the sound; strokes merge into the shapes they touch" dangerouslySetInnerHTML={{ __html: `${icon('brush')}<span>Brush</span>` }} />
+          <button type="button" data-shape="brush" aria-pressed="true" style={{ width: 80 }} title="Brush (B): paint over the sound; strokes merge into the shapes they touch" dangerouslySetInnerHTML={{ __html: `${icon('brush')}<span>Brush</span>` }} />
           <button type="button" data-shape="noise" aria-pressed="false" style={{ width: 132 }} title="Noise sample (N): drag a stretch across the spectrogram that is noise only, for Noise reduction to learn from" dangerouslySetInnerHTML={{ __html: `${icon('noise')}<span>Noise sample</span>` }} />
         </div>
         <span id="editor-spectral-selection" className="editor-spectral-selection">

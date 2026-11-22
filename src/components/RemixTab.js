@@ -1323,10 +1323,10 @@ export default class EditorPlugin {
     this.filterControls = mountFilterControls(this.els.filters, {
       targets: this.layout.filterTargets,
       onChange: () => this.applyFilterControls(),
-      // "Mark on spectrum": open the Repair view with the Noise sample tool; pressed again, back to boxes.
+      // "Mark on spectrum": open the Repair view with the Noise sample tool; pressed again, back to the Brush.
       onMarkNoiseSample: () => {
         const on = this.spectralView.getShape() !== 'noise'
-        this.setSpectralTool(on ? 'noise' : 'box')
+        this.setSpectralTool(on ? 'noise' : 'brush')
         if (on) this.layout.setView('spec')
       },
       onNoiseSampleFromLoop: () => {

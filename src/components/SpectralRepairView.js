@@ -2,7 +2,7 @@ import { PALETTE, withAlpha } from '../domain/palette.js'
 import { resizeCanvasForDisplay } from '../audio/waveform.js'
 import { createMarkerLayer } from './markerLayer.js'
 import { CURVE_STEPS, MAX_HANDLES, flattenHandles } from '../audio/spectralRepairDsp.js'
-import { BRUSH_R_DEFAULT, BRUSH_R_MAX, BRUSH_R_MIN, commitMask, handleAt, newMask, raster, regionFromHandles, stampLine } from '../domain/repairBrush.js'
+import { BRUSH_R_DEFAULT, BRUSH_R_MAX, BRUSH_R_MIN, commitMask, handleAt, maskOf, newMask, raster, regionFromHandles, stampLine } from '../domain/repairBrush.js'
 import {
   DEFAULT_REDUCTION_DB,
   MAX_HZ,
@@ -80,7 +80,7 @@ export function createSpectralRepairController(canvas) {
   let selectedHandle = -1 // the picked handle of the selected shape (Select tool), -1 none
   let drag = null // { kind: 'create' | 'lasso' | 'brush' | 'move' | 'resize' | 'vertex' | 'seek' | 'noise-create' | 'noise-edge' | 'noise-move', ... }
   // The tool: 'select', 'box', 'lasso', 'brush' or the 'noise' sample band.
-  let shape = 'box'
+  let shape = 'brush'
   let brushRadius = BRUSH_R_DEFAULT
   let hoverPx = null // pointer position in px, for the brush ring
   // Undo / redo of shape edits: JSON snapshots of the regions list.
@@ -342,13 +342,16 @@ export function createSpectralRepairController(canvas) {
       drag = { kind: 'brush', mask: newMask(), pts: [p], cut: event.altKey }
       stampLine(drag.mask, [p.x / size().width, p.y / size().height], [p.x / size().width, p.y / size().height], brushRadius, frame())
     } else if (shape === 'lasso') {
-      drag = { kind: 'lasso', pts: [p] }
+      drag = { kind: 'lasso', pts: [p], op: modifierOp(event) }
     } else {
       const from = snapPoint(p, event)
-      drag = { kind: 'create', from, to: from }
+      drag = { kind: 'create', from, to: from, op: modifierOp(event) }
     }
     draw()
   }
+
+  // Box and Lasso: Alt cuts from the selected shape, Shift adds to it (read at the press, as in the mock).
+  const modifierOp = (event) => (event.altKey ? 'cutSelected' : event.shiftKey ? 'add' : 'new')
 
   function onPointerMove(event) {
     const p = pointAt(event)
@@ -481,7 +484,7 @@ export function createSpectralRepairController(canvas) {
       if (finished.kind === 'lasso') {
         if (finished.pts.length < 3) return draw()
         mask = raster(finished.pts.map((q) => [q.x / width, q.y / height]))
-        op = 'new'
+        op = finished.op
       }
       const result = commitMask(regions, selected, mask, op, frame(), DEFAULT_REDUCTION_DB)
       if (result.changed) {
@@ -492,9 +495,19 @@ export function createSpectralRepairController(canvas) {
     } else if (finished.kind === 'create') {
       const region = regionFromCorners(finished.from, finished.to, view)
       if (isUsableRegion(region)) {
-        regions.push(region)
-        select(regions.length - 1)
-        record()
+        if (finished.op === 'cutSelected' || (finished.op === 'add' && regions[selected])) {
+          // Shift/Alt with a shape picked: the box joins it or is cut from it (the mask engine).
+          const result = commitMask(regions, selected, maskOf(region, frame()), finished.op, frame(), DEFAULT_REDUCTION_DB)
+          if (result.changed) {
+            regions = result.regions
+            select(result.selected)
+            record()
+          }
+        } else if (finished.op !== 'cutSelected') {
+          regions.push(region)
+          select(regions.length - 1)
+          record()
+        }
       }
     } else if (!isUsableRegion(regions[finished.index])) {
       regions[finished.index] = finished.original // resized to nothing: undo
@@ -732,7 +745,7 @@ export function createSpectralRepairController(canvas) {
     if (drag?.kind === 'lasso' && drag.pts.length > 1) {
       ctx.beginPath()
       drag.pts.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)))
-      ctx.strokeStyle = COLORS.draft
+      ctx.strokeStyle = drag.op === 'cutSelected' ? COLORS.cutStroke : COLORS.draft
       ctx.lineWidth = 1.5
       ctx.setLineDash([4, 3])
       ctx.stroke()
@@ -761,7 +774,7 @@ export function createSpectralRepairController(canvas) {
       ctx.setLineDash([])
     }
     if (drag?.kind === 'create') {
-      drawBox(regionFromCorners(drag.from, drag.to, view), width, height, { stroke: COLORS.draft, lineWidth: 1 })
+      drawBox(regionFromCorners(drag.from, drag.to, view), width, height, { stroke: drag.op === 'cutSelected' ? COLORS.cutStroke : COLORS.draft, lineWidth: 1 })
     }
     markerLayer.draw(ctx, { width, height, timeToX: (t) => secToX(t, view, width) })
     playheadX = null
