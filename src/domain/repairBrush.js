@@ -282,14 +282,20 @@ export function touches(mask, frame) {
 //            one, if it is among them, keeps its place and level);
 //   'cut'    the mask is taken out of every shape it touches (a shape cut in
 //            two becomes two shapes);
-//   'new'    the mask alone is a new shape.
+//   'new'    the mask alone is a new shape;
+//   'add'    Shift with Box or Lasso: the mask joins the selected shape only
+//            (it keeps its place and level); with none selected it is 'new';
+//   'cutSelected'  Alt with Box or Lasso: the mask is taken out of the selected
+//            shape only (a box becomes a smooth shape, a split gives several,
+//            nothing left removes it); with none selected nothing happens.
 // Returns { regions, selected, changed }: a new list (the old one is left as
 // it was), the index to select (-1 none), and whether anything happened.
 export function commitMask(regions, selected, mask, op, frame, reductionDb = 40) {
   let list = regions.slice()
   let sel = selected
-  if (op === 'cut') {
-    const targets = list.filter(touches(mask, frame))
+  if (op === 'cut' || op === 'cutSelected') {
+    const hit = touches(mask, frame)
+    const targets = op === 'cut' ? list.filter(hit) : regions[selected] && hit(regions[selected]) ? [regions[selected]] : []
     if (!targets.length) return { regions, selected, changed: false }
     const selectedRegion = regions[selected]
     let newSel = -2
@@ -304,7 +310,7 @@ export function commitMask(regions, selected, mask, op, frame, reductionDb = 40)
     sel = newSel === -2 ? (selectedRegion ? list.indexOf(selectedRegion) : -1) : newSel
     return { regions: list, selected: sel, changed: true }
   }
-  const targets = op === 'merge' ? list.filter(touches(mask, frame)) : []
+  const targets = op === 'merge' ? list.filter(touches(mask, frame)) : op === 'add' && regions[selected] ? [regions[selected]] : []
   targets.sort((a, b) => (b === regions[selected]) - (a === regions[selected])) // the selected shape's level wins
   const u = mask.slice()
   for (const t of targets) {
@@ -326,8 +332,8 @@ export function toolHint(tool, brushR = BRUSH_R_DEFAULT) {
   const hints = {
     brush: `<span>Strokes merge into any shape they touch</span> · <span>${k('Alt')} cuts</span> · <span>${k('[')} ${k(']')} size <b>${brushR} px</b></span>`,
     select: `<span>Drag a handle or the shape</span> · <span>Double-click the outline to add a handle</span> · <span>${k('Delete')} removes</span>`,
-    box: '<span>Drag a box</span>',
-    lasso: '<span>Draw round the sound</span>',
+    box: `<span>Drag a box</span> · <span>${k('Shift')} adds to the selected shape</span> · <span>${k('Alt')} cuts from it</span>`,
+    lasso: `<span>Draw round the sound</span> · <span>${k('Shift')} adds to the selected shape</span> · <span>${k('Alt')} cuts from it</span>`,
     noise: '<span>Drag across a part with only noise</span> · <span>0.5 s or more works best</span>'
   }
   return hints[tool] ?? ''
