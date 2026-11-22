@@ -33,9 +33,10 @@ test("dopplerSemitones matches the app's src/shared/doppler.js", async (t) => {
 test("the Spectral repair and noise DSP files match the app's copies", async (t) => {
   const fs = await import('node:fs')
   for (const name of ['spectralRepairDsp.js', 'noiseReductionDsp.js']) {
-    const core = await loadCore('src/shared/' + name)
-    if (!core) return t.skip('GitHub unreachable, or the app has not published ' + name + ' yet')
+    // The 2.0 redesign lands on the app's ui-redesign branch before master, so either one may match.
+    const cores = [await loadCore('src/shared/' + name, 'ui-redesign'), await loadCore('src/shared/' + name)].filter(Boolean)
+    if (!cores.length) return t.skip('GitHub unreachable, or the app has not published ' + name + ' yet')
     const mine = fs.readFileSync(new URL('../src/audio/' + name, import.meta.url), 'utf8')
-    assert.ok(mine.endsWith(core.text) || mine.includes(core.text.trim()), name + ' differs from the app copy')
+    assert.ok(cores.some((core) => mine.endsWith(core.text) || mine.includes(core.text.trim())), name + ' differs from the app copy')
   }
 })

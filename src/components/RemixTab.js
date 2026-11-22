@@ -5,6 +5,7 @@ import { createLoopEditorController } from './LoopEditor.js'
 import { createSeamViewController } from './SeamView.js'
 import { createSpectralRepairController } from './SpectralRepairView.js'
 import { formatHz, GOOD_NOISE_SEC, noiseBandFromShape, normalizeRegions } from '../domain/spectralLayout.js'
+import { toolHint } from '../domain/repairBrush.js'
 import { loopLayout, clipToSource, sourceToClip } from '../domain/loopLayout.js'
 import { createEqEditorController, Q_MIN, Q_MAX, SLOPE_CAPABLE_EQ_TYPES } from './EqEditor.js'
 import { createWaveformScrollbar } from './WaveformScrollbar.js'
@@ -651,6 +652,7 @@ export default class EditorPlugin {
       spectralDelete: container.querySelector('#editor-spectral-delete'),
       spectralClear: container.querySelector('#editor-spectral-clear'),
       spectralUseNoise: container.querySelector('#editor-spectral-use-noise'),
+      spectralHint: container.querySelector('#editor-spectral-hint'),
       spectralLegendNoise: container.querySelector('#editor-spectral-legend-noise'),
       spectralLegendNoiseText: container.querySelector('#editor-spectral-legend-noise-text'),
       spectralSelection: container.querySelector('#editor-spectral-selection'),
@@ -904,6 +906,8 @@ export default class EditorPlugin {
       this.applyFilterControls()
     })
     this.spectralView.onSelect(() => this.updateSpectralControls())
+    this.spectralView.onToolChange(() => this.syncSpectralTool())
+    this.syncSpectralTool()
     for (const view of [this.loopEditorController, this.spectralView]) {
       view.onMarkersChange((list) => this.setMarkers(list))
       view.onMarkerEdit((marker, x, y) => this.editMarker(marker, x, y))
@@ -2651,12 +2655,19 @@ export default class EditorPlugin {
     }, 250)
   }
 
-  // Picks what a drag on the spectrogram does: 'box', 'free' or 'noise' (the
-  // Noise sample band). Keeps the tool buttons and "Mark on spectrum" in step.
+  // Picks what a drag on the spectrogram does: 'select', 'box', 'lasso',
+  // 'brush' or 'noise' (the Noise sample band). The view tells back through
+  // onToolChange (also for the V R L B N keys), which syncs the buttons.
   setSpectralTool(tool) {
     this.spectralView.setShape(tool)
+    this.syncSpectralTool()
+  }
+
+  // Keeps the tool buttons, the hint line and "Mark on spectrum" in step with the tool.
+  syncSpectralTool() {
     const now = this.spectralView.getShape()
     for (const b of this.els.spectralShape.querySelectorAll('[data-shape]')) b.setAttribute('aria-pressed', String(b.dataset.shape === now))
+    this.els.spectralHint.innerHTML = toolHint(now, this.spectralView.getBrushRadius())
     this.filterControls?.setMarkOn(now === 'noise')
   }
 

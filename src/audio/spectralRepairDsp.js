@@ -178,14 +178,83 @@ export class StftChannel {
   }
 }
 
-// Freehand shapes: region.points is a closed polygon of [sec, hz] pairs (3 or
-// more). Tested in (sec, ln Hz) so the shape keeps its look on the log-pitch
-// spectrogram. The points are mapped once and cached on the region object.
+// Brush and Lasso shapes: region.handles is a few [sec, hz] pairs (3 or more,
+// about 6 to 14) joined by one closed smooth curve (centripetal Catmull-Rom,
+// as cubic Beziers, so a tight turn never kinks). The plugin draws exactly the
+// polygon this makes, and the live preview and the saved clip mask with it, so
+// what you see is what you hear. Distances for the curve are measured in a
+// fixed canvas (CURVE_SEC_PX per second, CURVE_LN_PX per ln Hz) so the curve
+// does not depend on the window size. The curve's control points are clamped
+// to the handles' own bounding box: the curve can never bulge outside it.
+export const MAX_HANDLES = 32
+export const CURVE_STEPS = 12
+const CURVE_SEC_PX = 176
+const CURVE_LN_PX = 52
+
+// One cubic Bezier per handle pair, as [p1, c1, c2, p2], in (sec, ln Hz).
+export function curveSegmentsLn(handlesLn) {
+  const n = handlesLn.length
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const [x, y] of handlesLn) {
+    minX = Math.min(minX, x)
+    maxX = Math.max(maxX, x)
+    minY = Math.min(minY, y)
+    maxY = Math.max(maxY, y)
+  }
+  const clampX = (v) => Math.min(maxX, Math.max(minX, v))
+  const clampY = (v) => Math.min(maxY, Math.max(minY, v))
+  const dist = (a, b) => Math.max(1e-3, Math.pow(Math.hypot((b[0] - a[0]) * CURVE_SEC_PX, (b[1] - a[1]) * CURVE_LN_PX), 0.5))
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const p0 = handlesLn[(i - 1 + n) % n]
+    const p1 = handlesLn[i]
+    const p2 = handlesLn[(i + 1) % n]
+    const p3 = handlesLn[(i + 2) % n]
+    const d1 = dist(p0, p1)
+    const d2 = dist(p1, p2)
+    const d3 = dist(p2, p3)
+    const c1 = [0, 1].map((k) => (d1 * d1 * p2[k] - d2 * d2 * p0[k] + (2 * d1 * d1 + 3 * d1 * d2 + d2 * d2) * p1[k]) / (3 * d1 * (d1 + d2)))
+    const c2 = [0, 1].map((k) => (d3 * d3 * p1[k] - d2 * d2 * p3[k] + (2 * d3 * d3 + 3 * d3 * d2 + d2 * d2) * p2[k]) / (3 * d3 * (d3 + d2)))
+    out.push([p1, [clampX(c1[0]), clampY(c1[1])], [clampX(c2[0]), clampY(c2[1])], p2])
+  }
+  return out
+}
+
+// The handles' curve as a closed polygon, CURVE_STEPS points per handle, in
+// (sec, ln Hz). Segment i is points i * CURVE_STEPS .. (i + 1) * CURVE_STEPS.
+export function flattenHandlesLn(handles) {
+  const ln = handles.map((p) => [p[0], Math.log(Math.max(1, p[1]))])
+  const poly = []
+  for (const [a, b, c, d] of curveSegmentsLn(ln)) {
+    for (let k = 0; k < CURVE_STEPS; k++) {
+      const t = k / CURVE_STEPS
+      const m = 1 - t
+      poly.push([0, 1].map((j) => m * m * m * a[j] + 3 * m * m * t * b[j] + 3 * m * t * t * c[j] + t * t * t * d[j]))
+    }
+  }
+  return poly
+}
+
+// The same polygon as [sec, hz] pairs.
+export function flattenHandles(handles) {
+  return flattenHandlesLn(handles).map(([sec, ln]) => [sec, Math.exp(ln)])
+}
+
+// Shapes: region.handles (above), or the older region.points, a closed polygon
+// of [sec, hz] pairs (3 or more) that is used as it is. Tested in (sec, ln Hz)
+// so the shape keeps its look on the log-pitch spectrogram. The polygon is
+// made once and cached on the region object.
+function hasHandles(r) {
+  return Array.isArray(r.handles) && r.handles.length >= 3
+}
 function isShape(r) {
-  return Array.isArray(r.points) && r.points.length >= 3
+  return hasHandles(r) || (Array.isArray(r.points) && r.points.length >= 3)
 }
 function shapePoints(r) {
-  if (!r._lp) r._lp = r.points.map((p) => [p[0], Math.log(Math.max(1, p[1]))])
+  if (!r._lp) r._lp = hasHandles(r) ? flattenHandlesLn(r.handles) : r.points.map((p) => [p[0], Math.log(Math.max(1, p[1]))])
   return r._lp
 }
 // 1 when (x, y) is inside the polygon (even-odd rule), else 0.

@@ -8,12 +8,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const BASE = 'https://raw.githubusercontent.com/Venari-Hunt/Noctivago/master/'
+const BASE = 'https://raw.githubusercontent.com/Venari-Hunt/Noctivago/'
 
-export async function loadCore(relPath) {
+// ref: the app branch to read (master by default; the 2.0 work lands on ui-redesign first).
+export async function loadCore(relPath, ref = 'master') {
   let text
   try {
-    const res = await fetch(BASE + relPath)
+    const res = await fetch(BASE + ref + '/' + relPath)
     if (!res.ok) return null
     text = await res.text()
   } catch {
