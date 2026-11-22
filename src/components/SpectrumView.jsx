@@ -17,13 +17,16 @@ function SpectrumView() {
       <canvas
         id="editor-spectral-canvas"
         className="editor-spectral-canvas"
-        title="Drag to draw a box around a sound to remove (or switch to Freehand and drag a loop around it). Drag a shape to move it, drag a box edge or a freehand corner dot to resize it, right-click it (or select it and press Delete) to remove it. With Noise sample, drag across the spectrogram to mark a stretch that is noise only; drag its handles to resize it."
+        title="Pick a tool below. Box drags a rectangle, Lasso a loop and Brush paints round the sound to remove; a brush stroke merges into the shapes it touches. Select moves a shape or its handles, and Delete removes it. Noise sample marks a stretch that is noise only."
       />
+      <div id="editor-spectral-hint" className="rx-hint-line" aria-live="polite" />
       <div className="editor-spectral-controls rx-under">
         <div id="editor-spectral-shape" className="rx-seg" role="group" aria-label="Tool">
-          <button type="button" data-shape="box" aria-pressed="true" title="Drag a rectangle around the sound" dangerouslySetInnerHTML={{ __html: `${icon('square')}<span>Box</span>` }} />
-          <button type="button" data-shape="free" aria-pressed="false" title="Drag a freehand loop around the sound" dangerouslySetInnerHTML={{ __html: `${icon('lasso')}<span>Freehand</span>` }} />
-          <button type="button" data-shape="noise" aria-pressed="false" title="Drag a stretch across the spectrogram that is noise only, for Noise reduction to learn from" dangerouslySetInnerHTML={{ __html: `${icon('noise')}<span>Noise sample</span>` }} />
+          <button type="button" data-shape="select" aria-pressed="false" style={{ width: 84 }} title="Select (V): drag a shape or its handles" dangerouslySetInnerHTML={{ __html: `${icon('cursor')}<span>Select</span>` }} />
+          <button type="button" data-shape="box" aria-pressed="true" style={{ width: 72 }} title="Box (R): drag a rectangle around the sound" dangerouslySetInnerHTML={{ __html: `${icon('square')}<span>Box</span>` }} />
+          <button type="button" data-shape="lasso" aria-pressed="false" style={{ width: 80 }} title="Lasso (L): drag a loop around the sound" dangerouslySetInnerHTML={{ __html: `${icon('lasso')}<span>Lasso</span>` }} />
+          <button type="button" data-shape="brush" aria-pressed="false" style={{ width: 80 }} title="Brush (B): paint over the sound; strokes merge into the shapes they touch" dangerouslySetInnerHTML={{ __html: `${icon('brush')}<span>Brush</span>` }} />
+          <button type="button" data-shape="noise" aria-pressed="false" style={{ width: 132 }} title="Noise sample (N): drag a stretch across the spectrogram that is noise only, for Noise reduction to learn from" dangerouslySetInnerHTML={{ __html: `${icon('noise')}<span>Noise sample</span>` }} />
         </div>
         <span id="editor-spectral-selection" className="editor-spectral-selection">
           No box selected
@@ -53,7 +56,7 @@ function SpectrumView() {
         </span>
       </div>
       <p className="editor-eq-hint rx-hint">
-        Repair removes a short sound hiding inside another one: a cough in the rain, a bird over the wind, a phone buzz. Find it as a bright spot on the spectrogram (time across, pitch up), drag a box around it, and just that box gets turned down. Everything outside the box stays as it was. For steady hiss or hum, mark a stretch that is noise only with Noise sample, then turn on Noise reduction in Settings. You hear it live while previewing, and Save bakes the same result.
+        Repair removes a short sound hiding inside another one: a cough in the rain, a bird over the wind, a phone buzz. Find it as a bright spot on the spectrogram (time across, pitch up), drag a box around it (or paint over it with the Brush, which joins any shape it touches), and just that shape gets turned down. Everything outside the box stays as it was. For steady hiss or hum, mark a stretch that is noise only with Noise sample, then turn on Noise reduction in Settings. You hear it live while previewing, and Save bakes the same result.
       </p>
     </div>
   )

@@ -138,8 +138,10 @@ export function normalizeRegions(regions) {
       highHz: r.highHz,
       reductionDb: r.reductionDb ?? DEFAULT_REDUCTION_DB
     }
-    // A freehand shape keeps its points (added only when present, so older boxes read the same).
-    if (Array.isArray(r.points) && r.points.length >= 3) out.points = r.points.map((p) => [p[0], p[1]])
+    // A Brush or Lasso shape keeps its handles; an older freehand shape its
+    // points (each added only when present, so older boxes read the same).
+    if (Array.isArray(r.handles) && r.handles.length >= 3) out.handles = r.handles.map((p) => [p[0], p[1]])
+    else if (Array.isArray(r.points) && r.points.length >= 3) out.points = r.points.map((p) => [p[0], p[1]])
     return out
   })
 }

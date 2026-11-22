@@ -29,6 +29,12 @@ export function usableRegion(r) {
   if (![startSec, endSec, lowHz, highHz, reductionDb].every(Number.isFinite)) return null
   if (endSec - startSec < 0.005 || highHz - lowHz < 1 || reductionDb <= 0) return null
   const region = { startSec, endSec, lowHz, highHz, reductionDb: Math.min(reductionDb, 80) }
+  const pair = (p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1]))
+  // A Brush or Lasso shape: 3 to 32 handle [sec, hz] pairs the DSP joins with its curve.
+  if (Array.isArray(r.handles) && r.handles.length >= 3 && r.handles.length <= 32 && r.handles.every(pair)) {
+    region.handles = r.handles.map((p) => [Number(p[0]), Number(p[1])])
+    return region
+  }
   // A freehand shape: [sec, hz] pairs; a bad pair drops it back to the plain box.
   if (Array.isArray(r.points) && r.points.length >= 3 && r.points.length <= 64 && r.points.every((p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))) {
     region.points = r.points.map((p) => [Number(p[0]), Number(p[1])])
