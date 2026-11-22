@@ -1770,6 +1770,13 @@ main:has(> .tab-panel:not(.hidden) .editor-tab.rx) { padding: var(--space-2); ov
 @media (max-width: 859px) and (max-height: 720px) {
   .rx-prev .rx-mlist:has(> .rx-mnone) { display: none; }
 }
+/* Narrow and short (under 760 high): a pinned strip would cover the bottom of
+   the canvas (the spectrum needle could not be grabbed), so the preview module
+   scrolls in its own row between the canvas and the settings. */
+@media (max-width: 859px) and (max-height: 759px) {
+  .rx-prev { grid-row: 3; position: static; box-shadow: none; margin-top: 8px; }
+  .rx-side { grid-row: 4; }
+}
 
 /* The list is the only part of the library that shrinks. */
 .rx-lib > :not(.rx-list) { flex: none; }
