@@ -1897,7 +1897,9 @@ export default class EditorPlugin {
     this.baseLibrary = library
     const activePreset = this.presets.find((p) => p.id === this.activePresetId)
     this.library = library.map((entry) => {
-      const override = activePreset?.sounds.find((s) => s.soundId === entry.id)?.overrides
+      // A sound out of the mix shows the preset's parked copy, which is what
+      // the Mixer plays (app presets.js removedOverrides, PR #170).
+      const override = activePreset?.sounds.find((s) => s.soundId === entry.id)?.overrides ?? activePreset?.removedOverrides?.[entry.id]
       return applySoundOverride(entry, override)
     })
     if (this.currentEntry) {
@@ -4297,9 +4299,16 @@ export default class EditorPlugin {
     if (savingEditingPresetId) this.presets = await this.api.presets.list()
     const editingPreset = savingEditingPresetId ? this.presets.find((p) => p.id === savingEditingPresetId) : null
     let presetSoundItem = editingPreset?.sounds.find((s) => s.soundId === id) ?? null
+    // Owner, 2026-11-21: a sound out of the mix with a parked copy
+    // (removedOverrides) edits that copy only, never the shared defaults;
+    // the app's updateSoundOverride writes the parked slot for it.
+    const parkedSlot = !presetSoundItem && Object.hasOwn(editingPreset?.removedOverrides ?? {}, id)
+    if (parkedSlot) presetSoundItem = { soundId: id, overrides: editingPreset.removedOverrides[id], parked: true }
     if (presetSoundItem) {
       const updated = await this.api.presets.updateSoundOverride(savingEditingPresetId, id, overridePatch)
-      const updatedItem = updated?.sounds.find((s) => s.soundId === id)
+      const updatedItem = parkedSlot
+        ? (updated && Object.hasOwn(updated.removedOverrides ?? {}, id) ? { overrides: updated.removedOverrides[id] } : null)
+        : updated?.sounds.find((s) => s.soundId === id)
       if (updatedItem) presetSoundItem.overrides = updatedItem.overrides
       else presetSoundItem = null
     }
@@ -4354,7 +4363,7 @@ export default class EditorPlugin {
       if (presetSoundItem) {
         window.dispatchEvent(
           new CustomEvent('noctivago:sound-override-changed', {
-            detail: { presetId: savingEditingPresetId, soundId: id, overrides: presetSoundItem.overrides, loopClip }
+            detail: { presetId: savingEditingPresetId, soundId: id, overrides: presetSoundItem.overrides, loopClip, parked: Boolean(presetSoundItem.parked) }
           })
         )
       } else {
