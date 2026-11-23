@@ -1323,7 +1323,7 @@ export default class EditorPlugin {
     this.filterControls = mountFilterControls(this.els.filters, {
       targets: this.layout.filterTargets,
       onChange: () => this.applyFilterControls(),
-      // "Mark on spectrum": open the Repair view with the Noise sample tool; pressed again, back to the Brush.
+      // "Mark noise sample": open the Repair view with the Noise sample tool; pressed again, back to the Brush.
       onMarkNoiseSample: () => {
         const on = this.spectralView.getShape() !== 'noise'
         this.setSpectralTool(on ? 'noise' : 'brush')
@@ -2663,7 +2663,7 @@ export default class EditorPlugin {
     this.syncSpectralTool()
   }
 
-  // Keeps the tool buttons, the hint line and "Mark on spectrum" in step with the tool.
+  // Keeps the tool buttons, the hint line and "Mark noise sample" in step with the tool.
   syncSpectralTool() {
     const now = this.spectralView.getShape()
     for (const b of this.els.spectralShape.querySelectorAll('[data-shape]')) b.setAttribute('aria-pressed', String(b.dataset.shape === now))

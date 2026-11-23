@@ -185,7 +185,7 @@ function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkN
           aria-pressed={ui.markOn}
           title="Drag across the spectrogram to mark a stretch that is noise only (N)"
           onClick={onMarkNoiseSample}
-          dangerouslySetInnerHTML={{ __html: `${icon('noise')}<span>Mark on spectrum</span>` }}
+          dangerouslySetInnerHTML={{ __html: `${icon('noise')}<span>Mark noise sample</span>` }}
         />
         <button id="editor-noise-loop" className="rx-b rx-ghost" type="button" title="Set the noise sample to the first ~1.5 seconds of the trimmed loop region" onClick={onNoiseSampleFromLoop}>
           Use loop start
@@ -230,7 +230,7 @@ function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkN
  *   (portals); without it all four render into `container`.
  * @returns {{ getValues: () => object, setValues: (patch: object) => void, setMarkOn: (on: boolean) => void, unmount: () => void }}
  *   setValues never calls onChange - same as setting a DOM input's .value.
- *   setMarkOn lights the "Mark on spectrum" button (the Noise sample tool is on).
+ *   setMarkOn lights the "Mark noise sample" button (the Noise sample tool is on).
  */
 export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop, onMarkNoiseSample, targets }) {
   const store = createStore(DEFAULTS, normalize)
