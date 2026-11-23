@@ -75,20 +75,21 @@ function EqView({ scope }) {
           Solo band
         </button>
         <span className="rx-tools-end">
-          <div className="rx-seg" role="group" aria-label="Spectrum signal">
-            <button type="button" data-tap="before" title="Spectrum before the EQ" aria-pressed="false">
+          <span style={{ opacity: 0.7, marginRight: 4 }}>Analyzer reads:</span>
+          <div className="rx-seg" role="group" aria-label="Analyzer reads">
+            <button type="button" data-tap="before" title="Analyzer reads the sound before the EQ" aria-pressed="false">
               Before
             </button>
-            <button type="button" data-tap="after" title="Spectrum after the EQ (what you hear)" aria-pressed="true">
+            <button type="button" data-tap="after" title="Analyzer reads the sound after the EQ (what you hear)" aria-pressed="true">
               After
             </button>
             <button type="button" data-tap="both" title="Before dimmed behind After" aria-pressed="false">
               Both
             </button>
           </div>
-          <div className="rx-seg" role="group" aria-label="Spectrum display">
+          <div className="rx-seg" role="group" aria-label="Display mode">
             <button type="button" data-spec="spectrum" aria-pressed="false">
-              Spectrum
+              Analyzer
             </button>
             <button type="button" data-spec="both" aria-pressed="true">
               Both
