@@ -308,8 +308,8 @@ const VIEWS = [
   ['trim', 'Trim'],
   ['seam', 'Loop seam'],
   ['eq', 'EQ'],
-  // Was "Spectrum"; Noise reduction and shape repair live here (owner, 2026-11-21).
-  ['spec', 'Repair']
+  // Was "Spectrum", then "Repair"; Noise reduction and shape repair live here (owner, 2026-11-21).
+  ['spec', 'Spectral repair']
 ]
 
 // Called once from mount(), right after the markup is written and before any
