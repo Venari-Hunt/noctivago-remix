@@ -86,7 +86,7 @@ export function envelopeX(x, width) {
   return Math.min(Math.max(x, edge), Math.max(edge, width - edge))
 }
 
-export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, peaks, viewStart = 0, viewEnd = duration, peaksStart = 0, peaksEnd = duration, dopplerEnabled = false, dopplerClosestFraction = 0.5, dopplerReversed = false, fadesEnabled = false, fadeInSec = 0, fadeOutSec = 0, envelopeEnabled = false, envelopePoints = [], markerLayer = null }) {
+export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, peaks, viewStart = 0, viewEnd = duration, peaksStart = 0, peaksEnd = duration, dopplerEnabled = false, dopplerClosestFraction = 0.5, dopplerReversed = false, fadesEnabled = false, fadeInSec = 0, fadeOutSec = 0, envelopeEnabled = false, envelopePoints = [], markerLayer = null, noiseSample = null }) {
   const { width, height, dpr } = resizeCanvasForDisplay(canvas)
   const ctx = canvas.getContext('2d')
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -201,6 +201,30 @@ export function drawWaveform(canvas, duration, { loopStart, loopEnd, playhead, p
   ctx.fillStyle = withAlpha(PALETTE.surface, 0.6)
   if (startX > 0) ctx.fillRect(0, 0, startX, height)
   if (endX < width) ctx.fillRect(endX, 0, width - endX, height)
+
+  // Noise reduction's sample (drag it to re-sample): a hatched band with edge
+  // lines and a small label, same colors as the Repair spectrogram band.
+  if (noiseSample && noiseSample.endSec > noiseSample.startSec) {
+    const nx0 = Math.max(0, timeToX(noiseSample.startSec))
+    const nx1 = Math.min(width, timeToX(noiseSample.endSec))
+    if (nx1 > nx0) {
+      ctx.fillStyle = withAlpha(PALETTE.textDim, 0.28)
+      ctx.fillRect(nx0, 0, nx1 - nx0, height)
+      ctx.strokeStyle = PALETTE.textDim
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(nx0 + 0.5, 0)
+      ctx.lineTo(nx0 + 0.5, height)
+      ctx.moveTo(nx1 - 0.5, 0)
+      ctx.lineTo(nx1 - 0.5, height)
+      ctx.stroke()
+      ctx.font = "700 11px 'Segoe UI', sans-serif"
+      ctx.textBaseline = 'top'
+      ctx.textAlign = 'left'
+      ctx.fillStyle = PALETTE.text
+      if (nx1 - nx0 > 90) ctx.fillText('Noise sample', nx0 + 6, 34)
+    }
+  }
 
   ctx.fillStyle = PALETTE.textDim
   ctx.font = "11px 'Segoe UI', sans-serif"
