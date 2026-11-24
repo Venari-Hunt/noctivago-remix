@@ -1969,7 +1969,7 @@ export default class EditorPlugin {
     select.dispatchEvent(new Event('change', { bubbles: true }))
   }
 
-  // The library's drill-in panel (layout.js buildStudio, libraryDetail.js):
+  // The library's drill-in panel (layout.js buildStudio, LibraryDetail.jsx):
   // the open group's members, or the open preset's groups and loose sounds.
   // When the preset is the one loaded in the Mixer, volumes are the Mixer's
   // live ones and Mute/Solo work.
