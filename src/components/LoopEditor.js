@@ -1,5 +1,6 @@
 import { drawWaveform, envelopeY, envelopeGainAtY, envelopeX } from '../audio/waveform.js'
 import { createMarkerLayer } from './markerLayer.js'
+import { moveNoiseBand } from '../domain/spectralLayout.js'
 
 const HANDLE_HIT_PX = 8
 const SNAP_PX = 12
@@ -118,6 +119,14 @@ export function createLoopEditorController(canvas) {
   let draggingEnvelopeLeftBound = 0
   let draggingEnvelopeRightBound = 1
   let onEnvelopeChange = () => {}
+  // Noise reduction's sample band ({ startSec, endSec } in file seconds, or
+  // null = hidden), pushed in by RemixTab; dragging it reports back through
+  // onNoiseSampleChange({ startSec, endSec, final }).
+  let noiseSample = null
+  let noiseDragStartClientX = 0
+  let noiseDragOriginal = null
+  let noiseDragMoved = false
+  let onNoiseSampleChange = () => {}
   // A single finer-grained peaks fetch for whatever narrow window the caller
   // last requested (see plugins/editor/index.js's maybeFetchDetailPeaks) -
   // just one slot, not a cache of every window ever visited, so re-zooming
@@ -232,7 +241,8 @@ export function createLoopEditorController(canvas) {
       fadeOutSec: fadeOut,
       envelopeEnabled: envelopeEnabled && envelopeUiVisible,
       envelopePoints: envelopePoints.map((p) => ({ time: envelopePointTime(p), gain: p.gain })),
-      markerLayer
+      markerLayer,
+      noiseSample
     })
   }
 
@@ -484,6 +494,21 @@ export function createLoopEditorController(canvas) {
         dragFadeOutAnchor = loopEnd - fadeOutSec
         scheduleHoldZoom(evt.clientX)
       }
+      return
+    }
+
+    // Nothing else grabbed: a click inside the Noise sample band drags the
+    // whole band (its length stays), which re-samples there.
+    if (noiseSample && noiseSample.endSec > noiseSample.startSec && duration) {
+      const nx0 = timeToX(noiseSample.startSec, rect.width)
+      const nx1 = timeToX(noiseSample.endSec, rect.width)
+      if (x >= nx0 && x <= nx1) {
+        evt.preventDefault()
+        dragging = 'noiseSample'
+        noiseDragStartClientX = evt.clientX
+        noiseDragOriginal = { ...noiseSample }
+        noiseDragMoved = false
+      }
     }
   }
 
@@ -619,6 +644,13 @@ export function createLoopEditorController(canvas) {
       loopEnd = newEnd
       redraw()
       onChange({ loopStart, loopEnd })
+    } else if (dragging === 'noiseSample' && noiseDragOriginal) {
+      const deltaTime = ((clientX - noiseDragStartClientX) / rect.width) * (viewEnd - viewStart)
+      if (!noiseDragMoved && Math.abs(clientX - noiseDragStartClientX) < 3) return
+      noiseDragMoved = true
+      noiseSample = moveNoiseBand(noiseDragOriginal, deltaTime, { start: 0, end: duration })
+      redraw()
+      onNoiseSampleChange({ ...noiseSample, final: false })
     } else if (dragging === 'envelopePoint' && draggingEnvelopePoint) {
       draggingEnvelopePoint.gain = envelopeGainForY(clientY - rect.top, rect)
       // Boundary points (position 0/1) never move in time, only in gain -
@@ -766,6 +798,10 @@ export function createLoopEditorController(canvas) {
   }
 
   function pointerUp() {
+    if (dragging === 'noiseSample') {
+      if (noiseDragMoved && noiseSample) onNoiseSampleChange({ ...noiseSample, final: true })
+      noiseDragOriginal = null
+    }
     if (dragging === 'start' || dragging === 'end') {
       markerLayer.setSnapped(null)
       redraw()
@@ -981,6 +1017,18 @@ export function createLoopEditorController(canvas) {
     },
     onFadesChange(fn) {
       onFadesChange = fn
+    },
+    // band: { startSec, endSec } or null to hide it. Ignored mid-drag.
+    setNoiseSample(band) {
+      if (dragging === 'noiseSample') return
+      noiseSample = band ? { startSec: band.startSec, endSec: band.endSec } : null
+      redraw()
+    },
+    getNoiseSample() {
+      return noiseSample ? { ...noiseSample } : null
+    },
+    onNoiseSampleChange(fn) {
+      onNoiseSampleChange = fn
     },
     onEnvelopeChange(fn) {
       onEnvelopeChange = fn

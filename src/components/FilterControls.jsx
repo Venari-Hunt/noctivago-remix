@@ -99,6 +99,7 @@ function SecondsField({ label, title, field, values, onEdit }) {
 
 // Past this strength, spectral subtraction starts to sound watery (Audition, Audacity say the same).
 const WATERY_DB = 24
+const SHOW_SAMPLE_KEY = 'noctivago-remix-show-noise-sample'
 const PROFILE_W = 296
 const PROFILE_H = 56
 const PROFILE_RANGE_DB = 60
@@ -130,7 +131,7 @@ function NoiseProfile({ curve }) {
 }
 
 // Three settings groups, as in the approved mock: Tone, Cleanup, Space.
-function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkNoiseSample, targets }) {
+function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkNoiseSample, onShowSample, targets }) {
   const values = useSyncExternalStore(store.subscribe, store.get)
   const ui = useSyncExternalStore(uiStore.subscribe, uiStore.get)
   const gateOn = values.gateThresholdDb > -80 && values.gateRangeDb > 0
@@ -166,6 +167,13 @@ function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkN
           <small>Learns the hiss from the noise sample</small>
         </span>
         <input type="checkbox" checked={values.denoiseEnabled} onChange={(e) => onEdit({ denoiseEnabled: e.target.checked })} />
+      </label>
+      <label className="rx-srow rx-nr-show" title="Draw the noise sample as a band on the waveform. Drag it there to sample from a new spot.">
+        <span className="rx-sl">
+          <span>Show sample on waveform</span>
+          <small>Drag the band to sample elsewhere</small>
+        </span>
+        <input id="editor-noise-show" type="checkbox" checked={ui.showSample} onChange={(e) => onShowSample(e.target.checked)} />
       </label>
       <div className="rx-nr-fields">
         <label className="rx-nr-field">
@@ -232,9 +240,25 @@ function FilterControls({ store, uiStore, onEdit, onNoiseSampleFromLoop, onMarkN
  *   setValues never calls onChange - same as setting a DOM input's .value.
  *   setMarkOn lights the "Mark noise sample" button (the Noise sample tool is on).
  */
-export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop, onMarkNoiseSample, targets }) {
+export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop, onMarkNoiseSample, onShowSampleChange = () => {}, targets }) {
   const store = createStore(DEFAULTS, normalize)
-  const uiStore = createStore({ markOn: false, profile: null })
+  // "Show sample on waveform" is a per-viewer choice, remembered in the browser (on by default).
+  let showSample = true
+  try {
+    showSample = localStorage.getItem(SHOW_SAMPLE_KEY) !== '0'
+  } catch {
+    // storage unavailable: keep the default
+  }
+  const uiStore = createStore({ markOn: false, profile: null, showSample })
+  const onShowSample = (on) => {
+    uiStore.set({ showSample: Boolean(on) })
+    try {
+      localStorage.setItem(SHOW_SAMPLE_KEY, on ? '1' : '0')
+    } catch {
+      // storage unavailable: the choice lasts until the tab closes
+    }
+    onShowSampleChange()
+  }
   const setValues = store.set
   const onEdit = (patch) => {
     setValues(patch)
@@ -242,6 +266,6 @@ export function mountFilterControls(container, { onChange, onNoiseSampleFromLoop
   }
 
   const root = createRoot(container)
-  root.render(<FilterControls store={store} uiStore={uiStore} onEdit={onEdit} onNoiseSampleFromLoop={onNoiseSampleFromLoop} onMarkNoiseSample={onMarkNoiseSample} targets={targets} />)
-  return { getValues: store.get, setValues, setMarkOn: (on) => uiStore.set({ markOn: Boolean(on) }), setNoiseProfile: (curve) => uiStore.set({ profile: curve || null }), unmount: () => root.unmount() }
+  root.render(<FilterControls store={store} uiStore={uiStore} onEdit={onEdit} onNoiseSampleFromLoop={onNoiseSampleFromLoop} onMarkNoiseSample={onMarkNoiseSample} onShowSample={onShowSample} targets={targets} />)
+  return { getValues: store.get, getShowSample: () => uiStore.get().showSample, setValues, setMarkOn: (on) => uiStore.set({ markOn: Boolean(on) }), setNoiseProfile: (curve) => uiStore.set({ profile: curve || null }), unmount: () => root.unmount() }
 }

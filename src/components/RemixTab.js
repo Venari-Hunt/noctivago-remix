@@ -949,6 +949,11 @@ export default class EditorPlugin {
       this.filterControls.setValues({ denoiseSampleStartSec: startSec, denoiseSampleEndSec: endSec, ...(final ? { denoiseEnabled: true } : {}) })
       if (final) this.applyFilterControls()
     })
+    // The same band drawn on the Trim waveform: dragging it there works like the spectrogram band.
+    this.loopEditorController.onNoiseSampleChange(({ startSec, endSec, final }) => {
+      this.filterControls.setValues({ denoiseSampleStartSec: startSec, denoiseSampleEndSec: endSec, ...(final ? { denoiseEnabled: true } : {}) })
+      if (final) this.applyFilterControls()
+    })
     this.els.spectralUseNoise.addEventListener('click', () => this.useShapeAsNoiseSample())
     this.els.spectralDelete.addEventListener('click', () => this.spectralView.removeSelected())
     this.els.spectralClear.addEventListener('click', () => this.spectralView.clear())
@@ -1323,6 +1328,7 @@ export default class EditorPlugin {
     this.filterControls = mountFilterControls(this.els.filters, {
       targets: this.layout.filterTargets,
       onChange: () => this.applyFilterControls(),
+      onShowSampleChange: () => this.syncNoiseBand(),
       // "Mark noise sample": open the Repair view with the Noise sample tool; pressed again, back to the Brush.
       onMarkNoiseSample: () => {
         const on = this.spectralView.getShape() !== 'noise'
@@ -2679,6 +2685,10 @@ export default class EditorPlugin {
     const v = this.filterControls.getValues()
     this.spectralView.setNoiseSample(v.denoiseSampleStartSec, v.denoiseSampleEndSec)
     const band = this.spectralView.getNoiseSample()
+    // The same band on the Trim waveform (drag it there to re-sample), unless
+    // the Noise reduction card's "Show on waveform" is off.
+    const sample = this.filterControls.getShowSample() && v.denoiseSampleEndSec > v.denoiseSampleStartSec ? { startSec: v.denoiseSampleStartSec, endSec: v.denoiseSampleEndSec } : null
+    this.loopEditorController.setNoiseSample(sample)
     this.els.spectralLegendNoise.classList.toggle('hidden', !band)
     if (band) {
       const length = band.endSec - band.startSec
