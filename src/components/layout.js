@@ -9,7 +9,7 @@
 import { icon } from './icons.js'
 import { attachKnob } from './Knob.js'
 import { filterSummaries } from './filterSummary.js'
-import { renderDetail } from './libraryDetail.js'
+import { renderDetail } from './LibraryDetail.jsx'
 import { mountAccordions } from './Accordion.jsx'
 import { DRIFT_KEYS, DRIFT_AXES, SCOPE_DRIFT } from './DriftPanel.jsx'
 
