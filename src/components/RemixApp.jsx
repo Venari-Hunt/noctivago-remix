@@ -51,6 +51,18 @@ function SoundCanvas() {
   )
 }
 
+// The Sound settings column: its heading and the small-window close button.
+// layout.js adds the accordions (Accordion.jsx) after them.
+function SoundSide() {
+  return (
+    <aside className="rx-side" aria-label="Settings">
+      <h3 className="rx-side-h">Settings</h3>
+      {/* Below 860 the settings slide in from the right; this closes them (styles.css "Small windows"). */}
+      <button className="rx-i rx-ib rx-side-hide rx-xs-only" type="button" title="Hide settings" aria-label="Hide settings" dangerouslySetInnerHTML={html(icon('x'))} />
+    </aside>
+  )
+}
+
 const host = (id) => <div id={id} style={{ display: 'contents' }} />
 
 // Studio panes (mock-noctivago-remix-studio v2), left to right: the library over
@@ -135,6 +147,7 @@ export function RemixApp() {
           {host('rx-picker-host')}
           <div id="editor-panel" className="editor-panel rx-grid hidden" data-view="trim">
             <SoundCanvas />
+            <SoundSide />
             {host('rx-looprow-host')}
             {host('rx-playback-host')}
             {host('rx-speed-host')}
