@@ -92,12 +92,14 @@ function pickEqTools(eq) {
 
 // The settings column: one card per [key, title], the body nodes from
 // bodies[key]. One card is open at a time.
-function buildAccordions(side, list, bodies) {
+function buildAccordions(side, list, bodies, { head = true } = {}) {
   const doc = side.ownerDocument
   const win = doc.defaultView
-  side.appendChild(el(doc, 'h3', 'rx-side-h', 'Settings'))
-  // Below 860 the settings slide in from the right; this closes them (styles.css "Small windows").
-  side.insertAdjacentHTML('beforeend', `<button class="rx-i rx-ib rx-side-hide rx-xs-only" type="button" title="Hide settings" aria-label="Hide settings">${icon('x')}</button>`)
+  if (head) {
+    side.appendChild(el(doc, 'h3', 'rx-side-h', 'Settings'))
+    // Below 860 the settings slide in from the right; this closes them (styles.css "Small windows").
+    side.insertAdjacentHTML('beforeend', `<button class="rx-i rx-ib rx-side-hide rx-xs-only" type="button" title="Hide settings" aria-label="Hide settings">${icon('x')}</button>`)
+  }
   const { elements, openAccordion, setSummaries } = mountAccordions(side, list, bodies, {
     iconFor: (key) => icon(ACC_ICON[key] ?? 'sliders-horizontal'),
     chevronHtml: icon('chevron-down'),
@@ -340,10 +342,8 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const eqSide = el(doc, 'div', 'rx-srow1 rx-eq-side')
   eqSide.append(eqTools.compare, openEq, eqTools.reset)
 
-
-  // --- Right: the settings column ---
-  const side = el(doc, 'aside', 'rx-side')
-  side.setAttribute('aria-label', 'Settings')
+  // --- Right: the settings column (RemixApp's SoundSide) ---
+  const side = panel.querySelector(':scope > .rx-side')
 
   // Playback: PlaybackPanel.jsx rendered the tiles, hints and the Random,
   // Scheduled and fade sections already (final markup).
@@ -402,7 +402,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
     looks: [looks, resetFilters],
     ...driftBodies(driftSection, DRIFT_AXES)
   }
-  const { accordions, openAccordion, setSummaries } = buildAccordions(side, ACCORDIONS, BODIES)
+  const { accordions, openAccordion, setSummaries } = buildAccordions(side, ACCORDIONS, BODIES, { head: false })
   setSummaries({ playback: ['Loop', true] })
 
   panel.replaceChildren(canvasCol, side)
