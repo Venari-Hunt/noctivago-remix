@@ -36,6 +36,13 @@ import { createHistory } from '../domain/editorHistory.js'
 import { createPreviewController } from '../controllers/previewController.js'
 import { createSaveController, nextCopyName } from '../controllers/saveController.js'
 import { createSoundLoader } from '../controllers/soundLoader.js'
+import { wirePickerControls } from '../controls/pickerControls.js'
+import { wireTrimControls } from '../controls/trimControls.js'
+import { wirePlayModeControls } from '../controls/playModeControls.js'
+import { wireShapeControls } from '../controls/shapeControls.js'
+import { wireFilterControls } from '../controls/filterControls.js'
+import { wireEqControls } from '../controls/eqControls.js'
+import { wireFluctuationControls } from '../controls/fluctuationControls.js'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
 import { loadMarkers, saveMarkers } from '../domain/markerStore.js'
@@ -1131,306 +1138,44 @@ export default class EditorPlugin {
     updateVisibility()
   }
 
+  // The control wiring lives in src/controls/, one module per panel (rebuild
+  // step 10l). Each takes the elements it listens to and the tab methods it
+  // calls, bound once here.
   wireControls() {
-    this.els.soundSearch.addEventListener('focus', () => this.openPicker())
-
-    this.els.soundSearch.addEventListener('input', () => {
-      this.pickerQuery = this.els.soundSearch.value
-      this.pickerHighlightIndex = -1
-      this.openPicker()
+    const bind = (...names) => Object.fromEntries(names.map((n) => [n, this[n].bind(this)]))
+    const els = this.els
+    wirePickerControls(els, {
+      ...bind('openPicker', 'closePicker', 'filteredPickerSounds', 'renderPickerOptions', 'selectPickerSound'),
+      setQuery: (text) => (this.pickerQuery = text),
+      getHighlight: () => this.pickerHighlightIndex,
+      setHighlight: (i) => (this.pickerHighlightIndex = i)
     })
-
-    this.els.soundSearch.addEventListener('keydown', (evt) => {
-      const options = this.filteredPickerSounds()
-      if (evt.key === 'ArrowDown') {
-        evt.preventDefault()
-        if (options.length === 0) return
-        this.pickerHighlightIndex = stepHighlight(this.pickerHighlightIndex, options.length, 1)
-        this.renderPickerOptions()
-      } else if (evt.key === 'ArrowUp') {
-        evt.preventDefault()
-        if (options.length === 0) return
-        this.pickerHighlightIndex = stepHighlight(this.pickerHighlightIndex, options.length, -1)
-        this.renderPickerOptions()
-      } else if (evt.key === 'Enter') {
-        evt.preventDefault()
-        // Defaults to the first result when nothing's been arrow-navigated
-        // yet - requested directly: typing a precise search and hitting
-        // Enter shouldn't need an extra arrow-down first, since a precise
-        // query usually narrows straight down to the one sound you meant.
-        const picked = enterPick(options, this.pickerHighlightIndex)
-        if (picked) this.selectPickerSound(picked.id)
-      } else if (evt.key === 'Escape') {
-        this.closePicker()
-        this.els.soundSearch.blur()
-      }
-    })
-
-    // The option list's own mousedown handlers call preventDefault() (see
-    // renderPickerOptions), which stops the input from ever losing focus on
-    // an option click - so a plain blur here always means the user actually
-    // clicked/tabbed away, never a false positive from picking an option.
-    this.els.soundSearch.addEventListener('blur', () => this.closePicker())
-
-    this.els.startInput.addEventListener('change', () => this.applyManualLoopPoints())
-    this.els.endInput.addEventListener('change', () => this.applyManualLoopPoints())
-    this.els.lengthInput.addEventListener('change', () => this.applyManualLength())
-    this.els.needleInput.addEventListener('change', () => this.applyManualNeedle())
-    this.els.needleInput.addEventListener('input', () => this.els.needleInput.removeAttribute('aria-invalid'))
-    this.els.suggestLoopBtn.addEventListener('click', () => this.suggestLoopPoint())
-
-    this.els.playModeLoop.addEventListener('change', () => this.applyPlayModeControl())
-    this.els.playModeScatter.addEventListener('change', () => this.applyPlayModeControl())
-    this.els.playModeScheduled.addEventListener('change', () => this.applyPlayModeControl())
-    this.els.scatterGapMin.addEventListener('input', () => this.applyScatterControls())
-    this.els.scatterGapMax.addEventListener('input', () => this.applyScatterControls())
-    this.els.scatterGapFullyRandom.addEventListener('change', () => this.applyScatterControls())
-    this.els.scatterGapBiasEnabled.addEventListener('change', () => this.applyScatterControls())
-    this.els.scatterGapBias.addEventListener('input', () => this.applyScatterControls())
-    this.els.scatterFadeEnabled.addEventListener('change', () =>
-      this.toggleFade(this.els.scatterFadeEnabled, this.els.scatterFadeIn, this.els.scatterFadeOut, () => this.applyScatterControls())
+    wireTrimControls(els, bind('applyManualLoopPoints', 'applyManualLength', 'applyManualNeedle', 'suggestLoopPoint'))
+    wirePlayModeControls(
+      els,
+      bind('applyPlayModeControl', 'applyScatterControls', 'applyScheduleControls', 'toggleFade', 'syncFadeToggle')
     )
-    this.els.scatterFadeIn.addEventListener('input', () => {
-      this.syncFadeToggle(this.els.scatterFadeEnabled, this.els.scatterFadeIn, this.els.scatterFadeOut)
-      this.applyScatterControls()
-    })
-    this.els.scatterFadeOut.addEventListener('input', () => {
-      this.syncFadeToggle(this.els.scatterFadeEnabled, this.els.scatterFadeIn, this.els.scatterFadeOut)
-      this.applyScatterControls()
-    })
-    this.els.scatterSyncGroup.addEventListener('input', () => this.applyScatterControls())
-
-    this.els.scheduleTypeTimes.addEventListener('change', () => this.applyScheduleControls())
-    this.els.scheduleTypeInterval.addEventListener('change', () => this.applyScheduleControls())
-    this.els.scheduleTimes.addEventListener('input', () => this.applyScheduleControls())
-    this.els.scheduleInterval.addEventListener('input', () => this.applyScheduleControls())
-    this.els.scheduleFadeEnabled.addEventListener('change', () =>
-      this.toggleFade(this.els.scheduleFadeEnabled, this.els.scheduleFadeIn, this.els.scheduleFadeOut, () => this.applyScheduleControls())
+    wireShapeControls(
+      els,
+      this.loopEditorController,
+      bind('applyCrossfadeControl', 'toggleSeamListen', 'applyFilterControls', 'applySpeedPitchControls')
     )
-    this.els.scheduleFadeIn.addEventListener('input', () => {
-      this.syncFadeToggle(this.els.scheduleFadeEnabled, this.els.scheduleFadeIn, this.els.scheduleFadeOut)
-      this.applyScheduleControls()
-    })
-    this.els.scheduleFadeOut.addEventListener('input', () => {
-      this.syncFadeToggle(this.els.scheduleFadeEnabled, this.els.scheduleFadeIn, this.els.scheduleFadeOut)
-      this.applyScheduleControls()
-    })
-
-    this.els.crossfade.addEventListener('input', () => this.applyCrossfadeControl())
-    this.els.seamListen.addEventListener('click', () =>
-      this.toggleSeamListen().catch((err) => console.error('Editor: seam preview failed', err))
+    this.filterControls = wireFilterControls(
+      els,
+      { layout: this.layout, loopEditor: this.loopEditorController, spectralView: this.spectralView },
+      bind('applyFilterControls', 'setFilterSliders', 'setSpectralTool', 'syncNoiseBand')
     )
-
-    this.els.envelopeEnabled.addEventListener('change', () => {
-      this.loopEditorController.setEnvelope(this.els.envelopeEnabled.checked, this.loopEditorController.getEnvelope().points)
-      this.applyFilterControls()
-    })
-    this.els.envelopeReset.addEventListener('click', () => {
-      this.loopEditorController.setEnvelope(this.els.envelopeEnabled.checked, defaultVolumeEnvelope().points)
-      this.applyFilterControls()
-    })
-
-    this.els.speed.addEventListener('input', () => this.applySpeedPitchControls())
-    this.els.pitch.addEventListener('input', () => this.applySpeedPitchControls())
-    this.els.reverse.addEventListener('change', () => this.applySpeedPitchControls())
-    this.els.doppler.addEventListener('change', () => this.applySpeedPitchControls())
-    this.els.dopplerIntensity.addEventListener('input', () => this.applySpeedPitchControls())
-    this.els.dopplerSharpness.addEventListener('input', () => this.applySpeedPitchControls())
-    this.els.dopplerReversed.addEventListener('change', () => this.applySpeedPitchControls())
-
-    // The filter sliders are a React island (src/islands/FilterControls.jsx,
-    // the pilot for moving Remix's UI to React) - it owns their markup,
-    // labels and values; this class reads/writes them through
-    // filterControls.getValues()/setValues() only.
-    this.filterControls = mountFilterControls(this.els.filters, {
-      targets: this.layout.filterTargets,
-      onChange: () => this.applyFilterControls(),
-      onShowSampleChange: () => this.syncNoiseBand(),
-      // "Mark noise sample": open the Repair view with the Noise sample tool; pressed again, back to the Brush.
-      onMarkNoiseSample: () => {
-        const on = this.spectralView.getShape() !== 'noise'
-        this.setSpectralTool(on ? 'noise' : 'brush')
-        if (on) this.layout.setView('spec')
-      },
-      onNoiseSampleFromLoop: () => {
-        const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-        const end = Math.min(loopEnd, loopStart + Math.min(1.5, (loopEnd - loopStart) / 3))
-        this.filterControls.setValues({
-          denoiseSampleStartSec: Number(loopStart.toFixed(2)),
-          denoiseSampleEndSec: Number(end.toFixed(2)),
-          denoiseEnabled: true
-        })
-        this.applyFilterControls()
-      }
-    })
-
-    // 'input' (fires live, on every change) not 'change' (fires only on
-    // blur/Enter) - matches every other numeric field in this app (Scatter
-    // gap min/max, the core filter sliders). BUG FIX: these three were the
-    // one place still using 'change', which meant the app-wide number-box
-    // stepper (hover+scroll/arrow keys, see numberBoxStepper.js - it
-    // dispatches 'input') silently never reached these fields at all -
-    // adjusting Freq/Gain/Q via scroll or arrow keys updated the input's
-    // raw displayed value but never touched the actual band, the node's
-    // position on the graph, or the live audio, exactly matching a direct
-    // bug report ("raising the frequency by the number doesn't change the
-    // node's position and doesn't affect the audio").
-    this.els.eqType.addEventListener('change', () => this.applyEqFieldsToSelectedBand())
-    this.els.eqSlope.addEventListener('change', () => this.applyEqFieldsToSelectedBand())
-    this.els.eqFreq.addEventListener('input', () => this.applyEqFieldsToSelectedBand())
-    this.els.eqGain.addEventListener('input', () => this.applyEqFieldsToSelectedBand())
-    this.els.eqQ.addEventListener('input', () => this.applyEqFieldsToSelectedBand())
-    this.els.eqReset.addEventListener('click', () => {
-      this.eqEditorController.load(defaultEqBands())
-      this.updateEqFieldsFromSelection()
-      this.applyEqControls()
-    })
-
-    this.els.eqAddBand.addEventListener('click', () => {
-      this.eqEditorController.addBand()
-      this.updateEqFieldsFromSelection()
-      this.applyEqControls()
-    })
-    this.els.eqRemoveBand.addEventListener('click', () => {
-      this.eqEditorController.removeSelectedBand()
-      this.updateEqFieldsFromSelection()
-      this.applyEqControls()
-    })
-    // Registers the trash button as a drag-and-drop target too - dragging a
-    // node onto it deletes it, same as clicking it with a band selected
-    // (see EqEditor.js's pointerUp).
-    this.eqEditorController.setTrashDropTarget(this.els.eqRemoveBand)
-
-    // Zoom in/out (also reachable via mouse wheel over empty graph space)
-    // and Invert - both ported from Audacity's Filter Curve EQ. Invert
-    // mutates every band's gain, so it needs the same field-refresh +
-    // applyEqControls() pair every other band-mutating button already uses;
-    // zoom is purely a view change, no band data touched, no refresh needed.
-    this.els.eqZoomIn.addEventListener('click', () => this.eqEditorController.zoomIn())
-    this.els.eqZoomOut.addEventListener('click', () => this.eqEditorController.zoomOut())
-    this.els.eqInvert.addEventListener('click', () => {
-      this.eqEditorController.invertBands()
-      this.updateEqFieldsFromSelection()
-      this.applyEqControls()
-    })
-
-    this.els.eqCompareA.addEventListener('click', () => this.switchEqCompareView('A'))
-    this.els.eqCompareB.addEventListener('click', () => this.switchEqCompareView('B'))
-    this.els.eqRevertBanner.addEventListener('click', () => this.revertEqToSaved())
-
-    this.els.eqMute.addEventListener('click', () => {
-      const idx = this.eqEditorController.getSelectedIndex()
-      const band = this.eqEditorController.getSlots()[idx]
-      if (!band) return
-      this.eqEditorController.setSelectedBand({ muted: !band.muted })
-      this.applyEqControls()
-    })
-
-    // Toggle: clicking Solo on the already-soloed band un-solos it (back to
-    // "every band plays normally"), clicking it on a different band moves
-    // solo there instead - only one band can be soloed at a time.
-    this.els.eqSolo.addEventListener('click', () => {
-      const idx = this.eqEditorController.getSelectedIndex()
-      if (idx === -1) return
-      const current = this.eqEditorController.getSoloIndex()
-      this.eqEditorController.setSoloIndex(current === idx ? -1 : idx)
-      this.applyEqControls()
-    })
-
-    this.els.resetFilters.addEventListener('click', () => {
-      this.setFilterSliders(NEUTRAL_FILTERS)
-      this.applyFilterControls()
-    })
-
-    for (const button of this.els.presetButtons) {
-      button.addEventListener('click', () => {
-        const preset = FILTER_PRESETS[button.dataset.preset]
-        if (!preset) return
-        this.setFilterSliders(preset)
-        this.applyFilterControls()
-      })
-    }
-
-    // --- Fluctuation (v0.1.164) ---
-    // The two 3-circle bars. Unlike trim/filters/EQ, fluctuation is NOT part
-    // of the snapshot/undo/autosave/A-B-compare machinery - it's a
-    // playback-time behavior, never baked, so it persists on its own (a
-    // debounced library.updateFluctuation) the moment a control settles,
-    // and previews live without any ffmpeg round-trip.
+    wireEqControls(
+      els,
+      this.eqEditorController,
+      bind('applyEqControls', 'applyEqFieldsToSelectedBand', 'updateEqFieldsFromSelection', 'switchEqCompareView', 'revertEqToSaved')
+    )
     this.fluctuation = defaultFluctuation()
-    this.flucVolBar = createFluctuationBar(this.els.flucVolBar, {
-      valueMin: FLUC_VOL_MIN,
-      valueMax: FLUC_VOL_MAX,
-      defaults: { min: 0.5, bias: 0.8, max: 1 },
-      format: (v) => `${Math.round(v * 100)}%`,
-      onChange: (vals) => {
-        this.fluctuation.volume = { ...this.fluctuation.volume, ...vals }
-        this.applyFluctuationControls()
-      }
+    const bars = wireFluctuationControls(els, {
+      patchFluctuation: (axis, vals) => (this.fluctuation[axis] = { ...this.fluctuation[axis], ...vals }),
+      ...bind('applyFluctuationControls', 'applyScatterControls', 'applyScheduleControls')
     })
-    this.flucPitchBar = createFluctuationBar(this.els.flucPitchBar, {
-      valueMin: FLUC_PITCH_MIN,
-      valueMax: FLUC_PITCH_MAX,
-      defaults: { min: -1, bias: 0, max: 1 },
-      format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} st`,
-      onChange: (vals) => {
-        this.fluctuation.pitch = { ...this.fluctuation.pitch, ...vals }
-        this.applyFluctuationControls()
-      }
-    })
-    this.flucPanBar = createFluctuationBar(this.els.flucPanBar, {
-      valueMin: FLUC_PAN_MIN,
-      valueMax: FLUC_PAN_MAX,
-      defaults: PAN_DRIFT_DEFAULTS,
-      format: formatPan,
-      onChange: (vals) => {
-        this.fluctuation.pan = { ...this.fluctuation.pan, ...vals }
-        this.applyFluctuationControls()
-      }
-    })
-    // Per-play random bars (v0.1.218) - Random Interval + Scheduled.
-    this.shotBars = { scatter: {}, schedule: {} }
-    for (const kind of ['scatter', 'schedule']) {
-      for (const axis of SHOT_AXIS_NAMES) {
-        const cfg = SHOT_AXES[axis]
-        const key = `${kind}${axis[0].toUpperCase()}${axis.slice(1)}`
-        this.shotBars[kind][axis] = createFluctuationBar(this.els[`${key}Bar`], {
-          valueMin: cfg.lo,
-          valueMax: cfg.hi,
-          defaults: cfg.defaults,
-          format: cfg.format,
-          onChange: () => (kind === 'scatter' ? this.applyScatterControls() : this.applyScheduleControls())
-        })
-        for (const suffix of ['FullyRandom', 'BiasEnabled']) {
-          this.els[`${key}${suffix}`].addEventListener('change', () =>
-            kind === 'scatter' ? this.applyScatterControls() : this.applyScheduleControls()
-          )
-        }
-      }
-    }
-    const flucInputs = [
-      this.els.flucPanEnabled,
-      this.els.flucPanFullRandom,
-      this.els.flucPanChangeMin,
-      this.els.flucPanChangeMax,
-      this.els.flucPanTransition,
-      this.els.flucPanBias,
-      this.els.flucVolBias,
-      this.els.flucPitchBias,
-      this.els.flucVolEnabled,
-      this.els.flucVolFullRandom,
-      this.els.flucVolChangeMin,
-      this.els.flucVolChangeMax,
-      this.els.flucVolTransition,
-      this.els.flucPitchEnabled,
-      this.els.flucPitchFullRandom,
-      this.els.flucPitchChangeMin,
-      this.els.flucPitchChangeMax,
-      this.els.flucPitchTransition
-    ]
-    for (const el of flucInputs) {
-      el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', () => this.applyFluctuationControls())
-    }
+    Object.assign(this, bars)
   }
 
   // Builds the sticky bar's own contents - Play/Pause, the loop toggle, a
