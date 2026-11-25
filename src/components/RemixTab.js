@@ -25,6 +25,7 @@ import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
+import { markerKeyAction } from '../domain/markerKeys.js'
 import { filterPickerSounds, stepHighlight, enterPick } from '../domain/pickerList.js'
 import { previewModeToggleState, mustFallBackToLive } from '../domain/previewMode.js'
 import { loadedFluctuation, fluctuationFingerprint, isFluctuationDirty, groupDriftFor, groupOverrideNotes } from '../domain/driftState.js'
@@ -1482,22 +1483,24 @@ export default class EditorPlugin {
   // Ctrl+M adds a marker; Delete removes the selected one. Returns true when
   // the key was ours.
   handleMarkerKey(evt) {
-    if (this.mode !== 'sound') return false
     const active = document.activeElement
-    const typing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)
-    if (typing) return false
-    if (evt.ctrlKey && !evt.shiftKey && !evt.altKey && (evt.key === 'm' || evt.key === 'M')) {
+    const typing = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)
+    const selected = this.loopEditorController?.getSelectedMarker?.()
+    const action = markerKeyAction(evt, {
+      mode: this.mode,
+      typing,
+      hasSelected: selected != null,
+      onSpectral: evt.target === this.els.spectralCanvas
+    })
+    if (action === 'add') {
       evt.preventDefault()
       this.addMarkerAtPlayhead()
       return true
     }
-    if (evt.key === 'Delete' && evt.target !== this.els.spectralCanvas) {
-      const id = this.loopEditorController?.getSelectedMarker?.()
-      if (id != null) {
-        evt.preventDefault()
-        this.deleteMarker(id)
-        return true
-      }
+    if (action === 'delete') {
+      evt.preventDefault()
+      this.deleteMarker(selected)
+      return true
     }
     return false
   }
