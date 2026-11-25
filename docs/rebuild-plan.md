@@ -50,7 +50,8 @@ Step 9 progress (layout.js, one PR per region, each into ui-redesign):
 - #59: Sound settings column shell (`SoundSide`: heading, small-window close button) is RemixApp markup; `buildAccordions` mounts the accordions into it. Group and Preset still build their own column.
 - #60: Group and Preset canvas column (view tab row) and settings column shell are MixPanels markup (`ScopeShell`, shared `SettingsSide.jsx` with Sound); `arrangeScope` fills them. The knobs, label surgery and head values in `arrangeScope` stay.
 - #61: the sticky-bar controls (Play, Solo, Loop, seek, volumes, Live edit, Undo, Redo, Cancel, Save, group actions), the mode chips, the preset select and the picker row are rendered in place by RemixApp (`StudioLeft`, `StudioHead`, `.rx-holder`); `StickyBar.jsx` is gone and `arrangeBar` only wires them.
-- Left: the rest of `arrangeScope` (MixPanels to final markup).
+- #62: Group and Preset cards are final markup in `MixPanels.jsx` (canvas column, loudness strip, knob groups, Fade in row, name row, members note, chips, Reset filters; knob rows are swapped for knobs at mount like TrimView). `arrangeScope` only inserts the EQ and drift cards, builds the EQ side row and fills the accordions.
+- Left in `layout.js`: the accordion body moves and compare/view/play-mode/drift logic in `arrangeLayout` (Sound), `arrangeBar` wiring, `buildStudio` behavior. These are wiring, not markup.
 
 About 13 PRs. Steps 1 and 3 come first because other open tasks touch knobs and preview buttons.
 
