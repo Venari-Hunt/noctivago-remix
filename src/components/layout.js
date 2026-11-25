@@ -352,13 +352,8 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const crossfadeSection = $('#editor-crossfade-section')
   const envelopeBody = $('.rx-envelope-body')
 
-  const seekSlot = el(doc, 'div', 'rx-seek-slot')
-  seekSlot.id = 'rx-seek-slot'
-  const transport = el(doc, 'div', 'rx-under rx-transport')
-  transport.id = 'rx-transport'
-
   // Step 13d: the transport and the seek bar live in the preview module under
-  // the library (buildStudio), not under the Trim canvas.
+  // the library (RemixApp's StudioLeft), not under the Trim canvas.
   viewTrim.append($('.editor-name-row'), $('#editor-canvas'), $('#editor-scrollbar'), $('#editor-waveform-status'), times, options, dopplerHint)
 
   // Loop seam view: SeamView.jsx rendered the canvas, knob and Listen button.
@@ -517,7 +512,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
     scopes.group.refresh()
   }
 
-  const studio = buildStudio(root, { getStudio, onPick, seekSlot, transport, detail })
+  const studio = buildStudio(root, { getStudio, onPick, detail })
 
   // Drift has no meaning for Random / Scheduled one-shots (see RemixTab's
   // setPlayModeControls): hide its three dropdowns, not just their contents.
@@ -539,51 +534,16 @@ const KIND = { sound: 'Sound', group: 'Group', preset: 'Preset' }
 const SEARCH = { sound: 'Search sounds', group: 'Search groups', preset: 'Search presets' }
 const NONE = { sound: 'No sounds match.', group: 'No groups yet. Make one with New group.', preset: 'No presets saved yet.' }
 
-function buildStudio(root, { getStudio, onPick, seekSlot, transport, detail }) {
+function buildStudio(root, { getStudio, onPick, detail }) {
   const doc = root.ownerDocument
   const win = doc.defaultView
   const tab = root.querySelector('.editor-tab')
 
-  const lcol = el(doc, 'div', 'rx-lcol')
-  const lib = el(
-    doc,
-    'aside',
-    'rx-pane rx-lib',
-    `<div class="rx-lib-h"><h3>Remix</h3><button id="rx-new-group" class="rx-i rx-ib" type="button" title="New group" aria-label="New group">${icon('plus')}</button><button id="rx-lib-hide" class="rx-i rx-ib rx-narrow-only" type="button" title="Hide the library" aria-label="Hide the library">${icon('chevron-left')}</button></div>` +
-      '<div id="rx-chips" class="rx-chips" role="group" aria-label="What you remix"></div>' +
-      '<label id="rx-in-preset" class="rx-in-preset"><span>In preset</span></label>' +
-      `<label class="rx-search">${icon('search')}<input id="rx-lib-search" type="text" placeholder="Search sounds" aria-label="Search" autocomplete="off" /></label>` +
-      '<div id="rx-lib-list" class="rx-list"></div>'
-  )
-  lib.setAttribute('aria-label', 'Library')
-  const prev = el(
-    doc,
-    'section',
-    'rx-pane rx-prev',
-    '<div class="rx-prow"><span id="rx-pplay-slot" class="rx-slot"></span><b id="rx-now-name" class="rx-now"></b><span id="rx-prow-end" class="rx-slot"></span></div>' +
-      '<div id="rx-pnote" class="rx-pnote" hidden>Playing this group only</div>' +
-      '<div class="rx-pseek"><span id="rx-cur">0:00</span><span id="rx-total">0:00</span></div>' +
-      '<div id="rx-pvol" class="rx-pvol"></div>'
-  )
-  prev.setAttribute('aria-label', 'Preview')
-  prev.querySelector('#rx-total').before(seekSlot)
-  prev.appendChild(transport) // emptied into the rows by arrangeBar
-  lcol.append(lib, prev)
-
-  const head = el(
-    doc,
-    'div',
-    'rx-pane rx-head',
-    `<button id="rx-lib-show" class="rx-i rx-ib rx-narrow-only" type="button" title="Show the library" aria-label="Show the library">${icon('chevron-right')}</button>` +
-      '<div class="rx-ht"><div id="rx-kind" class="rx-kind">Sound</div><h2 id="rx-title" class="rx-title"></h2><div id="rx-meta" class="rx-meta"></div></div><div id="rx-acts" class="rx-acts"></div>' +
-      `<button id="rx-side-show" class="rx-b rx-ghost rx-xs-only" type="button" aria-expanded="false">${icon('sliders-horizontal')}Settings</button>`
-  )
-  // Controls the library replaces stay in the DOM (the tab still reads and
-  // writes them), out of sight.
-  const holder = el(doc, 'div', 'rx-holder')
-  holder.hidden = true
-  tab.prepend(lcol, head)
-  tab.appendChild(holder)
+  // The panes are RemixApp markup (StudioLeft, StudioHead); this wires them.
+  const lib = tab.querySelector('.rx-lib')
+  const prev = tab.querySelector('.rx-prev')
+  const head = tab.querySelector('.rx-head')
+  const holder = tab.querySelector('.rx-holder')
 
   // Below 1180 px the library slides over the editor from the left and the
   // preview module moves under the canvas (styles.css "Small windows"). The
