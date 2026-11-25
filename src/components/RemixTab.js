@@ -1,16 +1,15 @@
 import { AudioEngine } from '../audio/AudioEngine.js'
 import { PreviewSource } from '../audio/PreviewSource.js'
 import { BakedClipPreview } from '../audio/BakedClipPreview.js'
-import { createLoopEditorController } from './LoopEditor.js'
-import { createSeamViewController } from './SeamView.js'
-import { createSpectralRepairController } from './SpectralRepairView.js'
 import { formatHz, GOOD_NOISE_SEC, noiseBandFromShape, normalizeRegions } from '../domain/spectralLayout.js'
 import { toolHint } from '../domain/repairBrush.js'
 import { loopLayout, clipToSource, sourceToClip } from '../domain/loopLayout.js'
-import { createEqTarget, eqElements } from './useEqTarget.js'
-import { createEqEditorController, Q_MIN, Q_MAX, SLOPE_CAPABLE_EQ_TYPES } from './EqEditor.js'
-import { createWaveformScrollbar } from './WaveformScrollbar.js'
-import { createFluctuationBar } from './FluctuationBar.js'
+import { mountLoopEditor, mountWaveformScrollbar } from '../mounts/loopEditorMount.js'
+import { mountSpectral } from '../mounts/spectralMount.js'
+import { mountSeam } from '../mounts/seamMount.js'
+import { mountEqEditor, mountMixEqTargets } from '../mounts/eqMount.js'
+import { mountMixFluctuation } from '../mounts/mixFlucMount.js'
+import { Q_MIN, Q_MAX, SLOPE_CAPABLE_EQ_TYPES } from './EqEditor.js'
 import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountRemixApp } from './RemixApp.jsx'
@@ -43,7 +42,7 @@ import { wireShapeControls } from '../controls/shapeControls.js'
 import { wireFilterControls } from '../controls/filterControls.js'
 import { wireEqControls } from '../controls/eqControls.js'
 import { wireFluctuationControls } from '../controls/fluctuationControls.js'
-import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
+import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, formatPan, defaultFluctuation, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
 import { loadMarkers, saveMarkers } from '../domain/markerStore.js'
 import { mountMarkerUi, flashMarkerButton, renderMarkerChips, renderProgressTicks, openMarkerPopover, closeMarkerPopover, formatMarkerTime } from './markerUi.js'
@@ -583,287 +582,80 @@ export default class EditorPlugin {
 
     this.els = findAllEls(container)
 
-    this.loopEditorController = createLoopEditorController(this.els.canvas)
-    this.loopEditorController.onLoopChange(({ loopStart, loopEnd }) => {
-      this.commitLoopPoints(loopStart, loopEnd)
-    })
-    this.spectralView = createSpectralRepairController(this.els.spectralCanvas)
-    this.spectralView.onChange(() => {
-      this.updateSpectralControls()
-      this.applyFilterControls()
-    })
-    this.spectralView.onSelect(() => this.updateSpectralControls())
-    this.spectralView.onToolChange(() => this.syncSpectralTool())
+    const mountCalls = this.mountCallbacks()
+    this.loopEditorController = mountLoopEditor(this.els, mountCalls)
+    this.spectralView = mountSpectral(this.els, this.loopEditorController, mountCalls)
     this.syncSpectralTool()
-    for (const view of [this.loopEditorController, this.spectralView]) {
-      view.onMarkersChange((list) => this.setMarkers(list))
-      view.onMarkerEdit((marker, x, y) => this.editMarker(marker, x, y))
-    }
-    // The Spectrum tab is hidden until opened, so the first fetch has to wait for a real size.
-    this.spectralView.onResize(() => this.syncSpectralView())
-    // Dragging the needle seeks the preview (playing or paused).
-    this.spectralView.onSeek((sec) => {
-      const active = this.activePreview()
-      if (!active) return
-      const t = this.previewMode === 'saved' ? this.sourceTimeToClip(sec) : sec
-      active.scrubTo(t)
-      this.spectralView.setPlayhead(sec)
-      this.loopEditorController?.setPlayhead(sec)
-      this.updateStickyProgress(t)
-    })
-    // A number field now: half-typed values wait, change clamps to 6-80 dB.
-    const reductionDb = () => {
-      const v = Number(this.els.spectralReduction.value)
-      return Number.isFinite(v) ? Math.min(80, Math.max(6, Math.round(v))) : null
-    }
-    this.els.spectralReduction.addEventListener('input', () => {
-      const v = Number(this.els.spectralReduction.value)
-      if (Number.isFinite(v) && v >= 6 && v <= 80) this.spectralView.setSelectedReduction(Math.round(v))
-    })
-    this.els.spectralReduction.addEventListener('change', () => {
-      const db = reductionDb() ?? 40
-      this.els.spectralReduction.value = String(db)
-      this.spectralView.setSelectedReduction(db)
-    })
-    this.els.spectralShape.addEventListener('click', (evt) => {
-      const btn = evt.target.closest('[data-shape]')
-      if (!btn) return
-      this.setSpectralTool(btn.dataset.shape)
-    })
-    // The Noise sample band: dragging it moves the From/To fields live and
-    // applies once the drag ends, the same as typing them.
-    this.spectralView.onNoiseChange(({ startSec, endSec, final }) => {
-      this.filterControls.setValues({ denoiseSampleStartSec: startSec, denoiseSampleEndSec: endSec, ...(final ? { denoiseEnabled: true } : {}) })
-      if (final) this.applyFilterControls()
-    })
-    // The same band drawn on the Trim waveform: dragging it there works like the spectrogram band.
-    this.loopEditorController.onNoiseSampleChange(({ startSec, endSec, final }) => {
-      this.filterControls.setValues({ denoiseSampleStartSec: startSec, denoiseSampleEndSec: endSec, ...(final ? { denoiseEnabled: true } : {}) })
-      if (final) this.applyFilterControls()
-    })
-    this.els.spectralUseNoise.addEventListener('click', () => this.useShapeAsNoiseSample())
-    this.els.spectralDelete.addEventListener('click', () => this.spectralView.removeSelected())
-    this.els.spectralClear.addEventListener('click', () => this.spectralView.clear())
-    // Needs app 0.1.237's getSpectrogram; hide the panel on an older app
-    // rather than show a box that can never fill in.
-    this.els.spectralSection.classList.toggle('hidden', typeof this.api.audio.getSpectrogram !== 'function')
-    this.seamView = createSeamViewController(this.els.seamCanvas)
-    this.seamView.setLimits({
-      maxSeconds: Number(this.els.crossfade.max) / 1000,
-      stepSeconds: Number(this.els.crossfade.step) / 1000,
-      defaultSeconds: DEFAULT_CROSSFADE_MS / 1000
-    })
-    this.seamView.onCrossfadeChange((seconds) => {
-      this.els.crossfade.value = String(Math.round(seconds * 1000))
-      this.applyCrossfadeControl()
-    })
-    this.seamView.onViewportChange((sourceRanges) => {
-      this.scheduleSeamDetailPeaks(sourceRanges)
-    })
-    this.seamView.onScrub((liveClipTime) => {
-      const source = clipToSource(this.liveLayout(), liveClipTime)
-      if (this.previewMode === 'saved' && this.bakedPreview) {
-        const clipTime = this.sourceTimeToClip(source)
-        this.bakedPreview.scrubTo(clipTime)
-        this.updateStickyProgress(clipTime)
-      } else {
-        this.previewSource?.scrubTo(source)
-        this.updateStickyProgress(source)
-      }
-      this.loopEditorController.setPlayhead(source)
-    })
-    this.loopEditorController.onScrub((t) => {
-      if (this.previewMode === 'saved' && this.bakedPreview) {
-        const clipTime = this.sourceTimeToClip(t)
-        this.bakedPreview.scrubTo(clipTime)
-        this.updateStickyProgress(clipTime)
-      } else {
-        this.previewSource?.scrubTo(t)
-      }
-    })
-    // Dragging (or double-click-resetting) the Doppler "closest point"
-    // marker - the preview already follows the Doppler curve (see
-    // PreviewSource._updatePitch), just the dirty-check/history hook every
-    // other field-change handler already ends with.
-    this.loopEditorController.onDopplerChange(() => this.updateSaveButtonState())
-    // Dragging a fade handle (see waveform.js's corner pins) writes straight
-    // back into whichever numeric field is currently showing (scatter vs.
-    // scheduled - the two can't both be active) so the precision text
-    // inputs and the visual drag stay the same single source of truth in
-    // both directions, same pattern onLoopChange already sets for Start/End.
-    this.loopEditorController.onFadesChange(({ fadeInSec, fadeOutSec }) => {
-      const fadeInMs = Math.round(fadeInSec * 1000)
-      const fadeOutMs = Math.round(fadeOutSec * 1000)
-      const playMode = this.currentPlayMode()
-      if (playMode === 'scatter') {
-        this.els.scatterFadeIn.value = String(fadeInMs)
-        this.els.scatterFadeOut.value = String(fadeOutMs)
-        this.syncFadeToggle(this.els.scatterFadeEnabled, this.els.scatterFadeIn, this.els.scatterFadeOut)
-      } else if (playMode === 'scheduled') {
-        this.els.scheduleFadeIn.value = String(fadeInMs)
-        this.els.scheduleFadeOut.value = String(fadeOutMs)
-        this.syncFadeToggle(this.els.scheduleFadeEnabled, this.els.scheduleFadeIn, this.els.scheduleFadeOut)
-      }
-      this.updateSaveButtonState()
-    })
-    // Dragging/adding/removing/resetting an envelope point - volumeEnvelope
-    // lives inside `filters` (see currentFilters()), so this goes through
-    // the exact same live-preview + dirty-check path every other filter
-    // control already uses, not a bespoke one like fades above.
-    this.loopEditorController.onEnvelopeChange(() => this.applyFilterControls())
-
-    this.eqEditorController = createEqEditorController(this.els.eqCanvas)
-    this.eqEditorController.onChange(() => this.applyEqControls())
-    this.eqEditorController.onNeedLive(() => {
-      if (this.previewMode === 'saved') this.togglePreviewMode()
-    })
-    // Double-click and Alt+click used to fire the identical full reset -
-    // split apart after direct feedback ("double clicking shouldn't reset
-    // the node completely just position. Alt clicking should be the full
-    // reset"). There's no longer a canonical "default" per node to reset
-    // *back to* (bands are user-added now, not a fixed preset set - see
-    // library.js's defaultEqBands()), so both are redefined as "what does
-    // resetting a node mean when there's nothing to reset it back to":
-    // double-click resets just gainDb to 0 (the node's vertical "position"
-    // on the graph, the literal reading of "just position"); Alt+click is
-    // the fuller reset - gainDb:0, q:1, type back to 'peaking' - while still
-    // preserving the node's own frequency, its horizontal identity, not
-    // something a reset should relocate.
-    this.eqEditorController.onDoubleClick((index) => {
-      this.eqEditorController.setSelectedIndex(index)
-      this.eqEditorController.setSelectedBand({ gainDb: 0 })
-      this.applyEqControls()
-    })
-    this.eqEditorController.onAltClick((index) => {
-      this.eqEditorController.setSelectedIndex(index)
-      this.eqEditorController.setSelectedBand({ gainDb: 0, q: 1, type: 'peaking', slope: 'gentle' })
-      this.applyEqControls()
-    })
-
-    this.waveformScrollbar = createWaveformScrollbar(this.els.scrollbarTrack, this.els.scrollbarThumb)
-    this.waveformScrollbar.onNavigate((start, end) => this.loopEditorController.setViewport(start, end))
-    this.loopEditorController.onViewportChange(({ viewStart, viewEnd, duration }) => {
-      this.waveformScrollbar.update(duration, viewStart, viewEnd)
-      this.maybeFetchDetailPeaks(viewStart, viewEnd, duration)
-    })
-
+    this.seamView = mountSeam(this.els, this.loopEditorController, mountCalls)
+    this.eqEditorController = mountEqEditor(this.els, mountCalls)
+    this.waveformScrollbar = mountWaveformScrollbar(this.els, this.loopEditorController, mountCalls)
     wireNameMarquee(this.els.soundName)
     this.wireControls()
     this.wireScrollTop()
     this.wireLeaveConfirmDialog()
     this.refreshLibrary().catch((err) => console.error('Editor: failed to load library', err))
 
-    // Same real EqEditor.js module Sound mode uses (2026-09-06: the owner's
-    // own direction - "the same module... everything else should be kept" -
-    // rather than the old scoped-down WholeMixEqEditor.js, which is now
-    // deleted). It's a plain canvas-scoped controller with no dependency on
-    // a single preview source, so instantiating a second/third one for
-    // Preset/Group mode is exactly as simple as Sound mode's own setup.
-    this.presetEqTarget = createEqTarget({
-      els: eqElements(this.root, 'editor-mix-preset-eq'),
-      getSavedBands: () => this.wholeMixSaved.eq,
-      onApply: (bands) => {
+    // Same real EqEditor module Sound mode uses, one target per Preset / Group mode.
+    Object.assign(this, mountMixEqTargets(this.root, mountCalls))
+    // Fluctuation bars for Preset / Group mode and their control bundles.
+    Object.assign(this, mountMixFluctuation(this.els, mountCalls))
+    this.wireMixControls()
+    this.refreshMixPanel().catch((err) => console.error('Editor: failed to load presets', err))
+  }
+
+  // The tab methods and state the per-panel mount functions (src/mounts/) call; all lazy.
+  mountCallbacks() {
+    const bind = (...names) => Object.fromEntries(names.map((n) => [n, this[n].bind(this)]))
+    return {
+      ...bind(
+        'updateSpectralControls', 'applyFilterControls', 'syncSpectralTool', 'setMarkers', 'editMarker', 'syncSpectralView',
+        'setSpectralTool', 'useShapeAsNoiseSample', 'applyCrossfadeControl', 'scheduleSeamDetailPeaks', 'liveLayout',
+        'updateStickyProgress', 'commitLoopPoints', 'updateSaveButtonState', 'currentPlayMode', 'syncFadeToggle',
+        'applyEqControls', 'togglePreviewMode', 'maybeFetchDetailPeaks', 'readPresetMixControlsAndPreview',
+        'readGroupControlsAndPreview'
+      ),
+      hasSpectrogram: typeof this.api.audio.getSpectrogram === 'function',
+      setFilterValues: (values) => this.filterControls.setValues(values),
+      isSavedPreview: () => this.previewMode === 'saved',
+      // fromSeam: the seam view also moves the sticky progress bar when playing the live source.
+      scrubPreview: (source, fromSeam) => {
+        if (this.previewMode === 'saved' && this.bakedPreview) {
+          const clipTime = this.sourceTimeToClip(source)
+          this.bakedPreview.scrubTo(clipTime)
+          this.updateStickyProgress(clipTime)
+        } else {
+          this.previewSource?.scrubTo(source)
+          if (fromSeam) this.updateStickyProgress(source)
+        }
+      },
+      seekPreview: (sec) => {
+        const active = this.activePreview()
+        if (!active) return
+        const t = this.previewMode === 'saved' ? this.sourceTimeToClip(sec) : sec
+        active.scrubTo(t)
+        this.spectralView.setPlayhead(sec)
+        this.loopEditorController?.setPlayhead(sec)
+        this.updateStickyProgress(t)
+      },
+      getPresetSavedBands: () => this.wholeMixSaved.eq,
+      getGroupSavedBands: () => this.groupSaved.eq,
+      onPresetApply: (bands) => {
         this.wholeMixCurrent = { ...this.wholeMixCurrent, eq: bands }
         this.updateModeUI()
         if (this.mode === 'preset') this.dispatchWholeMixPreview(this.wholeMixCurrent)
-      }
-    })
-    this.presetEq = this.presetEqTarget.eq
-    this.groupEqTarget = createEqTarget({
-      els: eqElements(this.root, 'editor-mix-group-eq'),
-      getSavedBands: () => this.groupSaved.eq,
-      onApply: (bands) => {
+      },
+      onGroupApply: (bands) => {
         this.groupCurrent = { ...this.groupCurrent, eq: bands }
         this.updateModeUI()
         if (this.mode === 'group') this.dispatchGroupPreview(this.groupCurrent)
-      }
-    })
-    this.groupEq = this.groupEqTarget.eq
-
-    // Fluctuation bars for Preset / Group mode (volume; Group also pan). onChange
-    // writes the three handle values into this.wholeMixCurrent/groupCurrent
-    // and re-runs the same read+preview path the sliders use.
-    this.presetFlucBar = createFluctuationBar(this.els.mixPresetFlucBar, {
-      valueMin: 0,
-      valueMax: 1,
-      defaults: { min: 0.5, bias: 0.8, max: 1 },
-      format: (v) => `${Math.round(v * 100)}%`,
-      onChange: (vals) => {
-        this.wholeMixCurrent.fluctuation = { ...this.wholeMixCurrent.fluctuation, volume: { ...this.wholeMixCurrent.fluctuation.volume, ...vals } }
-        this.readPresetMixControlsAndPreview()
-      }
-    })
-    this.groupFlucBar = createFluctuationBar(this.els.mixGroupFlucBar, {
-      valueMin: 0,
-      valueMax: 1,
-      defaults: { min: 0.5, bias: 0.8, max: 1 },
-      format: (v) => `${Math.round(v * 100)}%`,
-      onChange: (vals) => {
-        this.groupCurrent.fluctuation = { ...this.groupCurrent.fluctuation, volume: { ...this.groupCurrent.fluctuation.volume, ...vals } }
-        this.readGroupControlsAndPreview()
-      }
-    })
-    this.groupFlucPitchBar = createFluctuationBar(this.els.mixGroupFlucPitchBar, {
-      valueMin: FLUC_PITCH_MIN,
-      valueMax: FLUC_PITCH_MAX,
-      defaults: { min: -1, bias: 0, max: 1 },
-      format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} st`,
-      onChange: () => this.readGroupControlsAndPreview()
-    })
-    this.groupFlucPanBar = createFluctuationBar(this.els.mixGroupFlucPanBar, {
-      valueMin: FLUC_PAN_MIN,
-      valueMax: FLUC_PAN_MAX,
-      defaults: PAN_DRIFT_DEFAULTS,
-      format: formatPan,
-      onChange: () => this.readGroupControlsAndPreview()
-    })
-
-    // Control bundles for the shared read/write/enabled-UI fluctuation
-    // helpers (Preset + Group mode). Positional args got unwieldy once each
-    // axis grew a min/max change-gap + a Fully-random toggle (v0.1.176).
-    this.presetFlucEls = {
-      enabledEl: this.els.mixPresetFlucEnabled,
-      bar: this.presetFlucBar,
-      changeMinEl: this.els.mixPresetFlucChangeMin,
-      changeMaxEl: this.els.mixPresetFlucChangeMax,
-      transEl: this.els.mixPresetFlucTransition,
-      fullRandomEl: this.els.mixPresetFlucFullRandom,
-      biasEl: this.els.mixPresetFlucBias
-    }
-    this.groupFlucEls = {
-      enabledEl: this.els.mixGroupFlucEnabled,
-      bar: this.groupFlucBar,
-      changeMinEl: this.els.mixGroupFlucChangeMin,
-      changeMaxEl: this.els.mixGroupFlucChangeMax,
-      transEl: this.els.mixGroupFlucTransition,
-      fullRandomEl: this.els.mixGroupFlucFullRandom,
-      biasEl: this.els.mixGroupFlucBias,
-      perSoundEl: this.els.mixGroupFlucPerSound,
-      pitch: {
-        enabledEl: this.els.mixGroupFlucPitchEnabled,
-        bar: this.groupFlucPitchBar,
-        changeMinEl: this.els.mixGroupFlucPitchChangeMin,
-        changeMaxEl: this.els.mixGroupFlucPitchChangeMax,
-        transEl: this.els.mixGroupFlucPitchTransition,
-        fullRandomEl: this.els.mixGroupFlucPitchFullRandom,
-        biasEl: this.els.mixGroupFlucPitchBias,
-        perSoundEl: this.els.mixGroupFlucPitchPerSound,
-        perSoundLocked: true
       },
-      pan: {
-        enabledEl: this.els.mixGroupFlucPanEnabled,
-        bar: this.groupFlucPanBar,
-        changeMinEl: this.els.mixGroupFlucPanChangeMin,
-        changeMaxEl: this.els.mixGroupFlucPanChangeMax,
-        transEl: this.els.mixGroupFlucPanTransition,
-        fullRandomEl: this.els.mixGroupFlucPanFullRandom,
-        biasEl: this.els.mixGroupFlucPanBias,
-        perSoundEl: this.els.mixGroupFlucPanPerSound
+      patchPresetVolume: (vals) => {
+        this.wholeMixCurrent.fluctuation = { ...this.wholeMixCurrent.fluctuation, volume: { ...this.wholeMixCurrent.fluctuation.volume, ...vals } }
+      },
+      patchGroupVolume: (vals) => {
+        this.groupCurrent.fluctuation = { ...this.groupCurrent.fluctuation, volume: { ...this.groupCurrent.fluctuation.volume, ...vals } }
       }
     }
-
-    this.wireMixControls()
-    this.refreshMixPanel().catch((err) => console.error('Editor: failed to load presets', err))
   }
 
   // Floating "scroll to top" button, requested directly since this panel has
