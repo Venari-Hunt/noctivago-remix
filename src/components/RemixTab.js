@@ -25,6 +25,7 @@ import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
+import { createAutosave } from '../domain/autosave.js'
 import { createCompare } from '../domain/compareView.js'
 import { createHistory } from '../domain/editorHistory.js'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
@@ -140,7 +141,14 @@ export default class EditorPlugin {
     // manual Save click and a timer firing at the same moment never start
     // two overlapping bakes of the same sound. See scheduleAutosave()'s own
     // comment for the debounce-vs-fixed-interval choice.
-    this._autosaveTimer = null
+    this.autosave = createAutosave({
+      idleMs: AUTOSAVE_IDLE_MS,
+      canSchedule: () => !this._restoringHistory && !!this.currentEntry,
+      canRun: () => !!this.currentEntry && this.eqCompareViewing !== 'B' && !this.compare.isSaved && this.hasUnsavedChanges(),
+      isBusy: () => !!this._saveInProgress,
+      save: () => this.save({ trigger: 'auto' }),
+      onError: (err) => console.error('Editor: autosave failed', err)
+    })
     this._saveInProgress = false
     // Cached from Settings once on load - the leave-confirmation prompt's
     // own "Don't ask again" button, not a general Settings toggle (per the
@@ -3345,25 +3353,11 @@ export default class EditorPlugin {
   // autosaving on its own; if it leaves things genuinely dirty relative to
   // what's on disk, the very next real edit reschedules this anyway.
   scheduleAutosave() {
-    if (this._restoringHistory || !this.currentEntry) return
-    clearTimeout(this._autosaveTimer)
-    this._autosaveTimer = setTimeout(() => this.runAutosave(), AUTOSAVE_IDLE_MS)
+    this.autosave.schedule()
   }
 
-  async runAutosave() {
-    if (!this.currentEntry || this.eqCompareViewing === 'B' || this.compare.isSaved || !this.hasUnsavedChanges()) return
-    if (this._saveInProgress) {
-      // A manual Save (or a previous autosave) is still mid-render - try
-      // again shortly rather than starting a second overlapping bake of the
-      // same sound.
-      this._autosaveTimer = setTimeout(() => this.runAutosave(), AUTOSAVE_IDLE_MS)
-      return
-    }
-    try {
-      await this.save({ trigger: 'auto' })
-    } catch (err) {
-      console.error('Editor: autosave failed', err)
-    }
+  runAutosave() {
+    return this.autosave.run()
   }
 
   // The exact same normalized shape snapshotOf() already builds for the
@@ -3449,7 +3443,7 @@ export default class EditorPlugin {
       if (this.eqCompareViewing === 'B') this.switchEqCompareView('A')
       clearTimeout(this._historyCommitTimer)
       this.commitHistoryPoint()
-      clearTimeout(this._autosaveTimer)
+      this.autosave.cancel()
       this.compare.enterSaved(this.captureEditorState())
       this.applyEditorState(JSON.parse(this.savedSnapshot))
       this.eqEditorController?.setReadOnly(true)
@@ -3705,7 +3699,7 @@ export default class EditorPlugin {
   disposePreview() {
     this.stopSeamListen({ pause: false })
     this.stopPreviewTicking()
-    clearTimeout(this._autosaveTimer)
+    this.autosave.cancel()
     this.flushFluctuation()
     this.eqEditorController?.clearSpectrum()
     this.previewMode = 'live'
