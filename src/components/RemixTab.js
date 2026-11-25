@@ -22,7 +22,6 @@ import { mountDrift } from './DriftPanel.jsx'
 import { mountEqView } from './EqView.jsx'
 import { mountPresetPanel, mountGroupPanel } from './MixPanels.jsx'
 import { mountTrimView } from './TrimView.jsx'
-import { mountStickyBar } from './StickyBar.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
@@ -359,7 +358,7 @@ export default class EditorPlugin {
   // failure here wouldn't be caught by its fail-soft try/catch — kick off
   // the async part with its own local error handling instead.
   mount(container) {
-    mountRemixApp(container)
+    mountRemixApp(container, { previewVolume: this.previewVolume })
     mountSoundPicker(container.querySelector('#rx-picker-host'))
     mountLoopRow(container.querySelector('#rx-looprow-host'))
     mountPlaybackPanel(container.querySelector('#rx-playback-host'))
@@ -1272,30 +1271,29 @@ export default class EditorPlugin {
   // scrollable panel body. Only ever called once, same lazy-mount-once
   // lifecycle mount() itself already has.
   mountSticky(container) {
-    mountStickyBar(container, { previewVolume: this.previewVolume })
-
-    this.els.playPause = container.querySelector('#editor-play-pause')
-    this.els.loopToggle = container.querySelector('#editor-loop-toggle')
-    this.els.previewModeToggle = container.querySelector('#editor-preview-mode-toggle')
+    // The controls are rendered in the studio panes by RemixApp (mount()).
+    this.els.playPause = this.root.querySelector('#editor-play-pause')
+    this.els.loopToggle = this.root.querySelector('#editor-loop-toggle')
+    this.els.previewModeToggle = this.root.querySelector('#editor-preview-mode-toggle')
     this.els.previewModeToggle.addEventListener('click', () => this.togglePreviewMode())
-    this.els.stickyProgress = container.querySelector('#editor-sticky-progress')
-    this.els.stickyProgressFill = container.querySelector('#editor-sticky-progress-fill')
-    this.els.stickyProgressThumb = container.querySelector('#editor-sticky-progress-thumb')
-    this.els.stickyTime = container.querySelector('#editor-sticky-time')
+    this.els.stickyProgress = this.root.querySelector('#editor-sticky-progress')
+    this.els.stickyProgressFill = this.root.querySelector('#editor-sticky-progress-fill')
+    this.els.stickyProgressThumb = this.root.querySelector('#editor-sticky-progress-thumb')
+    this.els.stickyTime = this.root.querySelector('#editor-sticky-time')
     this.wireStickyProgressDrag()
-    this.els.stickyVolume = container.querySelector('#editor-sticky-volume')
-    this.els.stickyMute = container.querySelector('#editor-sticky-mute')
-    this.els.stickySolo = container.querySelector('#editor-sticky-solo')
-    this.els.undo = container.querySelector('#editor-undo')
-    this.els.redo = container.querySelector('#editor-redo')
-    this.els.cancel = container.querySelector('#editor-cancel')
+    this.els.stickyVolume = this.root.querySelector('#editor-sticky-volume')
+    this.els.stickyMute = this.root.querySelector('#editor-sticky-mute')
+    this.els.stickySolo = this.root.querySelector('#editor-sticky-solo')
+    this.els.undo = this.root.querySelector('#editor-undo')
+    this.els.redo = this.root.querySelector('#editor-redo')
+    this.els.cancel = this.root.querySelector('#editor-cancel')
     this.els.undo.addEventListener('click', () => this.undo())
     this.els.redo.addEventListener('click', () => this.redo())
     this.els.cancel.addEventListener('click', () => this.cancelEdits())
-    this.els.save = container.querySelector('#editor-save')
-    this.els.saveLabel = container.querySelector('#editor-save-label')
+    this.els.save = this.root.querySelector('#editor-save')
+    this.els.saveLabel = this.root.querySelector('#editor-save-label')
     this.els.save.addEventListener('click', () => this.save().catch((err) => console.error('Editor: save failed', err)))
-    this.els.saveAsCopy = container.querySelector('#editor-save-as-copy')
+    this.els.saveAsCopy = this.root.querySelector('#editor-save-as-copy')
     this.els.saveAsCopy.addEventListener('click', () => this.saveAsCopy().catch((err) => console.error('Editor: save as copy failed', err)))
     this.els.saveSegment = this.root.querySelector('#editor-save-segment')
     this.els.saveSegment.addEventListener('click', () => this.saveSegmentAsNew().catch((err) => console.error('Editor: save segment failed', err)))
@@ -1350,20 +1348,20 @@ export default class EditorPlugin {
     this.els.stickySolo.addEventListener('click', () => this.toggleSolo())
     this.updatePreviewMuteIcon()
 
-    this.els.stickySoundControls = container.querySelector('#editor-sticky-sound-controls')
+    this.els.stickySoundControls = this.root.querySelector('#editor-sticky-sound-controls')
     // The sound picker lives in the bar's left slot (layout.js moves it there),
     // so the sound can be switched from anywhere. mount() built and wired it.
     this.els.soundPicker = this.els.soundSearch?.closest('.editor-picker')
     this.els.soundPicker?.classList.toggle('hidden', this.mode !== 'sound')
-    this.els.stickyMixControls = container.querySelector('#editor-sticky-mix-controls')
-    this.els.mixPlayPause = container.querySelector('#editor-mix-play-pause')
-    this.els.mixSoloGroup = container.querySelector('#editor-mix-solo-group')
-    this.els.mixStatus = container.querySelector('#editor-mix-status')
-    this.els.mixSave = container.querySelector('#editor-mix-save')
-    this.els.mixDeleteGroup = container.querySelector('#editor-mix-delete-group')
-    this.els.mixCopyGroupTo = container.querySelector('#editor-mix-copy-group-to')
-    this.els.mixMute = container.querySelector('#editor-mix-mute')
-    this.els.mixVolume = container.querySelector('#editor-mix-volume')
+    this.els.stickyMixControls = this.root.querySelector('#editor-sticky-mix-controls')
+    this.els.mixPlayPause = this.root.querySelector('#editor-mix-play-pause')
+    this.els.mixSoloGroup = this.root.querySelector('#editor-mix-solo-group')
+    this.els.mixStatus = this.root.querySelector('#editor-mix-status')
+    this.els.mixSave = this.root.querySelector('#editor-mix-save')
+    this.els.mixDeleteGroup = this.root.querySelector('#editor-mix-delete-group')
+    this.els.mixCopyGroupTo = this.root.querySelector('#editor-mix-copy-group-to')
+    this.els.mixMute = this.root.querySelector('#editor-mix-mute')
+    this.els.mixVolume = this.root.querySelector('#editor-mix-volume')
     this.els.mixVolume.addEventListener('input', () => {
       window.dispatchEvent(new CustomEvent('noctivago:remix-set-volume', { detail: { position: Number(this.els.mixVolume.value) / 1000 } }))
     })

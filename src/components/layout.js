@@ -767,86 +767,39 @@ function buildStudio(root, { getStudio, onPick, detail }) {
   return { refresh: queue, refreshNow: refreshAll, lib, prev, head, holder }
 }
 
-// Called once at the end of mountSticky(): moves the controls mountSticky()
-// made into the studio panes (buildStudio). Nothing is left in the app's
-// sticky bar, so it is hidden while Remix shows.
+// Called once at the end of mountSticky(): wires the controls RemixApp renders
+// in the studio panes (Play, volumes, Undo, Save, the pickers). Nothing is
+// left in the app's sticky bar, so it is hidden while Remix shows.
 export function arrangeBar(bar, root) {
   const doc = bar.ownerDocument
   const win = doc.defaultView
-  const $ = (sel) => bar.querySelector(sel) || root.querySelector(sel)
+  const $ = (sel) => root.querySelector(sel)
   bar.classList.add('rx-bar-host')
   const tab = root.querySelector('.editor-tab')
   const holder = tab.querySelector('.rx-holder')
-  const lib = tab.querySelector('.rx-lib')
 
   // The old search-and-dropdown picker: the library list replaces it.
   const picker = root.querySelector('.editor-picker')
   if (picker) holder.appendChild(picker)
 
-  // Sound, Group, Preset (the mock's order) as chips. The tab toggles
-  // editor-mode-pill-active on them; CSS reads that.
-  const chips = lib.querySelector('#rx-chips')
-  // Each chip carries its type's icon, the same one as its rows and panel.
-  const CHIP_ICON = { '#editor-mode-sound': 'audio-waveform', '#editor-mode-group': 'layers', '#editor-mode-preset': 'bookmark' }
-  for (const id of ['#editor-mode-sound', '#editor-mode-group', '#editor-mode-preset']) {
-    const b = $(id)
-    b.classList.remove('editor-mode-pill')
-    b.classList.add('rx-mchip')
-    b.insertAdjacentHTML('afterbegin', icon(CHIP_ICON[id], 14))
-    chips.appendChild(b)
-  }
+  // The chips carry the hint as their tooltip.
+  const chips = tab.querySelector('#rx-chips')
   const hint = root.querySelector('#editor-mode-hint')
-  if (hint) {
-    const syncTitle = () => {
-      chips.title = hint.textContent
-    }
-    new win.MutationObserver(syncTitle).observe(hint, { childList: true, characterData: true, subtree: true })
-    syncTitle()
-    holder.appendChild(hint)
+  const syncTitle = () => {
+    chips.title = hint.textContent
   }
-  root.querySelector('.editor-mode-switch-row')?.remove()
+  new win.MutationObserver(syncTitle).observe(hint, { childList: true, characterData: true, subtree: true })
+  syncTitle()
 
-  // Group mode lists the groups of one preset: that preset's select sits
-  // under the chips. The group select itself is replaced by the list.
-  const mixPickers = $('#editor-mix-picker-row')
-  const presetSelect = $('#editor-mix-preset-select')
-  presetSelect.classList.add('rx-field')
-  presetSelect.setAttribute('aria-label', 'Preset')
-  lib.querySelector('#rx-in-preset').appendChild(presetSelect)
-  $('#editor-mix-group-select').setAttribute('aria-label', 'Group')
-  const newGroup = $('#editor-mix-group-new')
-  holder.appendChild(mixPickers)
   // New group sits by the library title in every mode, as in the mock; from
   // Sound or Preset it opens Group first.
-  lib.querySelector('#rx-new-group').addEventListener('click', () => {
+  const newGroup = $('#editor-mix-group-new')
+  tab.querySelector('#rx-new-group').addEventListener('click', () => {
     if (!$('#editor-mode-group').classList.contains('editor-mode-pill-active')) $('#editor-mode-group').click()
     win.setTimeout(() => newGroup.click(), 0)
   })
 
-  // Center head: Undo, Redo, Cancel, Save as copy, Save (Sound) or the
-  // status and Save (Group, Preset), then Copy to preset and Delete group.
-  const acts = tab.querySelector('#rx-acts')
-  const mixControls = $('#editor-sticky-mix-controls')
-  const groupActions = $('#rx-group-actions')
-  const soloGroup = $('#editor-mix-solo-group')
-  acts.append($('#editor-sticky-sound-controls'), mixControls, groupActions)
-
-  // Preview module: Play, the name, S, Loop; the seek bar with its times;
-  // then preview volume and Live edit (not in the mock, kept).
-  const playSlot = tab.querySelector('#rx-pplay-slot')
-  const endSlot = tab.querySelector('#rx-prow-end')
-  const play = $('#editor-play-pause')
-  play.className = 'rx-pplay rx-only-sound'
-  const mixPlay = $('#editor-mix-play-pause')
-  mixPlay.className = 'rx-pplay rx-only-mix'
-  playSlot.append(play, mixPlay)
-  const solo = $('#editor-sticky-solo')
-  solo.classList.add('rx-only-sound')
-  const loop = $('#editor-loop-toggle')
-  loop.classList.add('rx-only-sound')
-  soloGroup.classList.add('rx-only-mix')
-  endSlot.append(solo, loop, soloGroup)
-
+  // The preview module's time readout feeds the seek row's two labels.
   const time = $('#editor-sticky-time')
   const cur = tab.querySelector('#rx-cur')
   const total = tab.querySelector('#rx-total')
@@ -857,32 +810,9 @@ export function arrangeBar(bar, root) {
   }
   new win.MutationObserver(syncTime).observe(time, { childList: true, characterData: true, subtree: true })
   syncTime()
-  holder.appendChild(time)
-  tab.querySelector('#rx-seek-slot').appendChild($('#editor-sticky-progress'))
 
-  const vol = tab.querySelector('#rx-pvol')
   const volume = $('#editor-sticky-volume')
-  const volumeWrap = el(doc, 'div', 'rx-volume')
-  volumeWrap.appendChild(volume)
   const syncVolume = () => volume.style.setProperty('--p', `${volume.value}%`)
   volume.addEventListener('input', syncVolume)
   syncVolume()
-  // Group and Preset modes play through the Mixer: their volume row is the
-  // app's master volume (RemixTab.updateMixVolumeUI), shown in place of the
-  // Sound preview's own row.
-  const mixMute = $('#editor-mix-mute')
-  const mixVolume = $('#editor-mix-volume')
-  mixMute.classList.add('rx-only-mix')
-  const mixVolumeWrap = el(doc, 'div', 'rx-volume rx-only-mix')
-  mixVolumeWrap.appendChild(mixVolume)
-  const soundMute = $('#editor-sticky-mute')
-  soundMute.classList.add('rx-only-sound')
-  volumeWrap.classList.add('rx-only-sound')
-  const modeToggle = $('#editor-preview-mode-toggle')
-  modeToggle.classList.add('rx-only-sound')
-  vol.append(soundMute, volumeWrap, mixMute, mixVolumeWrap, modeToggle)
-
-  tab.querySelector('#rx-transport')?.remove()
-  bar.querySelector('#rx-transport-src')?.remove()
-  bar.querySelector('.rx-bar')?.remove()
 }
