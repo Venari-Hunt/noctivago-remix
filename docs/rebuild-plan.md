@@ -46,7 +46,8 @@ Step 9 progress (layout.js, one PR per region, each into ui-redesign):
 
 - #56: RemixApp.jsx renders the tab shell (mode switch, picker row, panels, leave-confirm modal).
 - #57: studio panes: library, preview module and head are RemixApp markup (`StudioLeft`, `StudioHead`, `.rx-holder`); `buildStudio` only wires them.
-- Left: canvas column, settings column and accordions, Group and Preset scope layouts, `arrangeBar`.
+- #58: Sound canvas column (view tabs, Now / Last saved, the four view hosts, save status) is RemixApp markup (`SoundCanvas`); each view host is the view element, so layout.js moves nothing into it.
+- Left: settings column and accordions, Group and Preset scope layouts, `arrangeBar`.
 
 About 13 PRs. Steps 1 and 3 come first because other open tasks touch knobs and preview buttons.
 

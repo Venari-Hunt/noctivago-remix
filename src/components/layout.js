@@ -304,67 +304,35 @@ function arrangeScope(root, kind, getBands) {
   return { refresh }
 }
 
-const VIEWS = [
-  ['trim', 'Trim'],
-  ['seam', 'Loop seam'],
-  ['eq', 'EQ'],
-  // Was "Spectrum", then "Repair"; Noise reduction and shape repair live here (owner, 2026-11-21).
-  ['spec', 'Spectral repair']
-]
-
 // Called once from mount(), right after the markup is written and before any
 // element is looked up or wired.
 export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, onPick, detail } = {}) {
   const doc = root.ownerDocument
   const win = doc.defaultView
   const $ = (sel) => root.querySelector(sel)
-  const tab = $('.editor-tab')
   const panel = $('#editor-panel')
-  tab.classList.add('rx')
-  panel.classList.add('rx-grid')
-  panel.dataset.view = 'trim'
 
-  // --- Left: the canvas column ---
-  const canvasCol = el(doc, 'div', 'rx-canvas')
-  const tabs = el(
-    doc,
-    'div',
-    'rx-tabs',
-    `<div class="rx-vtabs" role="group" aria-label="View">${VIEWS.map(([k, t]) => `<button type="button" data-rx-view="${k}" aria-pressed="${k === 'trim'}">${t}</button>`).join('')}</div>` +
-      '<div class="rx-seg rx-compare" role="group" aria-label="Compare with last saved" title="Last saved shows and plays the settings as they were last saved. Read-only: switch back to Now to keep editing."><button type="button" data-rx-compare="now" aria-pressed="true">Now</button><button type="button" data-rx-compare="saved" aria-pressed="false">Last saved</button></div>'
-  )
-  const viewTrim = el(doc, 'div', 'rx-view rx-view-trim')
-  const viewSeam = el(doc, 'div', 'rx-view rx-view-seam')
-  const viewEq = el(doc, 'div', 'rx-view rx-view-eq')
-  const viewSpec = el(doc, 'div', 'rx-view rx-view-spec')
+  // --- Left: the canvas column (RemixApp's SoundCanvas) ---
+  const canvasCol = panel.querySelector('.rx-canvas')
+  const tabs = canvasCol.querySelector('.rx-tabs')
+  const viewTrim = canvasCol.querySelector('.rx-view-trim')
+  const viewSeam = canvasCol.querySelector('.rx-view-seam')
+  const viewEq = canvasCol.querySelector('.rx-view-eq')
+  const viewSpec = canvasCol.querySelector('.rx-view-spec')
 
   // Looked up before anything is detached: $ only sees nodes still under root.
   const syncRow = $('#editor-sync-group-row')
-  // Trim view: TrimView.jsx rendered the name row, canvas, scrollbar, times and
-  // the Doppler switch with its knobs.
-  const times = $('.editor-times')
-  const options = $('.rx-wrap2')
-  const dopplerHint = $('#editor-doppler-hint')
 
   // The volume envelope has its own accordion (owner, 2026-11-11: under the
   // trim controls it was hard to find and Reset sat badly under the switch):
   // SeamView.jsx rendered its body (switch row, Reset, how-to line).
-  const crossfadeSection = $('#editor-crossfade-section')
   const envelopeBody = $('.rx-envelope-body')
-
-  // Step 13d: the transport and the seek bar live in the preview module under
-  // the library (RemixApp's StudioLeft), not under the Trim canvas.
-  viewTrim.append($('.editor-name-row'), $('#editor-canvas'), $('#editor-scrollbar'), $('#editor-waveform-status'), times, options, dopplerHint)
-
-  // Loop seam view: SeamView.jsx rendered the canvas, knob and Listen button.
-  viewSeam.appendChild(crossfadeSection)
 
   // EQ view: the graph, then its tools and the selected band's fields under
   // it. A/B compare and Reset are settings, so they stay in the side column.
   const eq = $('#editor-eq-canvas').closest('.editor-eq')
   const eqTools = pickEqTools(eq)
   const eqHeader = eqTools.toolbar
-  viewEq.appendChild(eq)
   const openEq = el(doc, 'button', 'rx-b', '<span>Open EQ</span>')
   openEq.type = 'button'
   openEq.id = 'rx-open-eq'
@@ -372,12 +340,6 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
   const eqSide = el(doc, 'div', 'rx-srow1 rx-eq-side')
   eqSide.append(eqTools.compare, openEq, eqTools.reset)
 
-  // Repair view: SpectrumView.jsx rendered the spectrogram and its controls.
-  const spectral = $('#editor-spectral-section')
-  viewSpec.appendChild(spectral)
-
-  const saveStatus = $('#editor-save-status')
-  canvasCol.append(tabs, viewTrim, viewSeam, viewEq, viewSpec, saveStatus)
 
   // --- Right: the settings column ---
   const side = el(doc, 'aside', 'rx-side')

@@ -12,7 +12,44 @@ const PRESETS = [
   ['underwater', 'Underwater']
 ]
 
+// The canvas views of the Sound editor. Each host is the view element itself:
+// the tab's markup (TrimView, SeamView, EqView, SpectrumView) renders into it
+// and layout.js only moves out what belongs to the settings column.
+const VIEWS = [
+  ['trim', 'Trim'],
+  ['seam', 'Loop seam'],
+  ['eq', 'EQ'],
+  // Was "Spectrum", then "Repair"; Noise reduction and shape repair live here (owner, 2026-11-21).
+  ['spec', 'Spectral repair']
+]
+const VIEW_HOST = { trim: 'rx-trim-host', seam: 'rx-seam-host', eq: 'rx-eq-host-sound', spec: 'rx-spectrum-host' }
+
 const html = (__html) => ({ __html })
+
+const COMPARE_TITLE = 'Last saved shows and plays the settings as they were last saved. Read-only: switch back to Now to keep editing.'
+
+// The Sound canvas column: view tabs, Now / Last saved, the four views, save status.
+function SoundCanvas() {
+  return (
+    <div className="rx-canvas">
+      <div className="rx-tabs">
+        <div className="rx-vtabs" role="group" aria-label="View">
+          {VIEWS.map(([k, t]) => (
+            <button key={k} type="button" data-rx-view={k} aria-pressed={k === 'trim'}>{t}</button>
+          ))}
+        </div>
+        <div className="rx-seg rx-compare" role="group" aria-label="Compare with last saved" title={COMPARE_TITLE}>
+          <button type="button" data-rx-compare="now" aria-pressed="true">Now</button>
+          <button type="button" data-rx-compare="saved" aria-pressed="false">Last saved</button>
+        </div>
+      </div>
+      {VIEWS.map(([k]) => (
+        <div key={k} id={VIEW_HOST[k]} className={`rx-view rx-view-${k}`} />
+      ))}
+      <p id="editor-save-status" className="editor-save-status"></p>
+    </div>
+  )
+}
 
 const host = (id) => <div id={id} style={{ display: 'contents' }} />
 
@@ -70,7 +107,7 @@ function StudioHead() {
 export function RemixApp() {
   return (
     <>
-      <div className="editor-tab">
+      <div className="editor-tab rx">
         <StudioLeft />
         <StudioHead />
         <div className="editor-mode-switch-row">
@@ -96,15 +133,12 @@ export function RemixApp() {
 
         <div id="editor-mode-panel-sound">
           {host('rx-picker-host')}
-          <div id="editor-panel" className="editor-panel hidden">
-            {host('rx-trim-host')}
+          <div id="editor-panel" className="editor-panel rx-grid hidden" data-view="trim">
+            <SoundCanvas />
             {host('rx-looprow-host')}
             {host('rx-playback-host')}
-            {host('rx-seam-host')}
             {host('rx-speed-host')}
             <div id="editor-filters" className="editor-filters"></div>
-            {host('rx-eq-host-sound')}
-            {host('rx-spectrum-host')}
             <div className="editor-presets">
               <span className="editor-presets-label">Presets</span>
               {PRESETS.map(([key, label]) => (
@@ -118,7 +152,6 @@ export function RemixApp() {
               </button>
             </div>
             {host('rx-drift-host-sound')}
-            <p id="editor-save-status" className="editor-save-status"></p>
           </div>
           <p id="editor-empty" className="editor-empty">Select a sound above to trim and apply filters.</p>
         </div>
