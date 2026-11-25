@@ -48,7 +48,8 @@ Step 9 progress (layout.js, one PR per region, each into ui-redesign):
 - #57: studio panes: library, preview module and head are RemixApp markup (`StudioLeft`, `StudioHead`, `.rx-holder`); `buildStudio` only wires them.
 - #58: Sound canvas column (view tabs, Now / Last saved, the four view hosts, save status) is RemixApp markup (`SoundCanvas`); each view host is the view element, so layout.js moves nothing into it.
 - #59: Sound settings column shell (`SoundSide`: heading, small-window close button) is RemixApp markup; `buildAccordions` mounts the accordions into it. Group and Preset still build their own column.
-- Left: Group and Preset scope layouts (`arrangeScope`), `arrangeBar`.
+- #60: Group and Preset canvas column (view tab row) and settings column shell are MixPanels markup (`ScopeShell`, shared `SettingsSide.jsx` with Sound); `arrangeScope` fills them. The knobs, label surgery and head values in `arrangeScope` stay.
+- Left: the rest of `arrangeScope`, `arrangeBar`.
 
 About 13 PRs. Steps 1 and 3 come first because other open tasks touch knobs and preview buttons.
 
