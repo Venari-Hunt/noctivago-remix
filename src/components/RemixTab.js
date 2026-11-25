@@ -25,6 +25,7 @@ import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
+import { filterPickerSounds, stepHighlight, enterPick } from '../domain/pickerList.js'
 import { previewModeToggleState, mustFallBackToLive } from '../domain/previewMode.js'
 import { loadedFluctuation, fluctuationFingerprint, isFluctuationDirty, groupDriftFor, groupOverrideNotes } from '../domain/driftState.js'
 import { saveButtonState } from '../domain/saveState.js'
@@ -986,12 +987,12 @@ export default class EditorPlugin {
       if (evt.key === 'ArrowDown') {
         evt.preventDefault()
         if (options.length === 0) return
-        this.pickerHighlightIndex = (this.pickerHighlightIndex + 1) % options.length
+        this.pickerHighlightIndex = stepHighlight(this.pickerHighlightIndex, options.length, 1)
         this.renderPickerOptions()
       } else if (evt.key === 'ArrowUp') {
         evt.preventDefault()
         if (options.length === 0) return
-        this.pickerHighlightIndex = (this.pickerHighlightIndex - 1 + options.length) % options.length
+        this.pickerHighlightIndex = stepHighlight(this.pickerHighlightIndex, options.length, -1)
         this.renderPickerOptions()
       } else if (evt.key === 'Enter') {
         evt.preventDefault()
@@ -999,7 +1000,7 @@ export default class EditorPlugin {
         // yet - requested directly: typing a precise search and hitting
         // Enter shouldn't need an extra arrow-down first, since a precise
         // query usually narrows straight down to the one sound you meant.
-        const picked = options[this.pickerHighlightIndex] ?? options[0]
+        const picked = enterPick(options, this.pickerHighlightIndex)
         if (picked) this.selectPickerSound(picked.id)
       } else if (evt.key === 'Escape') {
         this.closePicker()
@@ -1877,10 +1878,7 @@ export default class EditorPlugin {
   }
 
   filteredPickerSounds() {
-    const query = this.pickerQuery.trim().toLowerCase()
-    const editable = this.editableSounds()
-    if (!query) return editable
-    return editable.filter((s) => s.name.toLowerCase().includes(query))
+    return filterPickerSounds(this.editableSounds(), this.pickerQuery)
   }
 
   openPicker() {
