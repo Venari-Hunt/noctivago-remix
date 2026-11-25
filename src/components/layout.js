@@ -7,7 +7,6 @@
 // on sections by play mode, and the two would fight. Accordions fold with
 // data-open, canvas views with data-view on the panel.
 import { icon } from './icons.js'
-import { attachKnob } from './Knob.js'
 import { filterSummaries } from './filterSummary.js'
 import { renderDetail } from './LibraryDetail.jsx'
 import { mountAccordions } from './Accordion.jsx'
@@ -147,6 +146,9 @@ export function driftSummary(enabled, rangeText) {
 
 // Group and Preset (mock screens remix-group, remix-preset): the EQ graph is
 // the only canvas view, the settings column holds knobs as in Sound.
+// MixPanels.jsx rendered the card as final markup (canvas column, settings
+// shell, the pieces of each accordion in .rx-bodies); this puts the EQ and the
+// drift cards in and fills the accordions.
 function arrangeScope(root, kind, getBands) {
   const doc = root.ownerDocument
   const win = doc.defaultView
@@ -154,70 +156,17 @@ function arrangeScope(root, kind, getBands) {
   const $ = (sel) => root.querySelector(sel)
   const host = $(kind === 'preset' ? '#editor-mix-preset-controls' : '#editor-mix-group-editor')
 
-  // --- Left: the EQ, then the loudness strip (not in the mock, kept) ---
-  // The canvas column and its one view tab (the EQ) are MixPanels' ScopeShell.
+  // --- Left: the EQ goes under the tab row, above the loudness strip ---
   const canvasCol = host.querySelector(':scope > .rx-canvas')
   const eqCanvas = $(`#${p}-eq-canvas`)
   const eq = eqCanvas.closest('.editor-eq')
   eq.classList.add('rx-scope-eq')
   const eqTools = pickEqTools(eq)
-  const loudness = $(`#${p}-waveform`)
-  const loudnessNote = loudness.previousElementSibling
-  loudnessNote.classList.add('rx-hint')
-  canvasCol.append(eq, loudnessNote, loudness)
-  const presetHint = $('#editor-mix-preset-hint')
-  if (kind === 'preset' && presetHint) {
-    presetHint.classList.add('rx-hint')
-    canvasCol.appendChild(presetHint)
-  }
+  canvasCol.querySelector('.rx-tabs').after(eq)
 
   // --- Right: settings ---
-  const knobs = (list) => {
-    const grid = el(doc, 'div', 'rx-kgrid')
-    for (const [id, label] of list) {
-      const input = $(`#${p}-${id}`)
-      const row = input.closest('label')
-      grid.appendChild(attachKnob(input, { label, valueEl: $(`#${p}-${id}-value`) }).el)
-      row.remove()
-    }
-    return grid
-  }
-  const tone = el(doc, 'div', 'rx-filter-group')
-  tone.appendChild(
-    knobs([
-      ['highpass', 'High-pass'],
-      ['lowpass', 'Low-pass'],
-      ['gain', 'Gain'],
-      // Group pan (owner, 2026-11-11); a whole mix has no pan.
-      ...(kind === 'group' ? [['pan', 'Pan']] : [])
-    ])
-  )
-  if (kind === 'preset') {
-    // Fade in is not in the mock; it sits under Tone as a time row.
-    const fade = $('#editor-mix-preset-fadein')
-    const fadeLabel = fade.closest('label')
-    const fadeRow = el(doc, 'div', 'rx-trow', '<span>Fade in when the preset loads</span>')
-    fade.setAttribute('aria-label', 'Fade in')
-    fadeRow.append(fade, el(doc, 'span', '', 's'))
-    fadeRow.title = 'Eases the whole mix up when the preset loads'
-    fadeLabel.remove()
-    tone.appendChild(fadeRow)
-  }
-  const space = el(doc, 'div', 'rx-filter-group')
-  space.appendChild(
-    knobs([
-      ['echo-delay', 'Echo delay'],
-      ['echo-decay', 'Echo decay'],
-      ['reverb-size', 'Room size'],
-      ['reverb-mix', 'Reverb mix']
-    ])
-  )
-  let occl = null
-  if (kind === 'group') {
-    occl = el(doc, 'div', 'rx-filter-group', '<p class="rx-hint rx-hint-l">Sounds like this group is behind a wall or a door.</p>')
-    occl.appendChild(knobs([['occlusion', 'Amount']]))
-  }
-  host.querySelector('.editor-filters')?.remove() // emptied above
+  const bodyOf = (key) => [...(host.querySelector(`.rx-bodies > [data-body="${key}"]`)?.children ?? [])]
+  const members = $('#editor-mix-group-members')
 
   const openEq = el(doc, 'button', 'rx-b', '<span>Open EQ</span>')
   openEq.type = 'button'
@@ -227,29 +176,10 @@ function arrangeScope(root, kind, getBands) {
   eqSide.append(eqTools.compare, openEq, eqTools.reset)
 
   const drift = host.querySelector('.editor-fluctuation')
-  const looks = host.querySelector(`.editor-presets:has([data-mix-${kind}-effect])`)
-  looks.className = 'rx-looks'
-  looks.querySelector('.editor-presets-label')?.remove()
-  for (const btn of looks.querySelectorAll(`[data-mix-${kind}-effect]`)) btn.className = 'rx-chip'
-  const resetFilters = $(`#${p}-reset-filters`)
-  const resetRow = resetFilters.closest('.editor-actions')
-  resetRow.className = 'rx-srow1'
-  resetFilters.className = 'rx-b rx-ghost'
-  resetFilters.innerHTML = `${icon('refresh-cw')}<span>Reset filters</span>`
-
-  const bodies = { tone: [tone], eq: [eqSide], space: [space], ...driftBodies(drift, SCOPE_DRIFT[kind].axes), looks: [looks, resetRow] }
-  let members = null
+  const bodies = { tone: bodyOf('tone'), eq: [eqSide], space: bodyOf('space'), ...driftBodies(drift, SCOPE_DRIFT[kind].axes), looks: bodyOf('looks') }
   if (kind === 'group') {
-    const nameRow = host.querySelector('.editor-mix-row')
-    nameRow.className = 'rx-trow rx-name-row'
-    const nameInput = $('#editor-mix-group-name')
-    nameInput.classList.add('rx-field')
-    nameInput.setAttribute('aria-label', 'Group name')
-    members = $('#editor-mix-group-members')
-    const membersNote = members.previousElementSibling
-    membersNote.className = 'rx-hint rx-hint-l'
-    bodies.members = [nameRow, membersNote, members]
-    bodies.occl = [occl]
+    bodies.members = bodyOf('members')
+    bodies.occl = bodyOf('occl')
   }
 
   const side = host.querySelector(':scope > .rx-side')
