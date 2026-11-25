@@ -69,8 +69,9 @@ After step 9 `RemixTab.js` is still about 5,360 lines (target under 1,500). It k
 | 10e | `domain/previewMode.js` | `previewModeToggleState`, `mustFallBackToLive` | done (#69), pure part only |
 | 10f | `domain/pickerList.js` | `filterPickerSounds`, `stepHighlight`, `enterPick` | done (#70), pure part only |
 | 10g | `domain/markerKeys.js` | `markerKeyAction` | done (#71), pure part only |
+| 10i | `controllers/saveController.js` | `createSaveController(callbacks)`: `save`, `saveAsCopy`, `saveSegmentAsNew`, `isSaving`; pure `effectiveCrossfade`, `nextCopyName` | done (#PRNUM) |
 
-Slices 10a to 10h took the pure rules out. What is left in `RemixTab.js` is DOM and audio wiring (`mount`, `wireControls`, `performSave`, `loadSound`, `onload`, `mountSticky`, the engine start and dispose calls). Next round: a `SaveController` that owns `performSave`, `save`, `saveAsCopy` and `saveSegmentAsNew` (callbacks in, `saveMorph` and `setSaveLabel` stay on the tab), then a `PreviewController` for the engines, then `loadSound`.
+Slices 10a to 10h took the pure rules out. What is left in `RemixTab.js` is DOM and audio wiring (`mount`, `wireControls`, `performSave`, `loadSound`, `onload`, `mountSticky`, the engine start and dispose calls). The `SaveController` (10i, #PRNUM) now owns `performSave`, `save`, `saveAsCopy` and `saveSegmentAsNew` (callbacks in; `saveMorph` and `setSaveLabel` stay on the tab). Next: a `PreviewController` for the engines, then `loadSound`.
 
 Order was safest first: pure state, then the pure rules of each piece. Guard for each: `npm test`, plugin rebuild, and the whole Remix e2e set in the app repo.
 

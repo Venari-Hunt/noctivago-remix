@@ -33,6 +33,7 @@ import { saveButtonState } from '../domain/saveState.js'
 import { createAutosave } from '../domain/autosave.js'
 import { createCompare } from '../domain/compareView.js'
 import { createHistory } from '../domain/editorHistory.js'
+import { createSaveController, nextCopyName } from '../controllers/saveController.js'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
 import { loadMarkers, saveMarkers } from '../domain/markerStore.js'
@@ -150,11 +151,53 @@ export default class EditorPlugin {
       idleMs: AUTOSAVE_IDLE_MS,
       canSchedule: () => !this._restoringHistory && !!this.currentEntry,
       canRun: () => !!this.currentEntry && this.eqCompareViewing !== 'B' && !this.compare.isSaved && this.hasUnsavedChanges(),
-      isBusy: () => !!this._saveInProgress,
+      isBusy: () => this.saveCtl.isSaving(),
       save: () => this.save({ trigger: 'auto' }),
       onError: (err) => console.error('Editor: autosave failed', err)
     })
-    this._saveInProgress = false
+    this.saveCtl = createSaveController({
+      api: this.api,
+      emit: (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail })),
+      getEntry: () => this.currentEntry,
+      getEditingPresetId: () => this.editingPresetId,
+      getFluctuation: () => this.fluctuation,
+      getPresets: () => this.presets,
+      setPresets: (presets) => { this.presets = presets },
+      hasLoopEditor: () => !!this.loopEditorController,
+      getLoopPoints: () => this.loopEditorController.getLoopPoints(),
+      isViewingB: () => this.eqCompareViewing === 'B',
+      isCompareSaved: () => this.compare.isSaved,
+      hasUnsavedChanges: () => this.hasUnsavedChanges(),
+      fluctuationDirty: () => this.fluctuationDirty(),
+      currentFilters: () => this.currentFilters(),
+      currentCrossfadeMs: () => this.currentCrossfadeMs(),
+      currentSpeedPitch: () => this.currentSpeedPitch(),
+      currentPlayMode: () => this.currentPlayMode(),
+      currentScatterConfig: () => this.currentScatterConfig(),
+      currentScheduleConfig: () => this.currentScheduleConfig(),
+      nextCopyName: (baseName) => this.nextCopyName(baseName),
+      refreshLibrary: () => this.refreshLibrary(),
+      updateSaveButtonState: () => this.updateSaveButtonState(),
+      setStatus: (text) => { this.els.saveStatus.textContent = text },
+      setSaveAsCopyDisabled: (disabled) => { this.els.saveAsCopy.disabled = disabled },
+      setSaveSegmentDisabled: (disabled) => { this.els.saveSegment.disabled = disabled },
+      saveWorking: (word) => this.saveMorph?.working(word),
+      saveDone: (word) => this.saveMorph?.done(word),
+      saveFail: (word) => this.saveMorph?.fail(word),
+      beginBake: (trigger) => {
+        this.els.save.disabled = true
+        if (!this.saveMorph) this.setSaveLabel(trigger === 'auto' ? 'Auto-saving…' : 'Saving…')
+      },
+      commitSavedSnapshot: (...settings) => { this.savedSnapshot = this.snapshotOf(...settings) },
+      cancelPendingFluctuation: () => {
+        clearTimeout(this._fluctuationSaveTimer)
+        this._pendingFluctuation = null
+      },
+      fluctuationSnapshot: () => this.fluctuationSnapshot(),
+      commitFluctuationSnapshot: () => { this.savedFluctuationSnapshot = this.fluctuationSnapshot() },
+      releaseBakedPreview: () => this.releaseBakedPreviewForRebake(),
+      restoreBakedPreview: (args) => this.restoreBakedPreviewAfterRebake(args)
+    })
     // Cached from Settings once on load - the leave-confirmation prompt's
     // own "Don't ask again" button, not a general Settings toggle (per the
     // original request: the prompt itself carries the opt-out).
@@ -190,7 +233,7 @@ export default class EditorPlugin {
   // returns true, so an update never throws away edits: unsaved Sound,
   // Fluctuation, Preset or Group changes, or a save still writing.
   isBusy() {
-    if (this._saveInProgress || this._groupSaveInProgress) return true
+    if (this.saveCtl.isSaving() || this._groupSaveInProgress) return true
     if (this.hasUnsavedChanges() || this.fluctuationDirty()) return true
     if (this.selectedPresetId && this.wholeMixCurrent && this.wholeMixSaved && !wholeMixEqual(this.wholeMixCurrent, this.wholeMixSaved)) return true
     return Boolean(this.selectedGroupId && this.groupCurrent && this.groupSaved && !groupFiltersEqual(this.groupCurrent, this.groupSaved))
@@ -1536,7 +1579,7 @@ export default class EditorPlugin {
   async togglePreviewMode() {
     if (this._togglingPreviewMode) return
     if (this.previewMode !== 'saved' && !this.savedPreviewEligible()) {
-      if (this._clipRebaking || this._saveInProgress || this.eqCompareViewing === 'B') return
+      if (this._clipRebaking || this.saveCtl.isSaving() || this.eqCompareViewing === 'B') return
       this._togglingPreviewMode = true
       const entry = this.currentEntry
       try {
@@ -3921,485 +3964,69 @@ export default class EditorPlugin {
     this.els.waveformStatus.textContent = peaks ? '' : failure ? `Waveform failed to load: ${failure}` : 'Waveform preview unavailable for this file.'
   }
 
-  // trigger: 'manual' (the Save button) or 'auto' (runAutosave) - only
-  // changes the status-line wording below, everything else about the save
-  // is identical either way. _saveInProgress guards against a manual click
-  // and a debounced autosave firing at the same moment starting two
-  // overlapping bakes of the same sound.
-  async save(options = {}) {
-    const { trigger = 'manual', forceBake = false } = options
-    // Defense in depth - the Save button is already disabled while viewing
-    // B (see updateSaveButtonState), but currentFilters() would silently
-    // read B's read-only data instead of A's real live edits if this ever
-    // ran anyway.
-    if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B' || this.compare.isSaved) return
-    if (this._saveInProgress) return
-    this._saveInProgress = true
-    this.saveMorph?.working(trigger === 'auto' ? 'Auto-saving' : 'Saving')
-    try {
-      await this.performSave(trigger, forceBake)
-      this.saveMorph?.done(trigger === 'auto' ? 'Auto-saved' : 'Changes saved')
-    } catch (err) {
-      this.saveMorph?.fail("Couldn't save. Try again")
-      this.updateSaveButtonState()
-      throw err
-    } finally {
-      this._saveInProgress = false
-    }
-  }
-
-  async performSave(trigger, forceBake = false) {
-    const savedWord = trigger === 'auto' ? 'Auto-saved' : 'Saved'
-    const id = this.currentEntry.id
-    // BUG FIX (self-review, v0.1.196): everything this async function reads
-    // off `this` after an `await` - `this.currentEntry`, `this.editingPresetId`,
-    // `this.fluctuation` - can legitimately change mid-save, since nothing
-    // stops the user from clicking a different sound in the Remix picker
-    // (loadSound() reassigns these immediately, with no lock against an
-    // in-flight save/autosave; `_saveInProgress` only guards two overlapping
-    // save() calls, not a save racing a sound switch). Without capturing a
-    // stable reference up front, a bake that resolves after the switch wrote
-    // its results onto the *new* sound's currentEntry (corrupting it with
-    // the old sound's bake data) and dispatched a Mixer event mislabeling
-    // the old sound's id under the new sound's preset context. `entry` below
-    // is the one true target for every mutation/read this save produces,
-    // regardless of what `this.currentEntry` points to by the time it
-    // resolves; `stillEditingThisEntry()` gates anything that should only
-    // happen if the Remix UI is still actually showing this sound (status
-    // text, the Save button, savedSnapshot, the baked-preview swap).
-    const entry = this.currentEntry
-    const savingEditingPresetId = this.editingPresetId
-    const savingFluctuation = this.fluctuation
-    const stillEditingThisEntry = () => this.currentEntry === entry
-    // Captured before savedSnapshot is rewritten below. The Save button can
-    // now be lit by a fluctuation-only edit (see updateSaveButtonState) - in
-    // that case nothing that feeds the ffmpeg render actually changed, so
-    // skip the bake round-trip entirely rather than re-rendering a
-    // byte-identical clip (fluctuation is never baked in).
-    const bakeRelevantDirty = forceBake || this.hasUnsavedChanges()
-    const flucDirty = this.fluctuationDirty()
-    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-    const filters = this.currentFilters()
-    const crossfadeMs = this.currentCrossfadeMs()
-    const crossfadeSeconds = crossfadeMs / 1000
-    const speedPitch = this.currentSpeedPitch()
-    const playMode = this.currentPlayMode()
-    const scatter = this.currentScatterConfig()
-    const schedule = this.currentScheduleConfig()
-    // Random-interval and Scheduled playback both replay the clip as
-    // one-shots, never back-to-back — the crossfade+rotation a looped clip
-    // needs to hide its own wrap point would be wrong for either, so the
-    // bake below always uses 0 (plain trim) for both regardless of the
-    // crossfade slider's own saved value. Mirrors library.js/tabs/mixer's
-    // own effectiveCrossfadeSeconds exactly — keep in sync if this ever
-    // changes.
-    const effectiveCrossfadeSeconds =
-      playMode === 'scatter' || playMode === 'scheduled' || speedPitch.dopplerEnabled ? 0 : crossfadeSeconds
-
-    // Per-preset sound overrides (planned 2026-09-12, "presets as primary
-    // context"): if this sound is a member of the preset this editing
-    // session is pinned to (editingPresetId, captured once in loadSound so
-    // a live preset switch mid-edit can't silently redirect an in-flight
-    // save), the edit only ever affects that preset's own copy. Otherwise
-    // (the sound isn't in that preset's mix, or there's no preset context)
-    // fall back to exactly today's global write - identical to every
-    // sound's behavior before this feature existed.
-    const overridePatch = { loopStart, loopEnd, filters, crossfadeSeconds, speedPitch, playMode, scatter, schedule }
-    // BUG FIX (v0.1.223): membership is read from disk, not this.presets
-    // (cached when the tab loaded). A sound added to or removed from the
-    // preset in the Mixer since then used to send the edit to the wrong
-    // place: to shared defaults, or to an override slot that no longer
-    // existed, where updateSoundOverride silently did nothing.
-    if (savingEditingPresetId) this.presets = await this.api.presets.list()
-    const editingPreset = savingEditingPresetId ? this.presets.find((p) => p.id === savingEditingPresetId) : null
-    let presetSoundItem = editingPreset?.sounds.find((s) => s.soundId === id) ?? null
-    // Owner, 2026-11-21: a sound out of the mix with a parked copy
-    // (removedOverrides) edits that copy only, never the shared defaults;
-    // the app's updateSoundOverride writes the parked slot for it.
-    const parkedSlot = !presetSoundItem && Object.hasOwn(editingPreset?.removedOverrides ?? {}, id)
-    if (parkedSlot) presetSoundItem = { soundId: id, overrides: editingPreset.removedOverrides[id], parked: true }
-    if (presetSoundItem) {
-      const updated = await this.api.presets.updateSoundOverride(savingEditingPresetId, id, overridePatch)
-      const updatedItem = parkedSlot
-        ? (updated && Object.hasOwn(updated.removedOverrides ?? {}, id) ? { overrides: updated.removedOverrides[id] } : null)
-        : updated?.sounds.find((s) => s.soundId === id)
-      if (updatedItem) presetSoundItem.overrides = updatedItem.overrides
-      else presetSoundItem = null
-    }
-    const overrideHint = !presetSoundItem && savingEditingPresetId
-      ? " This sound isn't in the current preset, so this changed its shared defaults."
-      : ''
-    if (!presetSoundItem) {
-      await this.api.library.updateLoopPoints(id, { loopStart, loopEnd })
-      await this.api.library.updateFilters(id, filters)
-      await this.api.library.updateCrossfade(id, crossfadeSeconds)
-      await this.api.library.updateSpeedPitch(id, speedPitch)
-      await this.api.library.updatePlayMode(id, playMode)
-      await this.api.library.updateScatterConfig(id, scatter)
-      await this.api.library.updateSchedule(id, schedule)
-    }
-    // BUG FIX (v0.1.193 dispatched this too early, v0.1.194 moves it here):
-    // an already-mounted Mixer needs to hear about this edit so its live
-    // source reconciles immediately, rather than staying stale until the
-    // next incidental tab switch reruns refreshList(). v0.1.193 dispatched
-    // this bridge event right after the metadata writes above - but the
-    // ffmpeg bake (audio.renderLoopClip, below) hadn't run yet at that
-    // point, so the Mixer's own bufferBakeSnapshot/loopClipEligible checks
-    // (which compare the sound's *live* settings against its *baked clip's*
-    // recorded settings) saw a fresh speedPitch/filters against a now-stale
-    // loopClipSpeedPitch/loopClipFilters and correctly concluded the bake no
-    // longer matched - permanently downgrading a Loop-mode sound from buffer
-    // mode to the stream-mode fallback, which has no live pitch-shift
-    // primitive at all (only Speed and filters apply live in stream mode -
-    // see reconcileSource's 'loop-stream' branch in tabs/mixer/index.js).
-    // Nothing ever re-notified the Mixer once the *real* bake with the new
-    // pitch actually finished a moment later, so the sound was stuck
-    // silently ignoring Pitch (and running a lower-quality loop seam) until
-    // something else forced a full refreshList(). Reported directly:
-    // "I change audio settings like pitch and speed and it has no results
-    // on live playback on mixer tab" - reproduced live via CDP (a sound
-    // playing in loop-buffer mode audibly should have stayed there after a
-    // pitch-only Save; instead it flipped to loop-stream immediately and
-    // never recovered). Fixed by moving the dispatch to notifyLiveReconcile()
-    // below, called only once the bake has fully resolved (success, failure,
-    // over-cap skip, or skipped entirely because nothing bake-relevant
-    // changed) - so its `loopClip` payload always reflects the *current*
-    // baked-clip bookkeeping, not a snapshot mid-flight.
-    const notifyLiveReconcile = () => {
-      const loopClip = {
-        ready: entry.loopClipReady,
-        start: entry.loopClipStart,
-        end: entry.loopClipEnd,
-        filters: entry.loopClipFilters,
-        crossfadeSeconds: entry.loopClipCrossfadeSeconds,
-        speedPitch: entry.loopClipSpeedPitch
-      }
-      if (presetSoundItem) {
-        window.dispatchEvent(
-          new CustomEvent('noctivago:sound-override-changed', {
-            detail: { presetId: savingEditingPresetId, soundId: id, overrides: presetSoundItem.overrides, loopClip, parked: Boolean(presetSoundItem.parked) }
-          })
-        )
-      } else {
-        window.dispatchEvent(
-          new CustomEvent('noctivago:sound-baseline-changed', {
-            detail: { soundId: id, loopStart, loopEnd, filters, crossfadeSeconds, speedPitch, playMode, scatter, schedule, loopClip }
-          })
-        )
-      }
-    }
-    entry.loopStart = loopStart
-    entry.loopEnd = loopEnd
-    entry.filters = filters
-    entry.crossfadeSeconds = crossfadeSeconds
-    entry.speedPitch = speedPitch
-    entry.playMode = playMode
-    entry.scatter = scatter
-    entry.schedule = schedule
-    if (stillEditingThisEntry()) {
-      this.savedSnapshot = this.snapshotOf(loopStart, loopEnd, filters, crossfadeMs, speedPitch, playMode, scatter, schedule)
-    }
-
-    // Persist the drift settings in the same Save (their own IPC call, not
-    // folded into the bake) and cancel any still-pending debounced write so
-    // it doesn't fire a second, redundant one right after. Uses the
-    // pre-await savingFluctuation capture, not a live this.fluctuation read,
-    // for the same reason `entry` is captured above - this.fluctuation would
-    // already belong to a different sound if the user switched mid-save.
-    if (flucDirty) {
-      clearTimeout(this._fluctuationSaveTimer)
-      this._pendingFluctuation = null
-      await this.api.library.updateFluctuation(id, savingFluctuation)
-      entry.fluctuation = savingFluctuation
-      window.dispatchEvent(
-        new CustomEvent('noctivago:sound-fluctuation-changed', { detail: { soundId: id, fluctuation: savingFluctuation } })
-      )
-      if (stillEditingThisEntry()) this.savedFluctuationSnapshot = this.fluctuationSnapshot()
-    }
-
-    // Only fluctuation (or nothing) changed - the existing bake, if any, is
-    // still valid. Skip the ffmpeg re-render.
-    if (!bakeRelevantDirty) {
-      notifyLiveReconcile()
-      if (stillEditingThisEntry()) {
-        this.els.saveStatus.textContent = `${savedWord} — original file untouched.${overrideHint}`
-        this.updateSaveButtonState()
-      }
-      return
-    }
-
-    // This never touches the original audio file: trim points and filters
-    // are stored as metadata, applied live whenever the Mixer streams the
-    // sound. Best-effort on top of that: bake trim+filters into a small
-    // clip for native gapless looping. Only within the eligibility cap — a
-    // longer trimmed region keeps the Mixer streaming (still filtered, just
-    // with a small loop seam) instead of fully decoding it client-side,
-    // which would risk the same memory/crash problem long files hit before
-    // this app streamed instead of decoding. Speed/Pitch/Reverse follow the
-    // same cap - Speed alone also applies live to a streamed (unbaked)
-    // sound (see core's LocalFileSoundSource), but Pitch and Reverse need
-    // the real ffmpeg render to take effect at all.
-    if (loopEnd - loopStart <= MAX_BUFFER_CLIP_SECONDS) {
-      this.els.save.disabled = true
-      if (!this.saveMorph) this.setSaveLabel(trigger === 'auto' ? 'Auto-saving…' : 'Saving…')
-      // BUG FIX (self-review, v0.1.196): an unhandled rejection here (a real
-      // IPC/main-process failure, not just ffmpeg's own {ok:false} result)
-      // used to skip notifyLiveReconcile() entirely and leave the Save
-      // button stuck disabled on "Saving…" forever - the same class of
-      // "Mixer never hears about this edit" bug v0.1.194 fixed, just via an
-      // exception instead of a timing gap. Normalizing a thrown error into
-      // the same {ok:false} shape the render itself already produces on
-      // failure means the existing branch below (which already calls
-      // notifyLiveReconcile() and resets the button either way) handles it
-      // for free, no separate error path needed.
-      // BUG FIX (v0.1.214): release the Saved-audio <audio> element's hold
-      // on the clip file *before* re-baking it. The sound:// handler streams
-      // the clip with backpressure, so a loaded element (playing or paused -
-      // bakedPreview is even preloaded in Live mode) keeps the file open
-      // indefinitely, and Windows refuses to rename the fresh render over
-      // an open file. loopClip.js's renameWithRetry only waits ~3s, so the
-      // render was reported as failed -> loopClipReady false -> the preview
-      // toggle greyed out right after every save made from Saved mode.
-      // Reported directly: "every time I'm on saved audio preview and save
-      // it it greys out." _clipRebaking keeps updatePreviewModeToggle from
-      // kicking the user out of Saved mode while the preview is torn down.
-      let resume = null
-      if (stillEditingThisEntry() && this.bakedPreview) {
-        resume = {
-          time: this.bakedPreview.currentTime || 0,
-          playing: this.previewMode === 'saved' && this.bakedPreview.playing
-        }
-        if (resume.playing) {
-          this.stopPreviewTicking()
-          this.setPlayPauseIcon(false)
-        }
-        this._clipRebaking = true
-        this.bakedPreview.dispose()
-        this.bakedPreview = null
-      }
-      let result
-      try {
-        result = await this.api.audio.renderLoopClip(id, {
-          loopStart,
-          loopEnd,
-          filters,
-          crossfadeSeconds: effectiveCrossfadeSeconds,
-          speedPitch
-        })
-      } catch (err) {
-        console.error('Editor: renderLoopClip rejected', err)
-        result = { ok: false }
-      }
-      if (result.ok) {
-        entry.loopClipReady = true
-        entry.loopClipStart = loopStart
-        entry.loopClipEnd = loopEnd
-        entry.loopClipFilters = filters
-        entry.loopClipCrossfadeSeconds = effectiveCrossfadeSeconds
-        entry.loopClipSpeedPitch = speedPitch
-        if (stillEditingThisEntry()) {
-          this.els.saveStatus.textContent =
-            (playMode === 'scatter'
-              ? `${savedWord} — original file untouched. Rendered a clip for random-interval playback.`
-              : playMode === 'scheduled'
-                ? `${savedWord} — original file untouched. Rendered a clip for scheduled playback.`
-                : `${savedWord} — original file untouched. Rendered a gapless clip for seamless looping.`) + overrideHint
-        }
-      } else {
-        entry.loopClipReady = false
-        entry.loopClipStart = null
-        entry.loopClipEnd = null
-        entry.loopClipFilters = null
-        entry.loopClipCrossfadeSeconds = null
-        entry.loopClipSpeedPitch = null
-        if (stillEditingThisEntry()) {
-          this.els.saveStatus.textContent =
-            (playMode === 'scatter'
-              ? `${savedWord} — original file untouched. Clip render failed, so this will stream directly for random-interval playback.`
-              : playMode === 'scheduled'
-                ? `${savedWord} — original file untouched. Clip render failed, so this will stream directly for scheduled playback.`
-                : `${savedWord} — original file untouched. Gapless clip render failed, so this will loop with a small seam.`) + overrideHint
-        }
-      }
-      notifyLiveReconcile()
-      // The bake just rewrote the file at this same sound://<id>?variant=clip
-      // URL - recreate bakedPreview so its <audio> element actually re-fetches
-      // instead of risking a browser-cached copy of the *previous* bake (the
-      // response carries Accept-Ranges but no explicit no-cache header, and
-      // this is otherwise the one place in this file the same clip URL is
-      // ever asked to serve genuinely different bytes over its own lifetime).
-      // v0.1.142: previewMode is now sticky rather than force-reverting to
-      // 'live' on dirty (see previewMode's own doc comment), so - unlike the
-      // old assumption here - autosave can now genuinely re-bake while
-      // Saved mode is the one actually driving playback. Carry position/
-      // play-state across the swap so a re-bake mid-audition doesn't
-      // silently drop the audio out from under the listener. Gated on
-      // stillEditingThisEntry() - this.bakedPreview/this.previewMode belong
-      // to whatever sound is currently open in the Remix UI, which may no
-      // longer be this one (see this function's own top-of-function note).
-      if (resume) this._clipRebaking = false
-      if (stillEditingThisEntry()) {
-        const resumingSaved = this.previewMode === 'saved' && result.ok
-        const resumeTime = resumingSaved ? resume?.time ?? this.bakedPreview?.currentTime ?? 0 : 0
-        const resumePlaying = resumingSaved && (resume ? resume.playing : Boolean(this.bakedPreview?.playing))
-        this.bakedPreview?.dispose()
-        this.bakedPreview = new BakedClipPreview(this.engine, id, this.effectivePreviewVolume(), savingEditingPresetId)
-        if (resumingSaved) {
-          this.bakedPreview.scrubTo(resumeTime)
-          if (resumePlaying) {
-            this.engine
-              .resume()
-              .then(() => this.bakedPreview?.play())
-              .then(() => {
-                this.setPlayPauseIcon(true)
-                this.tickPreviewPlayhead()
-              })
-              .catch((err) => console.error('Editor: failed to resume saved-audio preview after re-bake', err))
-          }
-        }
-        this.updateSaveButtonState()
-      }
-    } else {
-      // A previous save may have left a valid bake (loopClipReady/bakedPreview)
-      // from when the trim was still within the cap - since this save's own
-      // trim no longer qualifies, that old bake no longer matches anything
-      // `entry` now describes and must be invalidated the same way a failed
-      // render already is above, or "Saved audio" would keep looking fully
-      // valid (savedSnapshot was just updated to match, so no staleness
-      // indicator would show) while actually playing the stale, unrelated clip.
-      entry.loopClipReady = false
-      entry.loopClipStart = null
-      entry.loopClipEnd = null
-      entry.loopClipFilters = null
-      entry.loopClipCrossfadeSeconds = null
-      entry.loopClipSpeedPitch = null
-      if (stillEditingThisEntry()) {
-        this.els.saveStatus.textContent =
-          (playMode === 'scatter'
-            ? `${savedWord} — original file untouched. This trim is over 10 minutes, so random-interval playback will stream directly.`
-            : playMode === 'scheduled'
-              ? `${savedWord} — original file untouched. This trim is over 10 minutes, so scheduled playback will stream directly.`
-              : `${savedWord} — original file untouched. This trim is over 10 minutes, so it will loop with a small seam instead of a gapless clip.`) + overrideHint
-      }
-      notifyLiveReconcile()
-      if (stillEditingThisEntry()) this.updateSaveButtonState()
-    }
-  }
-
-  // Picks "<name> copy", then "<name> copy 2", "<name> copy 3"... against
-  // whatever's currently in the library - names aren't enforced unique
-  // elsewhere in this app, but a distinct default avoids two identical-
-  // looking rows in the Mixer's own list right after saving.
   nextCopyName(baseName) {
-    const existing = new Set(this.library.map((e) => e.name))
-    let candidate = `${baseName} copy`
-    let n = 2
-    while (existing.has(candidate)) {
-      candidate = `${baseName} copy ${n}`
-      n += 1
-    }
-    return candidate
+    return nextCopyName(this.library.map((e) => e.name), baseName)
   }
 
-  // "Save as copy" - trims a segment out of a longer recording (the owner's
-  // own use case: several distinct bird calls in one field recording) into
-  // its own independent sound, without touching the source's own saved
-  // trim/filters at all. Deliberately does *not* run this.save() first or
-  // touch this.currentEntry/this.savedSnapshot in any way - the workflow is
-  // trim to segment 1, Save as copy, adjust the trim to segment 2 (still on
-  // the *same* open sound), Save as copy again, and so on, so the sound
-  // staying open in Remix must keep behaving exactly like nothing happened.
-  // Mirrors save()'s own structure closely (same field reads, same bake
-  // call, same MAX_BUFFER_CLIP_SECONDS cap) but targets the brand-new id
-  // library.duplicateSound() hands back instead of this.currentEntry.id.
-  async saveAsCopy() {
-    if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B') return
-    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-    const filters = this.currentFilters()
-    const crossfadeMs = this.currentCrossfadeMs()
-    const crossfadeSeconds = crossfadeMs / 1000
-    const speedPitch = this.currentSpeedPitch()
-    const playMode = this.currentPlayMode()
-    const scatter = this.currentScatterConfig()
-    const schedule = this.currentScheduleConfig()
-    const effectiveCrossfadeSeconds =
-      playMode === 'scatter' || playMode === 'scheduled' || speedPitch.dopplerEnabled ? 0 : crossfadeSeconds
-
-    const name = this.nextCopyName(this.currentEntry.name)
-    this.els.saveAsCopy.disabled = true
-    this.els.saveStatus.textContent = `Saving a copy as "${name}"…`
-    const newEntry = await this.api.library.duplicateSound(this.currentEntry.id, { name })
-    if (!newEntry) {
-      this.els.saveAsCopy.disabled = false
-      this.els.saveStatus.textContent = 'Save as copy failed — could not create the new sound.'
-      return
-    }
-
-    await this.api.library.updateLoopPoints(newEntry.id, { loopStart, loopEnd })
-    await this.api.library.updateFilters(newEntry.id, filters)
-    await this.api.library.updateCrossfade(newEntry.id, crossfadeSeconds)
-    await this.api.library.updateSpeedPitch(newEntry.id, speedPitch)
-    await this.api.library.updatePlayMode(newEntry.id, playMode)
-    await this.api.library.updateScatterConfig(newEntry.id, scatter)
-    await this.api.library.updateSchedule(newEntry.id, schedule)
-
-    let baked = false
-    if (loopEnd - loopStart <= MAX_BUFFER_CLIP_SECONDS) {
-      const result = await this.api.audio.renderLoopClip(newEntry.id, {
-        loopStart,
-        loopEnd,
-        filters,
-        crossfadeSeconds: effectiveCrossfadeSeconds,
-        speedPitch
-      })
-      baked = result.ok
-    }
-    this.els.saveAsCopy.disabled = false
-    this.els.saveStatus.textContent = baked
-      ? `Saved a copy: "${name}".`
-      : `Saved a copy: "${name}" (streams directly - trim over 10 minutes, or the clip render failed).`
-    await this.refreshLibrary()
+  save(options) {
+    return this.saveCtl.save(options)
   }
 
-  // "Save segment as new" (Desktop 2.0, owner 2026-11-10): a brand-new sound
-  // that is only the trimmed part. Unlike Save as copy it carries none of
-  // this sound's settings: filters, EQ, speed, pitch, play mode, per-play
-  // ranges and drift all start at their defaults. The open sound is untouched.
-  async saveSegmentAsNew() {
-    if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B') return
-    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-    const filters = structuredClone(NEUTRAL_FILTERS)
-    const speedPitch = defaultSpeedPitch()
-    const crossfadeSeconds = DEFAULT_CROSSFADE_MS / 1000
-    const name = this.nextCopyName(this.currentEntry.name)
-    this.els.saveSegment.disabled = true
-    this.els.saveStatus.textContent = `Saving the segment as "${name}"…`
-    const newEntry = await this.api.library.duplicateSound(this.currentEntry.id, { name })
-    if (!newEntry) {
-      this.els.saveSegment.disabled = false
-      this.els.saveStatus.textContent = 'Save segment failed — could not create the new sound.'
-      return
-    }
+  saveAsCopy() {
+    return this.saveCtl.saveAsCopy()
+  }
 
-    await this.api.library.updateLoopPoints(newEntry.id, { loopStart, loopEnd })
-    await this.api.library.updateFilters(newEntry.id, filters)
-    await this.api.library.updateCrossfade(newEntry.id, crossfadeSeconds)
-    await this.api.library.updateSpeedPitch(newEntry.id, speedPitch)
-    await this.api.library.updatePlayMode(newEntry.id, 'loop')
-    await this.api.library.updateScatterConfig(newEntry.id, defaultScatter())
-    await this.api.library.updateSchedule(newEntry.id, defaultSchedule())
-    await this.api.library.updateFluctuation(newEntry.id, defaultFluctuation())
+  saveSegmentAsNew() {
+    return this.saveCtl.saveSegmentAsNew()
+  }
 
-    let baked = false
-    if (loopEnd - loopStart <= MAX_BUFFER_CLIP_SECONDS) {
-      const result = await this.api.audio.renderLoopClip(newEntry.id, { loopStart, loopEnd, filters, crossfadeSeconds, speedPitch })
-      baked = result.ok
+  // Saved-audio <audio> element hand-off around a re-bake (used by SaveController).
+  // The sound:// handler streams the clip with backpressure, so a loaded element keeps
+  // the file open and Windows refuses to rename the fresh render over it (v0.1.214);
+  // release it first. _clipRebaking keeps updatePreviewModeToggle from kicking the
+  // user out of Saved mode while the preview is torn down. Returns where to resume.
+  releaseBakedPreviewForRebake() {
+    if (!this.bakedPreview) return null
+    const resume = {
+      time: this.bakedPreview.currentTime || 0,
+      playing: this.previewMode === 'saved' && this.bakedPreview.playing
     }
-    this.els.saveSegment.disabled = false
-    this.els.saveStatus.textContent = baked
-      ? `Saved the segment as a new sound: "${name}".`
-      : `Saved the segment as a new sound: "${name}" (streams directly - trim over 10 minutes, or the clip render failed).`
-    await this.refreshLibrary()
+    if (resume.playing) {
+      this.stopPreviewTicking()
+      this.setPlayPauseIcon(false)
+    }
+    this._clipRebaking = true
+    this.bakedPreview.dispose()
+    this.bakedPreview = null
+    return resume
+  }
+
+  // Recreate bakedPreview after the bake so its <audio> re-fetches the rewritten clip
+  // instead of a cached copy of the previous bake, and carry position and play state
+  // across the swap. Gated on stillEditing: bakedPreview and previewMode belong to
+  // whichever sound is open now, which may no longer be the one that was saved.
+  restoreBakedPreviewAfterRebake({ resume, ok, id, presetId, stillEditing }) {
+    if (resume) this._clipRebaking = false
+    if (!stillEditing) return
+    const resumingSaved = this.previewMode === 'saved' && ok
+    const resumeTime = resumingSaved ? resume?.time ?? this.bakedPreview?.currentTime ?? 0 : 0
+    const resumePlaying = resumingSaved && (resume ? resume.playing : Boolean(this.bakedPreview?.playing))
+    this.bakedPreview?.dispose()
+    this.bakedPreview = new BakedClipPreview(this.engine, id, this.effectivePreviewVolume(), presetId)
+    if (resumingSaved) {
+      this.bakedPreview.scrubTo(resumeTime)
+      if (resumePlaying) {
+        this.engine
+          .resume()
+          .then(() => this.bakedPreview?.play())
+          .then(() => {
+            this.setPlayPauseIcon(true)
+            this.tickPreviewPlayhead()
+          })
+          .catch((err) => console.error('Editor: failed to resume saved-audio preview after re-bake', err))
+      }
+    }
+    this.updateSaveButtonState()
   }
 
   // ============================================================
