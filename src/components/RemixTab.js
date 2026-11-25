@@ -25,6 +25,7 @@ import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
+import { saveButtonState } from '../domain/saveState.js'
 import { createAutosave } from '../domain/autosave.js'
 import { createCompare } from '../domain/compareView.js'
 import { createHistory } from '../domain/editorHistory.js'
@@ -3295,10 +3296,17 @@ export default class EditorPlugin {
     this.refreshAccordionSummaries()
     // Last saved on screen: the controls show the saved settings, read-only.
     // Nothing to save, undo or cancel until the view is back on Now.
-    if (this.compare.isSaved) {
-      this.els.save.disabled = true
-      this.setSaveLabel('Viewing last saved')
-      if (this.els.saveAsCopy) this.els.saveAsCopy.disabled = true
+    const state = saveButtonState({
+      compareSaved: this.compare.isSaved,
+      eqViewingB: this.eqCompareViewing === 'B',
+      // Fluctuation isn't part of hasUnsavedChanges() (it never re-bakes), but
+      // a pending drift edit is still something the user expects Save to act on.
+      isDirty: () => this.hasUnsavedChanges() || this.fluctuationDirty()
+    })
+    this.els.save.disabled = state.saveDisabled
+    this.setSaveLabel(state.label)
+    if (this.els.saveAsCopy) this.els.saveAsCopy.disabled = state.saveAsCopyDisabled
+    if (state.view === 'saved') {
       if (this.els.cancel) this.els.cancel.disabled = true
       if (this.els.undo) this.els.undo.disabled = true
       if (this.els.redo) this.els.redo.disabled = true
@@ -3311,25 +3319,13 @@ export default class EditorPlugin {
     // saved" (always equal) and hide genuinely pending changes in A. Force
     // Save disabled with an explicit label instead of trusting that check
     // while B is on screen.
-    if (this.eqCompareViewing === 'B') {
-      this.els.save.disabled = true
-      this.setSaveLabel('Viewing saved mix')
-      if (this.els.saveAsCopy) this.els.saveAsCopy.disabled = true
+    if (state.view === 'eqB') {
       this.updatePreviewModeToggle()
       return
     }
-    // Fluctuation isn't part of hasUnsavedChanges() (it never re-bakes), but
-    // a pending drift edit is still something the user expects Save to act on
-    // - fold it in here only, so the button lights up and performSave() knows
-    // to persist it, without fluctuation leaking into the stale-clip / undo
-    // machinery hasUnsavedChanges() also feeds.
-    const dirty = this.hasUnsavedChanges() || this.fluctuationDirty()
-    this.els.save.disabled = !dirty
-    this.setSaveLabel(dirty ? 'Save' : 'Nothing to save')
-    // Unlike Save, always enabled while viewing A regardless of dirty state -
-    // saving a copy of the *current* (even unchanged) trim under a new name
-    // is still a meaningful action, not just a no-op.
-    if (this.els.saveAsCopy) this.els.saveAsCopy.disabled = false
+    // Drift is folded into the dirty check by the isDirty callback above only,
+    // so it never leaks into the stale-clip / undo machinery.
+    // Save as copy stays enabled on Now regardless of dirty (saveButtonState).
     this.updatePreviewModeToggle()
     // Every field-change handler in this file ends by calling this method
     // (see applyFilterControls/applyEqControls/applyCrossfadeControl/
