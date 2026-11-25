@@ -1292,6 +1292,11 @@ export default class EditorPlugin {
     this.els.cancel.addEventListener('click', () => this.cancelEdits())
     this.els.save = this.root.querySelector('#editor-save')
     this.els.saveLabel = this.root.querySelector('#editor-save-label')
+    // Save works in place on apps with the morph states (2.0+, micro-interactions mock, row "Remix
+    // save", the preset pill's states): Saving, then Changes saved with a drawn check, or the reason
+    // in soft red; Cancel shows Changes canceled. Older apps keep the plain label.
+    this.saveMorph = this.app.ui?.morphButton?.(this.els.save) ?? null
+    this._saveLabelText = 'Save'
     this.els.save.addEventListener('click', () => this.save().catch((err) => console.error('Editor: save failed', err)))
     this.els.saveAsCopy = this.root.querySelector('#editor-save-as-copy')
     this.els.saveAsCopy.addEventListener('click', () => this.saveAsCopy().catch((err) => console.error('Editor: save as copy failed', err)))
@@ -1980,7 +1985,7 @@ export default class EditorPlugin {
     this.els.saveAsCopy.disabled = !enabled
     if (!enabled) {
       this.els.save.disabled = true
-      this.els.saveLabel.textContent = 'Save'
+      this.setSaveLabel('Save')
     }
   }
 
@@ -3283,7 +3288,7 @@ export default class EditorPlugin {
     // Nothing to save, undo or cancel until the view is back on Now.
     if (this.compareViewing === 'saved') {
       this.els.save.disabled = true
-      this.els.saveLabel.textContent = 'Viewing last saved'
+      this.setSaveLabel('Viewing last saved')
       if (this.els.saveAsCopy) this.els.saveAsCopy.disabled = true
       if (this.els.cancel) this.els.cancel.disabled = true
       if (this.els.undo) this.els.undo.disabled = true
@@ -3299,7 +3304,7 @@ export default class EditorPlugin {
     // while B is on screen.
     if (this.eqCompareViewing === 'B') {
       this.els.save.disabled = true
-      this.els.saveLabel.textContent = 'Viewing saved mix'
+      this.setSaveLabel('Viewing saved mix')
       if (this.els.saveAsCopy) this.els.saveAsCopy.disabled = true
       this.updatePreviewModeToggle()
       return
@@ -3311,7 +3316,7 @@ export default class EditorPlugin {
     // machinery hasUnsavedChanges() also feeds.
     const dirty = this.hasUnsavedChanges() || this.fluctuationDirty()
     this.els.save.disabled = !dirty
-    this.els.saveLabel.textContent = dirty ? 'Save' : 'Nothing to save'
+    this.setSaveLabel(dirty ? 'Save' : 'Nothing to save')
     // Unlike Save, always enabled while viewing A regardless of dirty state -
     // saving a copy of the *current* (even unchanged) trim under a new name
     // is still a meaningful action, not just a no-op.
@@ -3533,8 +3538,22 @@ export default class EditorPlugin {
   // that existing path to a button instead of requiring a re-pick.
   cancelEdits() {
     if (!this.currentEntry) return
+    const hadEdits = this.hasUnsavedChanges() || this.fluctuationDirty()
     this.leaveCompareView()
     this.selectPickerSound(this.currentEntry.id)
+    if (hadEdits) this.saveMorph?.canceled('Changes canceled')
+  }
+
+  // The Save button's resting words. With the morph states the label is the button's rest markup
+  // (rebuilt only when the words change); without them it is the plain label span.
+  setSaveLabel(text) {
+    if (!this.saveMorph) {
+      this.els.saveLabel.textContent = text
+      return
+    }
+    if (text === this._saveLabelText) return
+    this._saveLabelText = text
+    this.saveMorph.setRest?.(`${icon('save')}<span id="editor-save-label">${text}</span>`)
   }
 
   // The leave-confirmation prompt (Yes/No/Don't ask again) - TabHost's
@@ -3981,8 +4000,14 @@ export default class EditorPlugin {
     if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B' || this.compareViewing === 'saved') return
     if (this._saveInProgress) return
     this._saveInProgress = true
+    this.saveMorph?.working(trigger === 'auto' ? 'Auto-saving' : 'Saving')
     try {
       await this.performSave(trigger, forceBake)
+      this.saveMorph?.done(trigger === 'auto' ? 'Auto-saved' : 'Changes saved')
+    } catch (err) {
+      this.saveMorph?.fail("Couldn't save. Try again")
+      this.updateSaveButtonState()
+      throw err
     } finally {
       this._saveInProgress = false
     }
@@ -4181,7 +4206,7 @@ export default class EditorPlugin {
     // the real ffmpeg render to take effect at all.
     if (loopEnd - loopStart <= MAX_BUFFER_CLIP_SECONDS) {
       this.els.save.disabled = true
-      this.els.saveLabel.textContent = trigger === 'auto' ? 'Auto-saving…' : 'Saving…'
+      if (!this.saveMorph) this.setSaveLabel(trigger === 'auto' ? 'Auto-saving…' : 'Saving…')
       // BUG FIX (self-review, v0.1.196): an unhandled rejection here (a real
       // IPC/main-process failure, not just ffmpeg's own {ok:false} result)
       // used to skip notifyLiveReconcile() entirely and leave the Save
