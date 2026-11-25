@@ -1,6 +1,4 @@
 import { AudioEngine } from '../audio/AudioEngine.js'
-import { PreviewSource } from '../audio/PreviewSource.js'
-import { BakedClipPreview } from '../audio/BakedClipPreview.js'
 import { formatHz, GOOD_NOISE_SEC, noiseBandFromShape, normalizeRegions } from '../domain/spectralLayout.js'
 import { toolHint } from '../domain/repairBrush.js'
 import { loopLayout, clipToSource, sourceToClip } from '../domain/loopLayout.js'
@@ -42,9 +40,9 @@ import { wireShapeControls } from '../controls/shapeControls.js'
 import { wireFilterControls } from '../controls/filterControls.js'
 import { wireEqControls } from '../controls/eqControls.js'
 import { wireFluctuationControls } from '../controls/fluctuationControls.js'
-import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, formatPan, defaultFluctuation, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
+import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, formatPan, defaultFluctuation, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
-import { loadMarkers, saveMarkers } from '../domain/markerStore.js'
+import { saveMarkers } from '../domain/markerStore.js'
 import { mountMarkerUi, flashMarkerButton, renderMarkerChips, renderProgressTicks, openMarkerPopover, closeMarkerPopover, formatMarkerTime } from './markerUi.js'
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
 import { arrangeLayout, arrangeBar, driftSummary } from './layout.js'
@@ -56,6 +54,11 @@ import { escapeHtml } from '../domain/html.js'
 import { groupDetail, presetDetail, soundDetail, panOverride, withSoundVolume } from '../domain/detailPanel.js'
 import { ItemPreviewPlayer } from '../audio/ItemPreview.js'
 import { soundPlan, groupPlan, previewKind, effectiveSound } from '../domain/itemPreview.js'
+import { autosaveCallbacks } from '../callbacks/autosaveCallbacks.js'
+import { previewCallbacks } from '../callbacks/previewCallbacks.js'
+import { soundLoaderCallbacks } from '../callbacks/soundLoaderCallbacks.js'
+import { saveCallbacks } from '../callbacks/saveCallbacks.js'
+import { mountCallbacks } from '../callbacks/mountCallbacks.js'
 import { findAllEls } from '../panels/index.js'
 
 export default class EditorPlugin {
@@ -154,171 +157,10 @@ export default class EditorPlugin {
     // manual Save click and a timer firing at the same moment never start
     // two overlapping bakes of the same sound. See scheduleAutosave()'s own
     // comment for the debounce-vs-fixed-interval choice.
-    this.autosave = createAutosave({
-      idleMs: AUTOSAVE_IDLE_MS,
-      canSchedule: () => !this._restoringHistory && !!this.currentEntry,
-      canRun: () => !!this.currentEntry && this.eqCompareViewing !== 'B' && !this.compare.isSaved && this.hasUnsavedChanges(),
-      isBusy: () => this.saveCtl.isSaving(),
-      save: () => this.save({ trigger: 'auto' }),
-      onError: (err) => console.error('Editor: autosave failed', err)
-    })
-    this.previewCtl = createPreviewController({
-      engine: this.engine,
-      PreviewSource,
-      BakedClipPreview,
-      setLiveMode: () => { this.previewMode = 'live' },
-      getPreviewMode: () => this.previewMode,
-      getVolume: () => this.effectivePreviewVolume(),
-      stopTicking: () => this.stopPreviewTicking(),
-      setPlayPauseIcon: (playing) => this.setPlayPauseIcon(playing),
-      setClipRebaking: (v) => { this._clipRebaking = v },
-      tickPlayhead: () => this.tickPreviewPlayhead(),
-      updateSaveButtonState: () => this.updateSaveButtonState()
-    })
-    this.soundLoader = createSoundLoader({
-      api: this.api,
-      beforeLoad: () => {
-        this.leaveCompareView()
-        clearTimeout(this.detailPeaksDebounceTimer)
-        clearTimeout(this._seamDetailPeaksTimer)
-        this.seamView?.resetZoom()
-      },
-      findEntry: (id) => this.library.find((s) => s.id === id),
-      currentId: () => this.currentEntry?.id,
-      clearSolo: () => this.setSolo(false),
-      setCurrentEntry: (entry) => { this.currentEntry = entry },
-      // `entry` (from this.library) is already the effective view (baseline merged
-      // with this preset's own override) as of refreshLibrary()'s last call.
-      pinEditingPreset: () => {
-        this.editingPresetId = this.activePresetId
-        return this.editingPresetId
-      },
-      disposePreview: () => this.disposePreview(),
-      showEditor: (entry) => {
-        this.els.empty.classList.add('hidden')
-        this.els.panel.classList.remove('hidden')
-        this.setBarEnabled(true)
-        this.els.soundName.textContent = entry.name
-        this.els.soundName.title = entry.name
-        this.layout?.refreshStudio?.()
-        this.setPlayPauseIcon(false)
-        this.els.saveStatus.textContent = ''
-      },
-      setFilterSliders: (filters) => this.setFilterSliders(filters),
-      setSavedEqSnapshot: (eq) => { this.savedEqSnapshot = eq },
-      resetEqCompare: () => this.resetEqCompare(),
-      setCrossfade: (ms) => {
-        this.els.crossfade.value = String(ms)
-        this.updateCrossfadeLabel(ms)
-      },
-      setSpeedPitchControls: (sp) => this.setSpeedPitchControls(sp),
-      updateSpeedPitchLabels: (sp) => this.updateSpeedPitchLabels(sp),
-      loopEditor: () => this.loopEditorController,
-      setPlayModeControls: (mode) => this.setPlayModeControls(mode),
-      setScatterControls: (c) => this.setScatterControls(c),
-      setScheduleControls: (c) => this.setScheduleControls(c),
-      setFluctuationControls: (c) => this.setFluctuationControls(c),
-      startPreview: ({ entry, presetId, crossfadeMs, speedPitch, fluctuation }) => this.previewCtl.start({
-        soundId: entry.id,
-        presetId,
-        volume: this.effectivePreviewVolume(),
-        sourceOptions: {
-          loopStart: entry.loopStart,
-          loopEnd: entry.loopEnd,
-          looping: this.looping,
-          crossfadeSeconds: crossfadeMs / 1000,
-          speedPitch,
-          fluctuation,
-          onNoiseProfile: (curve) => this.filterControls?.setNoiseProfile(curve)
-        },
-        // Only fires when Loop preview is off and playback runs off the end on
-        // its own - the button/playhead-tracking RAF otherwise only stop via
-        // the explicit Play/Pause click handler.
-        onEnded: () => {
-          this.stopPreviewTicking()
-          this.setPlayPauseIcon(false)
-          this.eqEditorController.clearSpectrum()
-        },
-        onReverseStateChange: (state) => this.showReverseState(state)
-      }),
-      showReverseState: () => this.showReverseState(this.previewSource.reverseState),
-      previewSource: () => this.previewSource,
-      previewFilters: () => this.previewFilters(),
-      getFluctuation: () => this.fluctuation,
-      closeMarkerPopover,
-      loadMarkers,
-      setMarkers: (markers) => this.setMarkers(markers, { save: false }),
-      setSpectralRegions: (regions) => this.spectralView.setRegions(regions),
-      updateSpectralControls: () => this.updateSpectralControls(),
-      syncNoiseBand: () => this.syncNoiseBand(),
-      resetSpectrogramKey: () => { this._spectrogramKey = null },
-      syncSpectralView: () => this.syncSpectralView(),
-      updateFadeVisual: () => this.updateFadeVisual(),
-      updateLoopTimeInputs: (start, end) => this.updateLoopTimeInputs(start, end),
-      updateStickyProgress: (t) => this.updateStickyProgress(t),
-      resetSuggestLoop: () => {
-        this.els.suggestStatus.textContent = ''
-        this.els.suggestLoopBtn.disabled = false
-      },
-      setBandEnergy: (freqs, energies) => this.eqEditorController.setBandEnergy(freqs, energies),
-      snapshotOf: (...args) => this.snapshotOf(...args),
-      // Undo history is per-editing-session, same scope as A/B Compare - a fresh
-      // load starts a fresh stack seeded with the just-loaded state.
-      resetHistory: (snapshot) => {
-        this.savedSnapshot = snapshot
-        clearTimeout(this._historyCommitTimer)
-        this.history.reset(JSON.parse(snapshot))
-      },
-      updateUndoRedoButtonsUI: () => this.updateUndoRedoButtonsUI(),
-      updateSaveButtonState: () => this.updateSaveButtonState(),
-      hasPeaksCached: (id) => this.waveformPeaksCache.has(id),
-      setWaveformStatus: (text) => { this.els.waveformStatus.textContent = text },
-      getWaveformPeaks: (id) => this.getWaveformPeaks(id),
-      syncSeamView: () => this.syncSeamView()
-    })
-    this.saveCtl = createSaveController({
-      api: this.api,
-      emit: (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail })),
-      getEntry: () => this.currentEntry,
-      getEditingPresetId: () => this.editingPresetId,
-      getFluctuation: () => this.fluctuation,
-      getPresets: () => this.presets,
-      setPresets: (presets) => { this.presets = presets },
-      hasLoopEditor: () => !!this.loopEditorController,
-      getLoopPoints: () => this.loopEditorController.getLoopPoints(),
-      isViewingB: () => this.eqCompareViewing === 'B',
-      isCompareSaved: () => this.compare.isSaved,
-      hasUnsavedChanges: () => this.hasUnsavedChanges(),
-      fluctuationDirty: () => this.fluctuationDirty(),
-      currentFilters: () => this.currentFilters(),
-      currentCrossfadeMs: () => this.currentCrossfadeMs(),
-      currentSpeedPitch: () => this.currentSpeedPitch(),
-      currentPlayMode: () => this.currentPlayMode(),
-      currentScatterConfig: () => this.currentScatterConfig(),
-      currentScheduleConfig: () => this.currentScheduleConfig(),
-      nextCopyName: (baseName) => this.nextCopyName(baseName),
-      refreshLibrary: () => this.refreshLibrary(),
-      updateSaveButtonState: () => this.updateSaveButtonState(),
-      setStatus: (text) => { this.els.saveStatus.textContent = text },
-      setSaveAsCopyDisabled: (disabled) => { this.els.saveAsCopy.disabled = disabled },
-      setSaveSegmentDisabled: (disabled) => { this.els.saveSegment.disabled = disabled },
-      saveWorking: (word) => this.saveMorph?.working(word),
-      saveDone: (word) => this.saveMorph?.done(word),
-      saveFail: (word) => this.saveMorph?.fail(word),
-      beginBake: (trigger) => {
-        this.els.save.disabled = true
-        if (!this.saveMorph) this.setSaveLabel(trigger === 'auto' ? 'Auto-saving…' : 'Saving…')
-      },
-      commitSavedSnapshot: (...settings) => { this.savedSnapshot = this.snapshotOf(...settings) },
-      cancelPendingFluctuation: () => {
-        clearTimeout(this._fluctuationSaveTimer)
-        this._pendingFluctuation = null
-      },
-      fluctuationSnapshot: () => this.fluctuationSnapshot(),
-      commitFluctuationSnapshot: () => { this.savedFluctuationSnapshot = this.fluctuationSnapshot() },
-      releaseBakedPreview: () => this.releaseBakedPreviewForRebake(),
-      restoreBakedPreview: (args) => this.restoreBakedPreviewAfterRebake(args)
-    })
+    this.autosave = createAutosave(autosaveCallbacks(this))
+    this.previewCtl = createPreviewController(previewCallbacks(this))
+    this.soundLoader = createSoundLoader(soundLoaderCallbacks(this))
+    this.saveCtl = createSaveController(saveCallbacks(this))
     // Cached from Settings once on load - the leave-confirmation prompt's
     // own "Don't ask again" button, not a general Settings toggle (per the
     // original request: the prompt itself carries the opt-out).
@@ -605,57 +447,7 @@ export default class EditorPlugin {
 
   // The tab methods and state the per-panel mount functions (src/mounts/) call; all lazy.
   mountCallbacks() {
-    const bind = (...names) => Object.fromEntries(names.map((n) => [n, this[n].bind(this)]))
-    return {
-      ...bind(
-        'updateSpectralControls', 'applyFilterControls', 'syncSpectralTool', 'setMarkers', 'editMarker', 'syncSpectralView',
-        'setSpectralTool', 'useShapeAsNoiseSample', 'applyCrossfadeControl', 'scheduleSeamDetailPeaks', 'liveLayout',
-        'updateStickyProgress', 'commitLoopPoints', 'updateSaveButtonState', 'currentPlayMode', 'syncFadeToggle',
-        'applyEqControls', 'togglePreviewMode', 'maybeFetchDetailPeaks', 'readPresetMixControlsAndPreview',
-        'readGroupControlsAndPreview'
-      ),
-      hasSpectrogram: typeof this.api.audio.getSpectrogram === 'function',
-      setFilterValues: (values) => this.filterControls.setValues(values),
-      isSavedPreview: () => this.previewMode === 'saved',
-      // fromSeam: the seam view also moves the sticky progress bar when playing the live source.
-      scrubPreview: (source, fromSeam) => {
-        if (this.previewMode === 'saved' && this.bakedPreview) {
-          const clipTime = this.sourceTimeToClip(source)
-          this.bakedPreview.scrubTo(clipTime)
-          this.updateStickyProgress(clipTime)
-        } else {
-          this.previewSource?.scrubTo(source)
-          if (fromSeam) this.updateStickyProgress(source)
-        }
-      },
-      seekPreview: (sec) => {
-        const active = this.activePreview()
-        if (!active) return
-        const t = this.previewMode === 'saved' ? this.sourceTimeToClip(sec) : sec
-        active.scrubTo(t)
-        this.spectralView.setPlayhead(sec)
-        this.loopEditorController?.setPlayhead(sec)
-        this.updateStickyProgress(t)
-      },
-      getPresetSavedBands: () => this.wholeMixSaved.eq,
-      getGroupSavedBands: () => this.groupSaved.eq,
-      onPresetApply: (bands) => {
-        this.wholeMixCurrent = { ...this.wholeMixCurrent, eq: bands }
-        this.updateModeUI()
-        if (this.mode === 'preset') this.dispatchWholeMixPreview(this.wholeMixCurrent)
-      },
-      onGroupApply: (bands) => {
-        this.groupCurrent = { ...this.groupCurrent, eq: bands }
-        this.updateModeUI()
-        if (this.mode === 'group') this.dispatchGroupPreview(this.groupCurrent)
-      },
-      patchPresetVolume: (vals) => {
-        this.wholeMixCurrent.fluctuation = { ...this.wholeMixCurrent.fluctuation, volume: { ...this.wholeMixCurrent.fluctuation.volume, ...vals } }
-      },
-      patchGroupVolume: (vals) => {
-        this.groupCurrent.fluctuation = { ...this.groupCurrent.fluctuation, volume: { ...this.groupCurrent.fluctuation.volume, ...vals } }
-      }
-    }
+    return mountCallbacks(this)
   }
 
   // Floating "scroll to top" button, requested directly since this panel has
