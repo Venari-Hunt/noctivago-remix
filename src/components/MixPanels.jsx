@@ -7,6 +7,7 @@
 // hosts below, and every control stays uncontrolled, read by id.
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
+import { SettingsSide } from './SettingsSide.jsx'
 import { FILTER_ROWS, effectChips } from './mixPanelsLogic.js'
 
 const RESET_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>'
@@ -35,6 +36,24 @@ function FilterRows({ prefix, rows }) {
   )
 }
 
+// The canvas column's view tabs (the EQ is the only view) and the settings
+// column shell; layout.js (arrangeScope) fills both and drops the rest of the
+// card in around them.
+function ScopeShell({ kind }) {
+  return (
+    <>
+      <div className="rx-canvas">
+        <div className="rx-tabs">
+          <div className="rx-vtabs" role="group" aria-label="View">
+            <button type="button" aria-pressed="true" title={`EQ for ${kind === 'group' ? 'this group' : 'the whole mix'}`}>EQ</button>
+          </div>
+        </div>
+      </div>
+      <SettingsSide />
+    </>
+  )
+}
+
 function Chips({ attr }) {
   return (
     <div className="editor-presets">
@@ -58,7 +77,8 @@ function Footer({ id }) {
 
 function PresetPanel() {
   return (
-    <div id="editor-mix-preset-controls" className="editor-mix-controls editor-mix-disabled">
+    <div id="editor-mix-preset-controls" className="editor-mix-controls editor-mix-disabled rx-grid rx-scope">
+      <ScopeShell kind="preset" />
       <p className="editor-mix-status">Live loudness (last ~10s) - hit Play in the preview to hear and see this preset.</p>
       <canvas id="editor-mix-preset-waveform" className="editor-mix-waveform-canvas"></canvas>
       <FilterRows prefix="editor-mix-preset" rows={FILTER_ROWS.preset} />
@@ -76,7 +96,8 @@ function PresetPanel() {
 function GroupPanel() {
   return (
     <>
-      <div id="editor-mix-group-editor" className="editor-mix-group-editor hidden">
+      <div id="editor-mix-group-editor" className="editor-mix-group-editor hidden rx-grid rx-scope">
+        <ScopeShell kind="group" />
         <div className="editor-mix-row">
           <span>Name</span>
           <input id="editor-mix-group-name" type="text" />

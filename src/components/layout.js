@@ -92,14 +92,8 @@ function pickEqTools(eq) {
 
 // The settings column: one card per [key, title], the body nodes from
 // bodies[key]. One card is open at a time.
-function buildAccordions(side, list, bodies, { head = true } = {}) {
-  const doc = side.ownerDocument
-  const win = doc.defaultView
-  if (head) {
-    side.appendChild(el(doc, 'h3', 'rx-side-h', 'Settings'))
-    // Below 860 the settings slide in from the right; this closes them (styles.css "Small windows").
-    side.insertAdjacentHTML('beforeend', `<button class="rx-i rx-ib rx-side-hide rx-xs-only" type="button" title="Hide settings" aria-label="Hide settings">${icon('x')}</button>`)
-  }
+function buildAccordions(side, list, bodies) {
+  const win = side.ownerDocument.defaultView
   const { elements, openAccordion, setSummaries } = mountAccordions(side, list, bodies, {
     iconFor: (key) => icon(ACC_ICON[key] ?? 'sliders-horizontal'),
     chevronHtml: icon('chevron-down'),
@@ -159,12 +153,10 @@ function arrangeScope(root, kind, getBands) {
   const p = `editor-mix-${kind}`
   const $ = (sel) => root.querySelector(sel)
   const host = $(kind === 'preset' ? '#editor-mix-preset-controls' : '#editor-mix-group-editor')
-  host.classList.add('rx-grid', 'rx-scope')
 
   // --- Left: the EQ, then the loudness strip (not in the mock, kept) ---
-  const canvasCol = el(doc, 'div', 'rx-canvas')
-  // One view (the EQ), drawn as the same underlined tab row as Sound.
-  const tabs = el(doc, 'div', 'rx-tabs', `<div class="rx-vtabs" role="group" aria-label="View"><button type="button" aria-pressed="true" title="EQ for ${kind === 'group' ? 'this group' : 'the whole mix'}">EQ</button></div>`)
+  // The canvas column and its one view tab (the EQ) are MixPanels' ScopeShell.
+  const canvasCol = host.querySelector(':scope > .rx-canvas')
   const eqCanvas = $(`#${p}-eq-canvas`)
   const eq = eqCanvas.closest('.editor-eq')
   eq.classList.add('rx-scope-eq')
@@ -172,7 +164,7 @@ function arrangeScope(root, kind, getBands) {
   const loudness = $(`#${p}-waveform`)
   const loudnessNote = loudness.previousElementSibling
   loudnessNote.classList.add('rx-hint')
-  canvasCol.append(tabs, eq, loudnessNote, loudness)
+  canvasCol.append(eq, loudnessNote, loudness)
   const presetHint = $('#editor-mix-preset-hint')
   if (kind === 'preset' && presetHint) {
     presetHint.classList.add('rx-hint')
@@ -260,8 +252,7 @@ function arrangeScope(root, kind, getBands) {
     bodies.occl = [occl]
   }
 
-  const side = el(doc, 'aside', 'rx-side')
-  side.setAttribute('aria-label', 'Settings')
+  const side = host.querySelector(':scope > .rx-side')
   const { openAccordion, setSummaries } = buildAccordions(side, SCOPE_ACCORDIONS[kind], bodies)
   host.replaceChildren(canvasCol, side)
   openAccordion(kind === 'group' ? 'members' : 'tone')
@@ -402,7 +393,7 @@ export function arrangeLayout(root, { onView, onCompare, getBands, getStudio, on
     looks: [looks, resetFilters],
     ...driftBodies(driftSection, DRIFT_AXES)
   }
-  const { accordions, openAccordion, setSummaries } = buildAccordions(side, ACCORDIONS, BODIES, { head: false })
+  const { accordions, openAccordion, setSummaries } = buildAccordions(side, ACCORDIONS, BODIES)
   setSummaries({ playback: ['Loop', true] })
 
   panel.replaceChildren(canvasCol, side)

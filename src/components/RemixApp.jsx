@@ -1,6 +1,7 @@
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { icon } from './icons.js'
+import { SettingsSide } from './SettingsSide.jsx'
 
 const PRESETS = [
   ['muffled', 'Muffled'],
@@ -48,18 +49,6 @@ function SoundCanvas() {
       ))}
       <p id="editor-save-status" className="editor-save-status"></p>
     </div>
-  )
-}
-
-// The Sound settings column: its heading and the small-window close button.
-// layout.js adds the accordions (Accordion.jsx) after them.
-function SoundSide() {
-  return (
-    <aside className="rx-side" aria-label="Settings">
-      <h3 className="rx-side-h">Settings</h3>
-      {/* Below 860 the settings slide in from the right; this closes them (styles.css "Small windows"). */}
-      <button className="rx-i rx-ib rx-side-hide rx-xs-only" type="button" title="Hide settings" aria-label="Hide settings" dangerouslySetInnerHTML={html(icon('x'))} />
-    </aside>
   )
 }
 
@@ -147,7 +136,7 @@ export function RemixApp() {
           {host('rx-picker-host')}
           <div id="editor-panel" className="editor-panel rx-grid hidden" data-view="trim">
             <SoundCanvas />
-            <SoundSide />
+            <SettingsSide />
             {host('rx-looprow-host')}
             {host('rx-playback-host')}
             {host('rx-speed-host')}
