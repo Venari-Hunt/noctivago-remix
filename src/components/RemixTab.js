@@ -35,7 +35,8 @@ import { createCompare } from '../domain/compareView.js'
 import { createHistory } from '../domain/editorHistory.js'
 import { createPreviewController } from '../controllers/previewController.js'
 import { createSaveController, nextCopyName } from '../controllers/saveController.js'
-import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
+import { createSoundLoader } from '../controllers/soundLoader.js'
+import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
 import { loadMarkers, saveMarkers } from '../domain/markerStore.js'
 import { mountMarkerUi, flashMarkerButton, renderMarkerChips, renderProgressTicks, openMarkerPopover, closeMarkerPopover, formatMarkerTime } from './markerUi.js'
@@ -166,6 +167,107 @@ export default class EditorPlugin {
       setClipRebaking: (v) => { this._clipRebaking = v },
       tickPlayhead: () => this.tickPreviewPlayhead(),
       updateSaveButtonState: () => this.updateSaveButtonState()
+    })
+    this.soundLoader = createSoundLoader({
+      api: this.api,
+      beforeLoad: () => {
+        this.leaveCompareView()
+        clearTimeout(this.detailPeaksDebounceTimer)
+        clearTimeout(this._seamDetailPeaksTimer)
+        this.seamView?.resetZoom()
+      },
+      findEntry: (id) => this.library.find((s) => s.id === id),
+      currentId: () => this.currentEntry?.id,
+      clearSolo: () => this.setSolo(false),
+      setCurrentEntry: (entry) => { this.currentEntry = entry },
+      // `entry` (from this.library) is already the effective view (baseline merged
+      // with this preset's own override) as of refreshLibrary()'s last call.
+      pinEditingPreset: () => {
+        this.editingPresetId = this.activePresetId
+        return this.editingPresetId
+      },
+      disposePreview: () => this.disposePreview(),
+      showEditor: (entry) => {
+        this.els.empty.classList.add('hidden')
+        this.els.panel.classList.remove('hidden')
+        this.setBarEnabled(true)
+        this.els.soundName.textContent = entry.name
+        this.els.soundName.title = entry.name
+        this.layout?.refreshStudio?.()
+        this.setPlayPauseIcon(false)
+        this.els.saveStatus.textContent = ''
+      },
+      setFilterSliders: (filters) => this.setFilterSliders(filters),
+      setSavedEqSnapshot: (eq) => { this.savedEqSnapshot = eq },
+      resetEqCompare: () => this.resetEqCompare(),
+      setCrossfade: (ms) => {
+        this.els.crossfade.value = String(ms)
+        this.updateCrossfadeLabel(ms)
+      },
+      setSpeedPitchControls: (sp) => this.setSpeedPitchControls(sp),
+      updateSpeedPitchLabels: (sp) => this.updateSpeedPitchLabels(sp),
+      loopEditor: () => this.loopEditorController,
+      setPlayModeControls: (mode) => this.setPlayModeControls(mode),
+      setScatterControls: (c) => this.setScatterControls(c),
+      setScheduleControls: (c) => this.setScheduleControls(c),
+      setFluctuationControls: (c) => this.setFluctuationControls(c),
+      startPreview: ({ entry, presetId, crossfadeMs, speedPitch, fluctuation }) => this.previewCtl.start({
+        soundId: entry.id,
+        presetId,
+        volume: this.effectivePreviewVolume(),
+        sourceOptions: {
+          loopStart: entry.loopStart,
+          loopEnd: entry.loopEnd,
+          looping: this.looping,
+          crossfadeSeconds: crossfadeMs / 1000,
+          speedPitch,
+          fluctuation,
+          onNoiseProfile: (curve) => this.filterControls?.setNoiseProfile(curve)
+        },
+        // Only fires when Loop preview is off and playback runs off the end on
+        // its own - the button/playhead-tracking RAF otherwise only stop via
+        // the explicit Play/Pause click handler.
+        onEnded: () => {
+          this.stopPreviewTicking()
+          this.setPlayPauseIcon(false)
+          this.eqEditorController.clearSpectrum()
+        },
+        onReverseStateChange: (state) => this.showReverseState(state)
+      }),
+      showReverseState: () => this.showReverseState(this.previewSource.reverseState),
+      previewSource: () => this.previewSource,
+      previewFilters: () => this.previewFilters(),
+      getFluctuation: () => this.fluctuation,
+      closeMarkerPopover,
+      loadMarkers,
+      setMarkers: (markers) => this.setMarkers(markers, { save: false }),
+      setSpectralRegions: (regions) => this.spectralView.setRegions(regions),
+      updateSpectralControls: () => this.updateSpectralControls(),
+      syncNoiseBand: () => this.syncNoiseBand(),
+      resetSpectrogramKey: () => { this._spectrogramKey = null },
+      syncSpectralView: () => this.syncSpectralView(),
+      updateFadeVisual: () => this.updateFadeVisual(),
+      updateLoopTimeInputs: (start, end) => this.updateLoopTimeInputs(start, end),
+      updateStickyProgress: (t) => this.updateStickyProgress(t),
+      resetSuggestLoop: () => {
+        this.els.suggestStatus.textContent = ''
+        this.els.suggestLoopBtn.disabled = false
+      },
+      setBandEnergy: (freqs, energies) => this.eqEditorController.setBandEnergy(freqs, energies),
+      snapshotOf: (...args) => this.snapshotOf(...args),
+      // Undo history is per-editing-session, same scope as A/B Compare - a fresh
+      // load starts a fresh stack seeded with the just-loaded state.
+      resetHistory: (snapshot) => {
+        this.savedSnapshot = snapshot
+        clearTimeout(this._historyCommitTimer)
+        this.history.reset(JSON.parse(snapshot))
+      },
+      updateUndoRedoButtonsUI: () => this.updateUndoRedoButtonsUI(),
+      updateSaveButtonState: () => this.updateSaveButtonState(),
+      hasPeaksCached: (id) => this.waveformPeaksCache.has(id),
+      setWaveformStatus: (text) => { this.els.waveformStatus.textContent = text },
+      getWaveformPeaks: (id) => this.getWaveformPeaks(id),
+      syncSeamView: () => this.syncSeamView()
     })
     this.saveCtl = createSaveController({
       api: this.api,
@@ -3776,198 +3878,8 @@ export default class EditorPlugin {
     }, 250)
   }
 
-  async loadSound(id) {
-    this.leaveCompareView()
-    clearTimeout(this.detailPeaksDebounceTimer)
-    clearTimeout(this._seamDetailPeaksTimer)
-    this.seamView?.resetZoom()
-    const entry = this.library.find((s) => s.id === id)
-    if (!entry) return
-    // Solo is scoped to whichever sound was previously open, not the one
-    // about to load - un-solo it first (targeting the old id) before
-    // switching currentEntry, same "fresh load = fresh arrangement" logic
-    // the EQ graph's own per-band Solo already uses.
-    this.setSolo(false)
-    this.currentEntry = entry
-    // Per-preset sound overrides (planned 2026-09-12): pins which preset
-    // this editing session's Save targets. `entry` (from this.library) is
-    // already the *effective* view (baseline merged with this preset's own
-    // override, if any) as of refreshLibrary()'s last call - see its comment.
-    this.editingPresetId = this.activePresetId
-    this.disposePreview()
-
-    this.els.empty.classList.add('hidden')
-    this.els.panel.classList.remove('hidden')
-    this.setBarEnabled(true)
-    this.els.soundName.textContent = entry.name
-    this.els.soundName.title = entry.name
-    this.layout?.refreshStudio?.()
-    this.setPlayPauseIcon(false)
-    this.els.saveStatus.textContent = ''
-
-    // entry.filters.eq is undefined on any sound saved before the
-    // parametric EQ existed - explicitly defaulted here (not left to
-    // setFilterSliders' own `if (filters.eq)` guard) so loading an old
-    // sound always resets the EQ editor to flat defaults instead of
-    // silently keeping whatever the previously-loaded sound left on screen.
-    const filters = { ...NEUTRAL_FILTERS, ...entry.filters, eq: entry.filters?.eq ?? defaultEqBands() }
-    this.setFilterSliders(filters)
-    // A/B Compare's "B" (last saved mix) - captured once here from the
-    // just-loaded entry's own saved data, deliberately never touched again
-    // for the rest of this editing session (not even by an in-session Save -
-    // "last saved... before the current session").
-    this.savedEqSnapshot = filters.eq.map((b) => ({ ...b }))
-    this.resetEqCompare()
-
-    const crossfadeMs = entry.crossfadeSeconds != null ? Math.round(entry.crossfadeSeconds * 1000) : DEFAULT_CROSSFADE_MS
-    this.els.crossfade.value = String(crossfadeMs)
-    this.updateCrossfadeLabel(crossfadeMs)
-
-    const speedPitch = entry.speedPitch ?? {
-      speed: 1,
-      pitchSemitones: 0,
-      reversed: false,
-      dopplerEnabled: false,
-      dopplerClosestFraction: 0.5,
-      dopplerIntensitySemitones: 5,
-      dopplerReversed: false,
-      dopplerSharpness: 0.5
-    }
-    this.setSpeedPitchControls(speedPitch)
-    this.updateSpeedPitchLabels(speedPitch)
-    // setDopplerEnabled/setDopplerClosestFraction are called again below,
-    // after loopEditorController.load() - load() resets both to their
-    // neutral defaults (a fresh sound shouldn't inherit the previous one's
-    // Doppler state), which would otherwise immediately clobber what
-    // setSpeedPitchControls just set here.
-    this.loopEditorController?.setDopplerEnabled(speedPitch.dopplerEnabled ?? false)
-
-    const playMode = entry.playMode ?? 'loop'
-    const scatter = entry.scatter ?? defaultScatter()
-    const schedule = entry.schedule ?? defaultSchedule()
-    this.setPlayModeControls(playMode)
-    this.setScatterControls(scatter)
-    this.setScheduleControls(schedule)
-
-    const fluctuation = entry.fluctuation ?? defaultFluctuation()
-    this.setFluctuationControls(fluctuation)
-
-    await this.previewCtl.start({
-      soundId: entry.id,
-      presetId: this.editingPresetId,
-      volume: this.effectivePreviewVolume(),
-      sourceOptions: {
-        loopStart: entry.loopStart,
-        loopEnd: entry.loopEnd,
-        looping: this.looping,
-        crossfadeSeconds: crossfadeMs / 1000,
-        speedPitch,
-        fluctuation,
-        onNoiseProfile: (curve) => this.filterControls?.setNoiseProfile(curve)
-      },
-      // Only fires when Loop preview is off and playback runs off the end on
-      // its own - the button/playhead-tracking RAF otherwise only stop via
-      // the explicit Play/Pause click handler.
-      onEnded: () => {
-        this.stopPreviewTicking()
-        this.setPlayPauseIcon(false)
-        this.eqEditorController.clearSpectrum()
-      },
-      onReverseStateChange: (state) => this.showReverseState(state)
-    })
-    this.showReverseState(this.previewSource.reverseState)
-    const duration = await this.previewSource.waitForMetadata()
-    if (this.currentEntry?.id !== id) return // switched sounds while loading
-
-    if (entry.durationSeconds == null) {
-      await this.api.library.updateMeta(id, { durationSeconds: duration })
-      entry.durationSeconds = duration
-      if (entry.loopEnd == null) entry.loopEnd = duration
-    }
-
-    const loopStart = entry.loopStart
-    const loopEnd = entry.loopEnd ?? duration
-    this.previewSource.setLoopPoints(loopStart, loopEnd)
-    this.previewSource.setFilters(this.previewFilters())
-    this.previewSource.setFluctuation(this.fluctuation)
-    this.previewSource.scrubTo(loopStart)
-    this.loopEditorController.load(duration, loopStart, loopEnd)
-    closeMarkerPopover()
-    this.setMarkers(loadMarkers(entry.id, duration), { save: false })
-    // load() resets its own volume-envelope state to neutral, same reason
-    // it resets Doppler (a fresh sound shouldn't inherit the previous one's
-    // drawn points) - re-applied here after load(), same ordering fix
-    // Doppler already needed (see the comment on its own re-apply just
-    // below).
-    this.loopEditorController.setEnvelope(filters.volumeEnvelope?.enabled ?? false, filters.volumeEnvelope?.points)
-    this.spectralView.setRegions(filters.spectralRepairs ?? [])
-    this.updateSpectralControls()
-    this.syncNoiseBand()
-    this._spectrogramKey = null
-    this.syncSpectralView()
-    // BUG FIX (caught live testing this feature, not by review): loadSound()
-    // only calls setPlayModeControls() (sets the radio buttons' checked
-    // state), never applyPlayModeControl() itself - that only runs off the
-    // radio buttons' own 'change' listeners, or the one other place it's
-    // wired (undo/redo's applyEditorState). Loading a fresh sound therefore
-    // never actually recomputed anything playMode-gated, including this new
-    // envelope-visibility flag - it silently stayed at whatever the
-    // previously-open sound left it as. Setting it directly here, matching
-    // the same "explicit re-apply after load()'s own reset" pattern already
-    // needed for setEnvelope/Doppler above, rather than trying to route
-    // through applyPlayModeControl() (which also touches fade visuals/save
-    // state this function handles separately already).
-    this.loopEditorController.setEnvelopeUiVisible(playMode === 'loop')
-    this.loopEditorController.setDopplerEnabled(speedPitch.dopplerEnabled ?? false)
-    this.loopEditorController.setDopplerClosestFraction(speedPitch.dopplerClosestFraction ?? 0.5)
-    this.loopEditorController.setDopplerReversed(speedPitch.dopplerReversed ?? false)
-    this.updateFadeVisual()
-    this.updateLoopTimeInputs(loopStart, loopEnd)
-    this.loopEditorController.setPlayhead(loopStart)
-    this.updateStickyProgress(loopStart)
-    this.els.suggestStatus.textContent = ''
-    this.els.suggestLoopBtn.disabled = false
-
-    // Fire-and-forget: a real ffmpeg round-trip (six bandpass-filtered
-    // passes, see src/main/ffmpeg/bandEnergy.js), so this arrives well after
-    // everything else above already rendered. Fixed reference frequencies
-    // (defaultEqBands' own, not this sound's possibly-customized bands) -
-    // see EqEditor.js's setBandEnergy for why the backdrop is deliberately
-    // decoupled from wherever the user later drags a node to.
-    const bandFreqs = defaultEqBands().map((b) => b.freqHz)
-    this.api.audio
-      .getBandEnergy(id, { loopStart, loopEnd, freqs: bandFreqs })
-      .then((energies) => {
-        if (this.currentEntry?.id !== id || !energies) return
-        this.eqEditorController.setBandEnergy(bandFreqs, energies)
-      })
-      .catch((err) => console.error('Editor: band energy analysis failed', err))
-    this.savedSnapshot = this.snapshotOf(loopStart, loopEnd, filters, crossfadeMs, speedPitch, playMode, scatter, schedule)
-    // Undo history is per-editing-session, same scope as A/B Compare - a
-    // fresh load starts a fresh stack seeded with the just-loaded state, so
-    // Ctrl+Z on the very first edit reverts to exactly what was loaded.
-    clearTimeout(this._historyCommitTimer)
-    this.history.reset(JSON.parse(this.savedSnapshot))
-    this.updateUndoRedoButtonsUI()
-    this.updateSaveButtonState()
-
-    this.els.waveformStatus.textContent = this.waveformPeaksCache.has(id) ? '' : 'Loading waveform…'
-    // A failed fetch used to leave "Loading waveform…" up forever; say why instead.
-    let peaks = null
-    let failure = null
-    try {
-      // 60 s covers an hour-long file; past that the main process never answered.
-      let timer
-      const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("no answer after 60 s")), 60000) })
-      peaks = await Promise.race([this.getWaveformPeaks(id), timeout]).finally(() => clearTimeout(timer))
-    } catch (err) {
-      console.error('Editor: waveform load failed', err)
-      failure = err?.message || String(err)
-    }
-    if (this.currentEntry?.id !== id) return
-    this.loopEditorController.setPeaks(peaks)
-    this.syncSeamView()
-    this.els.waveformStatus.textContent = peaks ? '' : failure ? `Waveform failed to load: ${failure}` : 'Waveform preview unavailable for this file.'
+  loadSound(id) {
+    return this.soundLoader.load(id)
   }
 
   nextCopyName(baseName) {
