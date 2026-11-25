@@ -33,6 +33,7 @@ import { saveButtonState } from '../domain/saveState.js'
 import { createAutosave } from '../domain/autosave.js'
 import { createCompare } from '../domain/compareView.js'
 import { createHistory } from '../domain/editorHistory.js'
+import { createPreviewController } from '../controllers/previewController.js'
 import { createSaveController, nextCopyName } from '../controllers/saveController.js'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
@@ -72,7 +73,6 @@ export default class EditorPlugin {
     this.editingPresetId = null
     this.pickerQuery = ''
     this.pickerHighlightIndex = -1
-    this.previewSource = null
     // Baseline for the Fluctuation dirty-check (see fluctuationDirty()) - the
     // last value that's actually persisted to the library. Set on every load
     // and after every fluctuation write (manual Save or the debounced
@@ -90,7 +90,6 @@ export default class EditorPlugin {
     // (v0.1.142) - no longer force-reverted to 'live' just because an edit
     // made the bake stale, see savedPreviewEligible()/updatePreviewModeToggle().
     this.previewMode = 'live'
-    this.bakedPreview = null
     this.previewRafId = null
     this.loopEditorController = null
     // Timing markers of the open sound (original-file seconds), see markers.js.
@@ -154,6 +153,19 @@ export default class EditorPlugin {
       isBusy: () => this.saveCtl.isSaving(),
       save: () => this.save({ trigger: 'auto' }),
       onError: (err) => console.error('Editor: autosave failed', err)
+    })
+    this.previewCtl = createPreviewController({
+      engine: this.engine,
+      PreviewSource,
+      BakedClipPreview,
+      setLiveMode: () => { this.previewMode = 'live' },
+      getPreviewMode: () => this.previewMode,
+      getVolume: () => this.effectivePreviewVolume(),
+      stopTicking: () => this.stopPreviewTicking(),
+      setPlayPauseIcon: (playing) => this.setPlayPauseIcon(playing),
+      setClipRebaking: (v) => { this._clipRebaking = v },
+      tickPlayhead: () => this.tickPreviewPlayhead(),
+      updateSaveButtonState: () => this.updateSaveButtonState()
     })
     this.saveCtl = createSaveController({
       api: this.api,
@@ -3692,6 +3704,9 @@ export default class EditorPlugin {
     if (input.value !== text) input.value = text
   }
 
+  get previewSource() { return this.previewCtl.source }
+  get bakedPreview() { return this.previewCtl.baked }
+
   disposePreview() {
     this.stopSeamListen({ pause: false })
     this.stopPreviewTicking()
@@ -3699,14 +3714,9 @@ export default class EditorPlugin {
     this.flushFluctuation()
     this.eqEditorController?.clearSpectrum()
     this.previewMode = 'live'
-    if (this.bakedPreview) {
-      this.bakedPreview.dispose()
-      this.bakedPreview = null
-    }
+    this.previewCtl.disposeBaked()
     if (this.els.previewModeToggle) this.updatePreviewModeToggle()
-    if (!this.previewSource) return
-    this.previewSource.dispose()
-    this.previewSource = null
+    if (!this.previewCtl.disposeSource()) return
     this.loopEditorController?.clearPlayhead()
     this.seamView?.setPlayhead(null)
     if (this.els.stickyProgressFill) {
@@ -3842,33 +3852,29 @@ export default class EditorPlugin {
     const fluctuation = entry.fluctuation ?? defaultFluctuation()
     this.setFluctuationControls(fluctuation)
 
-    await this.engine.resume()
-    this.previewSource = new PreviewSource(this.engine, {
+    await this.previewCtl.start({
       soundId: entry.id,
-      loopStart: entry.loopStart,
-      loopEnd: entry.loopEnd,
+      presetId: this.editingPresetId,
       volume: this.effectivePreviewVolume(),
-      looping: this.looping,
-      crossfadeSeconds: crossfadeMs / 1000,
-      speedPitch,
-      fluctuation,
-      onNoiseProfile: (curve) => this.filterControls?.setNoiseProfile(curve)
+      sourceOptions: {
+        loopStart: entry.loopStart,
+        loopEnd: entry.loopEnd,
+        looping: this.looping,
+        crossfadeSeconds: crossfadeMs / 1000,
+        speedPitch,
+        fluctuation,
+        onNoiseProfile: (curve) => this.filterControls?.setNoiseProfile(curve)
+      },
+      // Only fires when Loop preview is off and playback runs off the end on
+      // its own - the button/playhead-tracking RAF otherwise only stop via
+      // the explicit Play/Pause click handler.
+      onEnded: () => {
+        this.stopPreviewTicking()
+        this.setPlayPauseIcon(false)
+        this.eqEditorController.clearSpectrum()
+      },
+      onReverseStateChange: (state) => this.showReverseState(state)
     })
-    this.previewMode = 'live'
-    // Constructed unconditionally (cheap - a plain <audio> pointed at the
-    // clip URL) even if no bake exists yet; savedPreviewEligible() is what
-    // actually gates whether the toggle can be used, checked fresh on every
-    // edit via updateSaveButtonState() -> updatePreviewModeToggle() below.
-    this.bakedPreview = new BakedClipPreview(this.engine, entry.id, this.effectivePreviewVolume(), this.editingPresetId)
-    // Only fires when Loop preview is off and playback runs off the end on
-    // its own - the button/playhead-tracking RAF otherwise only stop via
-    // the explicit Play/Pause click handler below.
-    this.previewSource.onEnded = () => {
-      this.stopPreviewTicking()
-      this.setPlayPauseIcon(false)
-      this.eqEditorController.clearSpectrum()
-    }
-    this.previewSource.onReverseStateChange = (state) => this.showReverseState(state)
     this.showReverseState(this.previewSource.reverseState)
     const duration = await this.previewSource.waitForMetadata()
     if (this.currentEntry?.id !== id) return // switched sounds while loading
@@ -3986,47 +3992,13 @@ export default class EditorPlugin {
   // release it first. _clipRebaking keeps updatePreviewModeToggle from kicking the
   // user out of Saved mode while the preview is torn down. Returns where to resume.
   releaseBakedPreviewForRebake() {
-    if (!this.bakedPreview) return null
-    const resume = {
-      time: this.bakedPreview.currentTime || 0,
-      playing: this.previewMode === 'saved' && this.bakedPreview.playing
-    }
-    if (resume.playing) {
-      this.stopPreviewTicking()
-      this.setPlayPauseIcon(false)
-    }
-    this._clipRebaking = true
-    this.bakedPreview.dispose()
-    this.bakedPreview = null
-    return resume
+    return this.previewCtl.releaseBakedForRebake()
   }
 
-  // Recreate bakedPreview after the bake so its <audio> re-fetches the rewritten clip
-  // instead of a cached copy of the previous bake, and carry position and play state
-  // across the swap. Gated on stillEditing: bakedPreview and previewMode belong to
-  // whichever sound is open now, which may no longer be the one that was saved.
-  restoreBakedPreviewAfterRebake({ resume, ok, id, presetId, stillEditing }) {
-    if (resume) this._clipRebaking = false
-    if (!stillEditing) return
-    const resumingSaved = this.previewMode === 'saved' && ok
-    const resumeTime = resumingSaved ? resume?.time ?? this.bakedPreview?.currentTime ?? 0 : 0
-    const resumePlaying = resumingSaved && (resume ? resume.playing : Boolean(this.bakedPreview?.playing))
-    this.bakedPreview?.dispose()
-    this.bakedPreview = new BakedClipPreview(this.engine, id, this.effectivePreviewVolume(), presetId)
-    if (resumingSaved) {
-      this.bakedPreview.scrubTo(resumeTime)
-      if (resumePlaying) {
-        this.engine
-          .resume()
-          .then(() => this.bakedPreview?.play())
-          .then(() => {
-            this.setPlayPauseIcon(true)
-            this.tickPreviewPlayhead()
-          })
-          .catch((err) => console.error('Editor: failed to resume saved-audio preview after re-bake', err))
-      }
-    }
-    this.updateSaveButtonState()
+  // Recreate bakedPreview after the bake (see previewController). Gated on stillEditing:
+  // bakedPreview and previewMode belong to whichever sound is open now.
+  restoreBakedPreviewAfterRebake(args) {
+    this.previewCtl.restoreBakedAfterRebake(args)
   }
 
   // ============================================================
