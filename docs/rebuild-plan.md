@@ -59,18 +59,20 @@ About 13 PRs. Steps 1 and 3 come first because other open tasks touch knobs and 
 
 After step 9 `RemixTab.js` is still about 5,360 lines (target under 1,500). It keeps lifecycle, audio, load, save and undo; step 10 pulls each of those out as a module with a narrow interface. Rules: behavior and DOM never change; the tab calls the module, the module never reaches back into `els`; pure parts get unit tests; one PR per slice, each merged before the next; `this.saveMorph` and `setSaveLabel` stay on the tab (they own the Save button's markup) and modules only receive callbacks.
 
-| Slice | Module | Interface | Notes |
+| Slice | Module | Interface | Status |
 |---|---|---|---|
-| 10a | `domain/editorHistory.js` | `createHistory({limit})`: `push(state)`, `undo()`, `redo()`, `reset(state?)`, `canUndo()`, `canRedo()` | Pure stack with the dedupe and redo-branch drop. The tab keeps the debounce timer and `applyEditorState`. |
-| 10b | `domain/compareView.js` | `createCompare()`: `enterSaved(stash)`, `leave()`, `viewing`, `stash` | Pure A/B state; `switchCompareView` keeps the DOM and EQ calls. |
-| 10c | `components/autosave.js` | `createAutosave({idleMs, save, isDirty})`: `schedule()`, `cancel()`, `flush()` | Owns the idle timer; `performSave`, `saveMorph` and `setSaveLabel` stay on the tab and are passed in. |
-| 10d | `components/saveState.js` | `saveButtonState({dirty, drift, viewing, ...})` returns label, enabled, morph state | Pure part of `updateSaveButtonState`; the tab applies it. |
-| 10e | `components/previewEngine.js` | `startPreview(entry, settings)`, `dispose()`, `applyLive(settings)` | The `AudioEngine` / `ItemPreview` wiring (`disposePreview`, live apply). |
-| 10f | `components/pickerController.js` | `selectSound(id)`, `refresh()`, `onChange(cb)` | Picker and library list, using `SoundPicker.jsx`. |
-| 10g | `components/markerController.js` | wraps `markerLayer` / `markerStore` | Marker add, drag, delete. |
-| 10h | `components/driftController.js` | `snapshot()`, `isDirty()`, `apply(settings)` | `fluctuationSnapshot`, `fluctuationDirty`, drift apply and save. |
+| 10a | `domain/editorHistory.js` | `createHistory({limit})`: `push`, `undo`, `redo`, `reset`, `canUndo`, `canRedo` | done (#64) |
+| 10b | `domain/compareView.js` | `createCompare()`: `enterSaved`, `stash`, `leave`, `isSaved` | done (#65) |
+| 10c | `domain/autosave.js` | `createAutosave({idleMs, canSchedule, canRun, isBusy, save, onError})`: `schedule`, `cancel`, `run` | done (#66) |
+| 10d | `domain/saveState.js` | `saveButtonState({compareSaved, eqViewingB, isDirty})` returns label and enabled flags | done (#67) |
+| 10h | `domain/driftState.js` | `loadedFluctuation`, `fluctuationFingerprint`, `isFluctuationDirty`, `groupDriftFor`, `groupOverrideNotes` | done (#68) |
+| 10e | `domain/previewMode.js` | `previewModeToggleState`, `mustFallBackToLive` | done (#69), pure part only |
+| 10f | `domain/pickerList.js` | `filterPickerSounds`, `stepHighlight`, `enterPick` | done (#70), pure part only |
+| 10g | `domain/markerKeys.js` | `markerKeyAction` | done (#71), pure part only |
 
-Order is safest first: pure state (10a, 10b), then save (10c, 10d), then the pieces that touch audio and DOM (10e to 10h). Guard for each: `npm test`, plugin rebuild, and the whole Remix e2e set in the app repo.
+Slices 10a to 10h took the pure rules out. What is left in `RemixTab.js` is DOM and audio wiring (`mount`, `wireControls`, `performSave`, `loadSound`, `onload`, `mountSticky`, the engine start and dispose calls). Next round: a `SaveController` that owns `performSave`, `save`, `saveAsCopy` and `saveSegmentAsNew` (callbacks in, `saveMorph` and `setSaveLabel` stay on the tab), then a `PreviewController` for the engines, then `loadSound`.
+
+Order was safest first: pure state, then the pure rules of each piece. Guard for each: `npm test`, plugin rebuild, and the whole Remix e2e set in the app repo.
 
 ## Risks
 
