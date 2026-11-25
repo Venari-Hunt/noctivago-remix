@@ -25,6 +25,7 @@ import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
+import { createHistory } from '../domain/editorHistory.js'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
 import { loadMarkers, saveMarkers } from '../domain/markerStore.js'
@@ -126,8 +127,7 @@ export default class EditorPlugin {
     // scheduleHistoryCommit), not every drag frame - see its own comment for
     // why. Reset fresh on every loadSound(), never persisted - undo history
     // is a per-editing-session aid, same scope as A/B Compare.
-    this.historyStack = []
-    this.historyIndex = -1
+    this.history = createHistory({ limit: HISTORY_LIMIT })
     this._historyCommitTimer = null
     // Set while applyEditorState() is pushing a past/future snapshot back
     // onto the live controls, so that itself doesn't get recorded as a new
@@ -1970,8 +1970,7 @@ export default class EditorPlugin {
     this.els.panel.classList.add('hidden')
     this.els.empty.classList.remove('hidden')
     clearTimeout(this._historyCommitTimer)
-    this.historyStack = []
-    this.historyIndex = -1
+    this.history.reset()
     this.updateUndoRedoButtonsUI()
     this.setBarEnabled(false)
     this.layout?.refreshStudio?.()
@@ -3393,17 +3392,9 @@ export default class EditorPlugin {
   commitHistoryPoint() {
     if (!this.currentEntry || !this.loopEditorController) return
     const state = this.captureEditorState()
-    const serialized = JSON.stringify(state)
-    // No-op if nothing actually changed since the last recorded point (e.g.
-    // a field was focused/blurred with no real edit) - avoids padding the
-    // stack with identical entries.
-    if (this.historyIndex >= 0 && JSON.stringify(this.historyStack[this.historyIndex]) === serialized) return
-    // A fresh edit after undoing discards whatever redo branch existed -
-    // same convention every text editor's own undo stack uses.
-    this.historyStack = this.historyStack.slice(0, this.historyIndex + 1)
-    this.historyStack.push(state)
-    if (this.historyStack.length > HISTORY_LIMIT) this.historyStack.shift()
-    this.historyIndex = this.historyStack.length - 1
+    // The stack ignores a point equal to the last one (a field focused and
+    // blurred with no real edit) and drops the redo branch on a fresh edit.
+    if (!this.history.push(state)) return
     this.updateUndoRedoButtonsUI()
   }
 
@@ -3515,21 +3506,19 @@ export default class EditorPlugin {
     // recent *real* change instead of silently discarding it unrecorded.
     clearTimeout(this._historyCommitTimer)
     this.commitHistoryPoint()
-    if (this.historyIndex <= 0) return
-    this.historyIndex -= 1
-    this.applyEditorState(this.historyStack[this.historyIndex])
+    const state = this.history.undo()
+    if (state) this.applyEditorState(state)
   }
 
   redo() {
     if (this.compareViewing === 'saved') return
-    if (this.historyIndex >= this.historyStack.length - 1) return
-    this.historyIndex += 1
-    this.applyEditorState(this.historyStack[this.historyIndex])
+    const state = this.history.redo()
+    if (state) this.applyEditorState(state)
   }
 
   updateUndoRedoButtonsUI() {
-    if (this.els.undo) this.els.undo.disabled = this.historyIndex <= 0
-    if (this.els.redo) this.els.redo.disabled = this.historyIndex >= this.historyStack.length - 1
+    if (this.els.undo) this.els.undo.disabled = !this.history.canUndo()
+    if (this.els.redo) this.els.redo.disabled = !this.history.canRedo()
   }
 
   // Reloading the current sound from its own saved library data already
@@ -3962,8 +3951,7 @@ export default class EditorPlugin {
     // fresh load starts a fresh stack seeded with the just-loaded state, so
     // Ctrl+Z on the very first edit reverts to exactly what was loaded.
     clearTimeout(this._historyCommitTimer)
-    this.historyStack = [JSON.parse(this.savedSnapshot)]
-    this.historyIndex = 0
+    this.history.reset(JSON.parse(this.savedSnapshot))
     this.updateUndoRedoButtonsUI()
     this.updateSaveButtonState()
 
