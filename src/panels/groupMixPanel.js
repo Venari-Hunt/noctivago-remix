@@ -1,0 +1,58 @@
+import { lookupEls } from './lookup.js'
+
+// Selectors for the groupMix panel's elements (ids unchanged; CSS and e2e depend on them).
+export const GROUPMIX_SELECTORS = {
+  mixGroupEditor: '#editor-mix-group-editor',
+  mixGroupEmpty: '#editor-mix-group-empty',
+  mixGroupName: '#editor-mix-group-name',
+  mixGroupMembers: '#editor-mix-group-members',
+  mixGroupWaveform: '#editor-mix-group-waveform',
+  mixGroupHighpass: '#editor-mix-group-highpass',
+  mixGroupHighpassValue: '#editor-mix-group-highpass-value',
+  mixGroupLowpass: '#editor-mix-group-lowpass',
+  mixGroupLowpassValue: '#editor-mix-group-lowpass-value',
+  mixGroupGain: '#editor-mix-group-gain',
+  mixGroupGainValue: '#editor-mix-group-gain-value',
+  mixGroupPan: '#editor-mix-group-pan',
+  mixGroupPanValue: '#editor-mix-group-pan-value',
+  mixGroupEchoDelay: '#editor-mix-group-echo-delay',
+  mixGroupEchoDelayValue: '#editor-mix-group-echo-delay-value',
+  mixGroupEchoDecay: '#editor-mix-group-echo-decay',
+  mixGroupEchoDecayValue: '#editor-mix-group-echo-decay-value',
+  mixGroupReverbSize: '#editor-mix-group-reverb-size',
+  mixGroupReverbSizeValue: '#editor-mix-group-reverb-size-value',
+  mixGroupReverbMix: '#editor-mix-group-reverb-mix',
+  mixGroupReverbMixValue: '#editor-mix-group-reverb-mix-value',
+  mixGroupOcclusion: '#editor-mix-group-occlusion',
+  mixGroupOcclusionValue: '#editor-mix-group-occlusion-value',
+  mixGroupResetFilters: '#editor-mix-group-reset-filters',
+  mixGroupEffectButtons: { all: '[data-mix-group-effect]' },
+  mixGroupFlucEnabled: '#editor-mix-group-fluc-enabled',
+  mixGroupFlucBar: '#editor-mix-group-fluc-bar',
+  mixGroupFlucChangeMin: '#editor-mix-group-fluc-changemin',
+  mixGroupFlucChangeMax: '#editor-mix-group-fluc-changemax',
+  mixGroupFlucTransition: '#editor-mix-group-fluc-transition',
+  mixGroupFlucFullRandom: '#editor-mix-group-fluc-fullrandom',
+  mixGroupFlucBias: '#editor-mix-group-fluc-bias',
+  mixGroupFlucPerSound: '#editor-mix-group-fluc-persound',
+  mixGroupFlucPitchEnabled: '#editor-mix-group-flucpitch-enabled',
+  mixGroupFlucPitchBar: '#editor-mix-group-flucpitch-bar',
+  mixGroupFlucPitchChangeMin: '#editor-mix-group-flucpitch-changemin',
+  mixGroupFlucPitchChangeMax: '#editor-mix-group-flucpitch-changemax',
+  mixGroupFlucPitchTransition: '#editor-mix-group-flucpitch-transition',
+  mixGroupFlucPitchFullRandom: '#editor-mix-group-flucpitch-fullrandom',
+  mixGroupFlucPitchBias: '#editor-mix-group-flucpitch-bias',
+  mixGroupFlucPitchPerSound: '#editor-mix-group-flucpitch-persound',
+  mixGroupFlucPanBias: '#editor-mix-group-flucpan-bias',
+  mixGroupFlucPanPerSound: '#editor-mix-group-flucpan-persound',
+  mixGroupFlucPanEnabled: '#editor-mix-group-flucpan-enabled',
+  mixGroupFlucPanBar: '#editor-mix-group-flucpan-bar',
+  mixGroupFlucPanChangeMin: '#editor-mix-group-flucpan-changemin',
+  mixGroupFlucPanChangeMax: '#editor-mix-group-flucpan-changemax',
+  mixGroupFlucPanTransition: '#editor-mix-group-flucpan-transition',
+  mixGroupFlucPanFullRandom: '#editor-mix-group-flucpan-fullrandom'
+}
+
+export function findGroupMixEls(container) {
+  return lookupEls(container, GROUPMIX_SELECTORS)
+}
