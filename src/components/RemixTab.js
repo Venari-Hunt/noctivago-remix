@@ -8,7 +8,6 @@ import { mountSeam } from '../mounts/seamMount.js'
 import { mountEqEditor, mountMixEqTargets } from '../mounts/eqMount.js'
 import { mountMixFluctuation } from '../mounts/mixFlucMount.js'
 import { Q_MIN, Q_MAX, SLOPE_CAPABLE_EQ_TYPES } from './EqEditor.js'
-import { normalizeFluctuationAxis } from '../audio/Modulator.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountRemixApp } from './RemixApp.jsx'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
@@ -21,9 +20,8 @@ import { mountPresetPanel, mountGroupPanel } from './MixPanels.jsx'
 import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
-import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
-import { markerKeyAction } from '../domain/markerKeys.js'
-import { filterPickerSounds, stepHighlight, enterPick } from '../domain/pickerList.js'
+import { filterSummaries } from './FilterControls.jsx'
+import { filterPickerSounds } from '../domain/pickerList.js'
 import { previewModeToggleState, mustFallBackToLive } from '../domain/previewMode.js'
 import { loadedFluctuation, fluctuationFingerprint, isFluctuationDirty, groupDriftFor, groupOverrideNotes } from '../domain/driftState.js'
 import { saveButtonState } from '../domain/saveState.js'
@@ -40,17 +38,14 @@ import { wireShapeControls } from '../controls/shapeControls.js'
 import { wireFilterControls } from '../controls/filterControls.js'
 import { wireEqControls } from '../controls/eqControls.js'
 import { wireFluctuationControls } from '../controls/fluctuationControls.js'
-import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, formatPan, defaultFluctuation, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
-import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
-import { saveMarkers } from '../domain/markerStore.js'
-import { mountMarkerUi, flashMarkerButton, renderMarkerChips, renderProgressTicks, openMarkerPopover, closeMarkerPopover, formatMarkerTime } from './markerUi.js'
+import { applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, defaultFluctuation, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
+import { mountMarkerUi } from './markerUi.js'
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
 import { arrangeLayout, arrangeBar, driftSummary } from './layout.js'
 import { wireNameMarquee } from './nameMarquee.js'
 import { requestAnalyser, requestMixerStatus } from './mixerBridge.js'
 import { pushLevel, peakFromTimeDomain } from '../domain/levels.js'
 import { drawLevelHistory } from './levelHistory.js'
-import { escapeHtml } from '../domain/html.js'
 import { groupDetail, presetDetail, soundDetail, panOverride, withSoundVolume } from '../domain/detailPanel.js'
 import { ItemPreviewPlayer } from '../audio/ItemPreview.js'
 import { soundPlan, groupPlan, previewKind, effectiveSound } from '../domain/itemPreview.js'
@@ -60,6 +55,8 @@ import { soundLoaderCallbacks } from '../callbacks/soundLoaderCallbacks.js'
 import { saveCallbacks } from '../callbacks/saveCallbacks.js'
 import { mountCallbacks } from '../callbacks/mountCallbacks.js'
 import { findAllEls } from '../panels/index.js'
+import * as markers from '../tab/markers.js'
+import * as presetGroupMode from '../tab/presetGroupMode.js'
 
 export default class EditorPlugin {
   constructor(app) {
@@ -663,90 +660,33 @@ export default class EditorPlugin {
     return this.previewMode === 'saved' ? this.clipTimeToSource(active.currentTime) : active.currentTime
   }
 
-  setMarkers(list, { save = true } = {}) {
-    this.markers = list
-    if (save && this.currentEntry) saveMarkers(this.currentEntry.id, list)
-    this.loopEditorController?.setMarkers(list)
-    this.spectralView?.setMarkers(list)
-    this.refreshMarkerUi()
+  setMarkers(...args) {
+    return markers.setMarkers(this, ...args)
   }
 
-  refreshMarkerUi() {
-    if (!this.markerUi) return
-    const points = this.loopEditorController?.getLoopPoints()
-    const selected = this.loopEditorController?.getSelectedMarker?.() ?? null
-    renderMarkerChips(this.markerUi.list, this.markers, selected)
-    renderProgressTicks(this.els.stickyProgress, this.markers, points?.loopStart ?? 0, points?.loopEnd ?? 0)
+  refreshMarkerUi(...args) {
+    return markers.refreshMarkerUi(this, ...args)
   }
 
-  addMarkerAtPlayhead() {
-    if (!this.currentEntry || this.mode !== 'sound') return
-    const duration = this.currentEntry.durationSeconds ?? Infinity
-    const t = this.currentSourceTime()
-    const { markers, added } = addMarker(this.markers, t, duration)
-    if (!added) {
-      this.els.saveStatus.textContent = `A marker is already at ${formatMarkerTime(t)}`
-      return
-    }
-    this.setMarkers(markers)
-    this.loopEditorController?.selectMarker(added.id)
-    this.spectralView?.selectMarker(added.id)
-    flashMarkerButton(this.markerUi?.button)
-    this.els.saveStatus.textContent = `Marker at ${formatMarkerTime(added.time)}`
+  addMarkerAtPlayhead(...args) {
+    return markers.addMarkerAtPlayhead(this, ...args)
   }
 
-  goToMarker(id) {
-    const marker = this.markers.find((m) => m.id === id)
-    const active = this.activePreview()
-    if (!marker || !active) return
-    const t = this.previewMode === 'saved' ? this.sourceTimeToClip(marker.time) : marker.time
-    active.scrubTo(t)
-    this.loopEditorController?.setPlayhead(marker.time)
-    this.spectralView?.setPlayhead(marker.time)
-    this.updateStickyProgress(t)
+  goToMarker(...args) {
+    return markers.goToMarker(this, ...args)
   }
 
-  deleteMarker(id) {
-    closeMarkerPopover()
-    this.setMarkers(removeMarker(this.markers, id))
+  deleteMarker(...args) {
+    return markers.deleteMarker(this, ...args)
   }
 
-  editMarker(marker, clientX, clientY) {
-    this.loopEditorController?.selectMarker(marker.id)
-    this.spectralView?.selectMarker(marker.id)
-    openMarkerPopover(this.root.ownerDocument, marker, clientX, clientY, {
-      onRename: (name) => this.setMarkers(renameMarker(this.markers, marker.id, name)),
-      onColor: (color) => this.setMarkers(updateMarker(this.markers, marker.id, { color })),
-      onGo: () => this.goToMarker(marker.id),
-      onDelete: () => this.deleteMarker(marker.id)
-    })
+  editMarker(...args) {
+    return markers.editMarker(this, ...args)
   }
 
-  // Ctrl+M adds a marker; Delete removes the selected one. Returns true when
-  // the key was ours.
-  handleMarkerKey(evt) {
-    const active = document.activeElement
-    const typing = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)
-    const selected = this.loopEditorController?.getSelectedMarker?.()
-    const action = markerKeyAction(evt, {
-      mode: this.mode,
-      typing,
-      hasSelected: selected != null,
-      onSpectral: evt.target === this.els.spectralCanvas
-    })
-    if (action === 'add') {
-      evt.preventDefault()
-      this.addMarkerAtPlayhead()
-      return true
-    }
-    if (action === 'delete') {
-      evt.preventDefault()
-      this.deleteMarker(selected)
-      return true
-    }
-    return false
+  handleMarkerKey(...args) {
+    return markers.handleMarkerKey(this, ...args)
   }
-
   effectivePreviewVolume() {
     return this.previewMuted ? 0 : this.previewVolume
   }
@@ -3316,602 +3256,139 @@ export default class EditorPlugin {
     }
   }
 
-  // --- Preset mode ---
-
-  async refreshMixPanel() {
-    // BUG FIX (v0.1.227): this used to set this.library to the raw shared
-    // defaults, so a sound opened in Sound mode after visiting Preset/Group
-    // mode showed (and then saved over its preset settings with) the shared
-    // defaults. refreshLibrary() keeps the per-preset effective view and
-    // refreshes this.presets too.
-    await this.refreshLibrary()
-    const previous = this.selectedPresetId
-    this.renderPresetSelectOptions()
-
-    const stillThere = this.presets.some((p) => p.id === previous)
-    const target = stillThere ? previous : (this.presets[0]?.id ?? null)
-    this.els.mixPresetSelect.value = target ?? ''
-    this.selectMixPreset(target, { silent: true })
+  async refreshMixPanel(...args) {
+    return presetGroupMode.refreshMixPanel(this, ...args)
   }
 
-  // The "In preset" dropdown (Group mode). Called from refreshLibrary too,
-  // which every refresh path runs, so a preset made, renamed or deleted
-  // elsewhere shows here without a tab switch (owner, 2026-11-17: a new
-  // preset was missing from Remix's lists until a restart).
-  renderPresetSelectOptions() {
-    const select = this.els.mixPresetSelect
-    if (!select) return
-    const keep = select.value
-    select.innerHTML = this.presets.length
-      ? this.presets.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')
-      : '<option value="">No presets saved yet</option>'
-    if (this.presets.some((p) => p.id === keep)) select.value = keep
+  renderPresetSelectOptions(...args) {
+    return presetGroupMode.renderPresetSelectOptions(this, ...args)
   }
 
-  // `presetChanged` gates whether the currently-open group survives - a
-  // plain data refresh (refreshMixPanel() runs on every tab onShow, same as
-  // the old standalone Preset Remix plugin's own refresh() did) re-selects
-  // the *same* preset id, and used to unconditionally reset selectedGroupId
-  // to null regardless - a real bug caught live via CDP while verifying
-  // this merge (switching to another tab and back silently kicked you out
-  // of whichever group you had open, and - worse - left stale membership
-  // checkboxes in the DOM still wired to toggle a now-null selectedGroupId,
-  // which strips a sound out of every group instead of the intended one).
-  selectMixPreset(id, { silent = false } = {}) {
-    const presetChanged = id !== this.selectedPresetId
-    if (presetChanged) this.resetLevelHistory('preset')
-    if (presetChanged && this.selectedGroupId) this.dispatchGroupPreview(this.groupSaved)
-
-    this.selectedPresetId = id || null
-    const preset = this.presets.find((p) => p.id === id)
-    this.wholeMixSaved = cloneWholeMix(preset?.wholeMix ?? null)
-    this.wholeMixCurrent = cloneWholeMix(this.wholeMixSaved)
-    this.writePresetMixControls(this.wholeMixCurrent)
-    this.presetEq.load(this.wholeMixCurrent.eq)
-    this.presetEqTarget.resetCompare()
-    this.presetEqTarget.updateFields()
-    this.updatePresetMixLabels()
-    this.els.mixPresetControls.classList.toggle('editor-mix-disabled', !preset)
-    if (!silent && this.mode === 'preset') this.dispatchWholeMixPreview(this.wholeMixCurrent)
-
-    this.groups = preset?.groups ?? []
-    this.renderGroupSelectOptions()
-    this.renderCopyGroupTargetOptions()
-    if (presetChanged) {
-      this.selectedGroupId = null
-      this.els.mixGroupSelect.value = ''
-      this.els.mixGroupEditor.classList.add('hidden')
-      this.els.mixGroupEmpty.classList.remove('hidden')
-    } else if (this.selectedGroupId) {
-      // Same preset, just a refresh - keep editing whichever group was
-      // open, re-synced against the freshly fetched data (its membership or
-      // filters may have changed elsewhere, e.g. the Mixer's own right-click
-      // menu, while this tab was hidden).
-      const group = this.groups.find((g) => g.id === this.selectedGroupId)
-      if (group) {
-        this.els.mixGroupSelect.value = this.selectedGroupId
-        this.renderGroupMembers()
-      } else {
-        this.selectedGroupId = null
-        this.els.mixGroupEditor.classList.add('hidden')
-        this.els.mixGroupEmpty.classList.remove('hidden')
-      }
-    }
-    this.updateModeUI()
+  selectMixPreset(...args) {
+    return presetGroupMode.selectMixPreset(this, ...args)
   }
 
-  writePresetMixControls(mix) {
-    this.els.mixPresetHighpass.value = String(mix.highpassHz)
-    this.els.mixPresetLowpass.value = String(mix.lowpassHz)
-    this.els.mixPresetGain.value = String(mix.gainDb)
-    this.els.mixPresetEchoDelay.value = String(mix.echoDelayMs)
-    this.els.mixPresetEchoDecay.value = String(mix.echoDecay)
-    this.els.mixPresetReverbSize.value = String(mix.reverbSizeMs ?? 0)
-    this.els.mixPresetReverbMix.value = String(mix.reverbMix ?? 0)
-    this.els.mixPresetFadeIn.value = String(mix.fadeInSeconds)
-    this.writeMixFluctuation(mix.fluctuation, this.presetFlucEls)
+  writePresetMixControls(...args) {
+    return presetGroupMode.writePresetMixControls(this, ...args)
   }
 
-  readPresetMixControlsAndPreview() {
-    this.wholeMixCurrent = {
-      ...this.wholeMixCurrent,
-      highpassHz: Number(this.els.mixPresetHighpass.value),
-      lowpassHz: Number(this.els.mixPresetLowpass.value),
-      gainDb: Number(this.els.mixPresetGain.value),
-      echoDelayMs: Number(this.els.mixPresetEchoDelay.value),
-      echoDecay: Number(this.els.mixPresetEchoDecay.value),
-      reverbSizeMs: Number(this.els.mixPresetReverbSize.value),
-      reverbMix: Number(this.els.mixPresetReverbMix.value),
-      fadeInSeconds: Math.max(0, Number(this.els.mixPresetFadeIn.value) || 0),
-      fluctuation: this.readMixFluctuation(this.presetFlucEls)
-    }
-    this.updatePresetMixLabels()
-    this.updateMixFlucEnabledUI(this.presetFlucEls)
-    this.updateModeUI()
-    if (this.mode === 'preset') this.dispatchWholeMixPreview(this.wholeMixCurrent)
+  readPresetMixControlsAndPreview(...args) {
+    return presetGroupMode.readPresetMixControlsAndPreview(this, ...args)
   }
 
-  // --- Fluctuation shared helpers (Preset + Group mode) ---
-  // `els` is a bundle: { enabledEl, bar, changeMinEl, changeMaxEl, transEl,
-  // fullRandomEl } for the volume axis (this.presetFlucEls /
-  // this.groupFlucEls), plus an optional `pan` sub-bundle of the same shape
-  // (Group mode only, v0.1.217).
-  readMixFluctuation(els) {
-    return {
-      volume: this.readMixFlucAxis(els),
-      ...(els.pitch ? { pitch: this.readMixFlucAxis(els.pitch) } : {}),
-      ...(els.pan ? { pan: this.readMixFlucAxis(els.pan) } : {})
-    }
+  readMixFluctuation(...args) {
+    return presetGroupMode.readMixFluctuation(this, ...args)
   }
 
-  readMixFlucAxis(axisEls) {
-    const v = axisEls.bar.getValues()
-    return {
-      enabled: axisEls.enabledEl.checked,
-      fullyRandom: axisEls.fullRandomEl.checked,
-      biasEnabled: axisEls.biasEl.checked,
-      ...(axisEls.perSoundEl ? { perSound: axisEls.perSoundLocked || axisEls.perSoundEl.checked } : {}),
-      min: v.min,
-      max: v.max,
-      bias: v.bias,
-      changeMinSeconds: flucSeconds(axisEls.changeMinEl.value, 6),
-      changeMaxSeconds: flucSeconds(axisEls.changeMaxEl.value, 14),
-      transitionSeconds: flucSeconds(axisEls.transEl.value, 8, true)
-    }
+  readMixFlucAxis(...args) {
+    return presetGroupMode.readMixFlucAxis(this, ...args)
   }
 
-  writeMixFluctuation(fluctuation, els) {
-    // No saved axis (a neutral preset, or Reset filters) → show the default
-    // spread, not all three handles collapsed at 1.
-    const d = defaultMixFluctuation()
-    const volSrc = fluctuation?.volume ?? d.volume
-    this.writeMixFlucAxis({ ...d.volume, ...normalizeFluctuationAxis(volSrc, 1), perSound: Boolean(volSrc.perSound) }, els)
-    if (els.pitch) this.writeMixFlucAxis({ ...d.pitch, ...normalizeFluctuationAxis(fluctuation?.pitch ?? d.pitch, 0) }, els.pitch)
-    if (els.pan) {
-      const src = fluctuation?.pan ?? d.pan
-      this.writeMixFlucAxis({ ...d.pan, ...normalizeFluctuationAxis(src, 0), perSound: Boolean(src.perSound) }, els.pan)
-    }
-    this.updateMixFlucEnabledUI(els)
+  writeMixFluctuation(...args) {
+    return presetGroupMode.writeMixFluctuation(this, ...args)
   }
 
-  writeMixFlucAxis(axis, axisEls) {
-    axisEls.enabledEl.checked = axis.enabled
-    axisEls.fullRandomEl.checked = axis.fullyRandom
-    axisEls.changeMinEl.value = String(axis.changeMinSeconds)
-    axisEls.changeMaxEl.value = String(axis.changeMaxSeconds)
-    axisEls.transEl.value = String(axis.transitionSeconds)
-    axisEls.biasEl.checked = axis.biasEnabled !== false
-    if (axisEls.perSoundEl && !axisEls.perSoundLocked) axisEls.perSoundEl.checked = Boolean(axis.perSound)
-    axisEls.bar.setValues(axis)
+  writeMixFlucAxis(...args) {
+    return presetGroupMode.writeMixFlucAxis(this, ...args)
   }
 
-  updateMixFlucEnabledUI(els) {
-    for (const axisEls of [els, els.pitch, els.pan].filter(Boolean)) {
-      const on = axisEls.enabledEl.checked
-      const random = axisEls.fullRandomEl.checked
-      axisEls.bar.setEnabled(on && !random)
-      axisEls.bar.setBiasEnabled(axisEls.biasEl.checked)
-      axisEls.changeMinEl.disabled = !on
-      axisEls.changeMaxEl.disabled = !on
-      axisEls.transEl.disabled = !on
-      axisEls.fullRandomEl.disabled = !on
-      axisEls.biasEl.disabled = !on || random
-      if (axisEls.perSoundEl && !axisEls.perSoundLocked) axisEls.perSoundEl.disabled = !on
-    }
+  updateMixFlucEnabledUI(...args) {
+    return presetGroupMode.updateMixFlucEnabledUI(this, ...args)
   }
 
-  setPresetEffectPreset(preset) {
-    this.els.mixPresetHighpass.value = String(preset.highpassHz)
-    this.els.mixPresetLowpass.value = String(preset.lowpassHz)
-    this.els.mixPresetGain.value = String(preset.gainDb)
-    this.els.mixPresetEchoDelay.value = String(preset.echoDelayMs ?? 0)
-    this.els.mixPresetEchoDecay.value = String(preset.echoDecay ?? 0)
-    this.els.mixPresetReverbSize.value = String(preset.reverbSizeMs ?? 0)
-    this.els.mixPresetReverbMix.value = String(preset.reverbMix ?? 0)
+  setPresetEffectPreset(...args) {
+    return presetGroupMode.setPresetEffectPreset(this, ...args)
   }
 
-  updatePresetMixLabels() {
-    const hp = Number(this.els.mixPresetHighpass.value)
-    const lp = Number(this.els.mixPresetLowpass.value)
-    const gain = Number(this.els.mixPresetGain.value)
-    const echoDelay = Number(this.els.mixPresetEchoDelay.value)
-    const echoDecay = Number(this.els.mixPresetEchoDecay.value)
-    const reverbSize = Number(this.els.mixPresetReverbSize.value)
-    const reverbMix = Number(this.els.mixPresetReverbMix.value)
-    this.els.mixPresetHighpassValue.textContent = hp > 0 ? `${hp} Hz` : 'Off'
-    this.els.mixPresetLowpassValue.textContent = lp < 20000 ? `${lp} Hz` : 'Off'
-    this.els.mixPresetGainValue.textContent = `${gain > 0 ? '+' : ''}${gain} dB`
-    this.els.mixPresetEchoDelayValue.textContent = echoDelay > 0 ? `${echoDelay} ms` : 'Off'
-    this.els.mixPresetEchoDecayValue.textContent = echoDecay > 0 ? echoDecay.toFixed(2) : 'Off'
-    this.els.mixPresetReverbSizeValue.textContent = reverbSize > 0 ? `${(reverbSize / 1000).toFixed(1)}s` : 'Off'
-    this.els.mixPresetReverbMixValue.textContent = reverbMix > 0 ? `${Math.round(reverbMix * 100)}%` : 'Off'
+  updatePresetMixLabels(...args) {
+    return presetGroupMode.updatePresetMixLabels(this, ...args)
   }
 
-  async saveWholeMix() {
-    if (!this.selectedPresetId || this._wholeMixSaveInProgress) return
-    this._wholeMixSaveInProgress = true
-    this.els.mixSave.disabled = true
-    try {
-      const updated = await this.api.presets.updateWholeMix(this.selectedPresetId, this.wholeMixCurrent)
-      this.wholeMixSaved = cloneWholeMix(updated?.wholeMix ?? null)
-      this.wholeMixCurrent = cloneWholeMix(this.wholeMixSaved)
-      this.writePresetMixControls(this.wholeMixCurrent)
-      this.presetEq.load(this.wholeMixCurrent.eq)
-      this.presetEqTarget.updateFields()
-      this.presetEqTarget.updateBanner()
-      this.updatePresetMixLabels()
-      const local = this.presets.find((p) => p.id === this.selectedPresetId)
-      if (local) local.wholeMix = updated?.wholeMix ?? null
-      this.dispatchWholeMixPreview(this.wholeMixSaved)
-      this.els.mixStatus.textContent = 'Saved. Load this preset in the Mixer to hear it.'
-    } catch (err) {
-      console.error('Editor: preset save failed', err)
-      this.els.mixStatus.textContent = `Save failed: ${err.message}`
-    } finally {
-      this._wholeMixSaveInProgress = false
-      this.updateModeUI()
-    }
+  async saveWholeMix(...args) {
+    return presetGroupMode.saveWholeMix(this, ...args)
   }
 
-  dispatchWholeMixPreview(wholeMix) {
-    if (!this.selectedPresetId) return
-    window.dispatchEvent(
-      new CustomEvent('noctivago:whole-mix-preview', {
-        detail: { presetId: this.selectedPresetId, wholeMix: cloneWholeMix(wholeMix) }
-      })
-    )
+  dispatchWholeMixPreview(...args) {
+    return presetGroupMode.dispatchWholeMixPreview(this, ...args)
   }
 
-  // --- Group mode (see AudioEngine.js's SoundGroupChain) ---
-  // A group is scoped to whichever preset is selected in the shared picker
-  // row above: a named subset of that preset's own sounds, routed through
-  // one shared highpass/lowpass/EQ/gain chain instead of straight to
-  // masterGain. Membership writes through immediately (like adding a sound
-  // to a preset); a group's own name/filters/EQ are a draft with the same
-  // sticky-bar Save the whole-mix panel uses, kept fully separate so editing
-  // a group never affects the preset's own whole-mix save state or vice
-  // versa.
-
-  renderGroupSelectOptions() {
-    this.els.mixGroupSelect.innerHTML = this.groups.length
-      ? this.groups.map((g) => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)} (${g.soundIds.length})</option>`).join('')
-      : '<option value="">No groups yet</option>'
-    this.layout?.refreshStudio?.()
+  renderGroupSelectOptions(...args) {
+    return presetGroupMode.renderGroupSelectOptions(this, ...args)
   }
 
-  // "Copy to preset…" (owner inbox, 2026-09-13: a "crowd speaking" ambience
-  // group reused across a shopping-center preset and a town-square preset) -
-  // every OTHER preset (the currently open one has nothing to copy into
-  // itself), refreshed alongside the group <select> in selectMixPreset() so
-  // switching presets keeps this list correct without a separate refresh
-  // path. A plain <select> that fires the copy on pick, rather than a
-  // separate button + target picker - matches this app's existing
-  // pick-triggers-action convention (e.g. the sort/group-by dropdowns)
-  // and needs no extra chrome in an already-packed sticky bar.
-  renderCopyGroupTargetOptions() {
-    const placeholder = '<option value="" selected disabled>Copy to preset…</option>'
-    const others = this.presets.filter((p) => p.id !== this.selectedPresetId)
-    this.els.mixCopyGroupTo.innerHTML =
-      placeholder + others.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')
+  renderCopyGroupTargetOptions(...args) {
+    return presetGroupMode.renderCopyGroupTargetOptions(this, ...args)
   }
 
-  // Duplicates the selected group's name/filters/EQ/members into a brand-new
-  // group (a fresh id, assigned by presets.js's normalizeGroup) on a
-  // *different* preset - once there, it's governed entirely by that other
-  // preset (its own Save/Delete/EQ edits), matching how a group already
-  // works: presets.js has no cross-preset group concept, this is purely "add
-  // one more group, built from a copy of this data" on the target's own
-  // groups[]. soundIds carry over unfiltered - group membership was already
-  // independent of a preset's own sounds[] list before this feature existed
-  // (renderGroupMembers's own union of the two proves it), so a copied
-  // member sound not yet in the target preset's mix just sits inert there,
-  // exactly like any other group member does today.
-  async copyGroupToPreset(targetPresetId) {
-    this.els.mixCopyGroupTo.value = ''
-    if (!targetPresetId || !this.selectedGroupId || !this.selectedPresetId) return
-    const sourceGroup = this.groups.find((g) => g.id === this.selectedGroupId)
-    if (!sourceGroup) return
-    // Reads presets fresh right before the write rather than trusting
-    // this.presets (which could be stale if the target preset's own groups
-    // changed elsewhere, e.g. the Mixer's right-click menu, while this tab
-    // sat open) - a whole-array replace write is exactly the case that
-    // matters for, per this file's own established "read fresh before a
-    // whole-array replace" precedent (see toggleGroupMember's comment).
-    const freshPresets = await this.api.presets.list()
-    const targetPreset = freshPresets.find((p) => p.id === targetPresetId)
-    if (!targetPreset) return
-    const newGroup = { name: sourceGroup.name, soundIds: [...sourceGroup.soundIds], filters: cloneGroupFilters(sourceGroup.filters) }
-    const updatedGroups = [...(targetPreset.groups ?? []), newGroup]
-    const saved = await this.api.presets.updateGroups(targetPresetId, updatedGroups)
-    this.presets = freshPresets.map((p) => (p.id === targetPresetId ? (saved ?? { ...p, groups: updatedGroups }) : p))
-    if (targetPresetId === this.selectedPresetId) {
-      this.groups = saved?.groups ?? updatedGroups
-      this.renderGroupSelectOptions()
-    }
-    window.dispatchEvent(new CustomEvent('noctivago:sound-groups-changed', { detail: { presetId: targetPresetId } }))
-    this.els.mixStatus.textContent = `Copied "${sourceGroup.name}" to "${targetPreset.name}".`
+  async copyGroupToPreset(...args) {
+    return presetGroupMode.copyGroupToPreset(this, ...args)
   }
 
-  selectGroup(id) {
-    if (this.selectedGroupId) this.dispatchGroupPreview(this.groupSaved)
-    if (id !== this.selectedGroupId) this.resetLevelHistory('group')
-
-    const group = this.groups.find((g) => g.id === id)
-    this.selectedGroupId = group ? id : null
-    this.els.mixGroupSelect.value = this.selectedGroupId ?? ''
-    if (!group) {
-      this.els.mixGroupEditor.classList.add('hidden')
-      this.els.mixGroupEmpty.classList.remove('hidden')
-      this.updateModeUI()
-      return
-    }
-
-    this.els.mixGroupEditor.classList.remove('hidden')
-    this.els.mixGroupEmpty.classList.add('hidden')
-    this.els.mixGroupName.value = group.name
-    this.groupSaved = cloneGroupFilters(group.filters)
-    this.groupCurrent = cloneGroupFilters(this.groupSaved)
-    this.writeGroupControls(this.groupCurrent)
-    this.groupEq.load(this.groupCurrent.eq)
-    this.groupEqTarget.resetCompare()
-    this.groupEqTarget.updateFields()
-    this.updateGroupLabels()
-    this.renderGroupMembers()
-    if (this.mode === 'group') this.dispatchGroupPreview(this.groupCurrent)
-    this.updateModeUI()
+  selectGroup(...args) {
+    return presetGroupMode.selectGroup(this, ...args)
   }
 
-  // The preset's own sound list, cross-referenced with the library for
-  // display names - membership only ever makes sense for sounds actually in
-  // this preset's mix. BUG FIX (reported directly, "they just don't show up
-  // on the interface completely"): the Mixer's own right-click "add to
-  // group"/"new group with this sound" menu never required the sound to
-  // already be saved into the preset's own `sounds` array - it operates on
-  // whatever's in the live mix (state.activePresetId), which routes/EQs the
-  // sound correctly (group.soundIds already has it) even if the owner never
-  // hit "Save changes to <preset>" to persist that sound into preset.sounds
-  // itself. This checklist used to only ever iterate preset.sounds, so a
-  // member added that way was invisible here even though the group's own
-  // count (soundIds.length, read elsewhere) already reflected it correctly.
-  // Now iterates the union of both lists so a real member is always shown,
-  // regardless of which side of that (pre-existing, deliberate) save/live
-  // split it came from.
-  renderGroupMembers() {
-    this.els.mixGroupMembers.innerHTML = ''
-    const preset = this.presets.find((p) => p.id === this.selectedPresetId)
-    const group = this.groups.find((g) => g.id === this.selectedGroupId)
-    if (!preset || !group) return
-    const soundIds = [...new Set([...preset.sounds.map((s) => s.soundId), ...group.soundIds])]
-    for (const soundId of soundIds) {
-      const sound = this.library.find((s) => s.id === soundId)
-      const label = document.createElement('label')
-      label.className = 'editor-mix-group-member'
-      const checkbox = document.createElement('input')
-      checkbox.type = 'checkbox'
-      checkbox.checked = group.soundIds.includes(soundId)
-      checkbox.addEventListener('change', () => this.toggleGroupMember(soundId))
-      const name = document.createElement('span')
-      name.textContent = sound?.name ?? soundId
-      label.appendChild(checkbox)
-      label.appendChild(name)
-      this.els.mixGroupMembers.appendChild(label)
-    }
+  renderGroupMembers(...args) {
+    return presetGroupMode.renderGroupMembers(this, ...args)
   }
 
-  // A sound belongs to at most one group per preset (see
-  // AudioEngine.destinationForSound) - checking it into this group leaves
-  // whatever other group it was already in. Queued onto
-  // this._groupMemberQueue (shared with saveGroup/deleteGroup/createGroup
-  // below, self-review v0.1.149 - all four mutate the same this.groups via
-  // the same read-then-write shape, so any pair of them firing close
-  // together has the identical race) rather than fired directly: two
-  // checkboxes clicked in quick succession (a real risk toggling several
-  // sounds into a group one after another) would otherwise both read
-  // this.groups before either write resolved, so the second call's
-  // update.presets.updateGroups would silently clobber the first - caught
-  // live via CDP while verifying this exact method (two rapid toggles left
-  // a group's membership back at empty even though both clicks visually
-  // registered). presetId/groupId are captured at click time, not read
-  // fresh when the queued call finally executes - otherwise switching the
-  // preset/group selector while this toggle is still queued would redirect
-  // it at whatever's selected *then*, not what was actually clicked.
-  toggleGroupMember(soundId) {
-    const presetId = this.selectedPresetId
-    const groupId = this.selectedGroupId
-    return this.queueGroupMutation(() => this._toggleGroupMemberNow(presetId, groupId, soundId))
+  toggleGroupMember(...args) {
+    return presetGroupMode.toggleGroupMember(this, ...args)
   }
 
-  // Shared serialization point for every write to a preset's groups array -
-  // see toggleGroupMember's own comment for why this can't just be
-  // toggleGroupMember's own private queue.
-  queueGroupMutation(fn) {
-    this._groupMemberQueue = (this._groupMemberQueue ?? Promise.resolve()).then(fn)
-    return this._groupMemberQueue
+  queueGroupMutation(...args) {
+    return presetGroupMode.queueGroupMutation(this, ...args)
   }
 
-  async _toggleGroupMemberNow(presetId, groupId, soundId) {
-    let wasAlreadyMember = false
-    const updated = this.groups.map((g) => {
-      if (g.id === groupId) {
-        wasAlreadyMember = g.soundIds.includes(soundId)
-        return { ...g, soundIds: wasAlreadyMember ? g.soundIds.filter((s) => s !== soundId) : [...g.soundIds, soundId] }
-      }
-      return { ...g, soundIds: g.soundIds.filter((s) => s !== soundId) }
-    })
-    const saved = await this.api.presets.updateGroups(presetId, updated)
-    // Only touch this tab's own UI/state if the user hasn't since switched
-    // to a different preset entirely - the write itself (and the broadcast
-    // below, for the Mixer/other views) still always happens.
-    if (presetId === this.selectedPresetId) {
-      this.groups = saved?.groups ?? updated
-      const local = this.presets.find((p) => p.id === presetId)
-      if (local) local.groups = this.groups
-      this.renderGroupSelectOptions()
-      this.els.mixGroupSelect.value = this.selectedGroupId ?? ''
-      this.renderGroupMembers()
-    }
-    // joinedSoundId: see the Mixer's identical sound-groups-changed
-    // listener comment - only set on an actual add, so a removal never
-    // gets misread as one.
-    window.dispatchEvent(new CustomEvent('noctivago:sound-groups-changed', { detail: { presetId, joinedSoundId: wasAlreadyMember ? null : soundId } }))
+  async _toggleGroupMemberNow(...args) {
+    return presetGroupMode._toggleGroupMemberNow(this, ...args)
   }
 
-  writeGroupControls(filters) {
-    this.els.mixGroupHighpass.value = String(filters.highpassHz)
-    this.els.mixGroupLowpass.value = String(filters.lowpassHz)
-    this.els.mixGroupGain.value = String(filters.gainDb)
-    this.els.mixGroupPan.value = String(Math.round((filters.pan ?? 0) * 100))
-    this.els.mixGroupEchoDelay.value = String(filters.echoDelayMs)
-    this.els.mixGroupEchoDecay.value = String(filters.echoDecay)
-    this.els.mixGroupReverbSize.value = String(filters.reverbSizeMs ?? 0)
-    this.els.mixGroupReverbMix.value = String(filters.reverbMix ?? 0)
-    this.els.mixGroupOcclusion.value = String(filters.occlusion ?? 0)
-    this.writeMixFluctuation(filters.fluctuation, this.groupFlucEls)
+  writeGroupControls(...args) {
+    return presetGroupMode.writeGroupControls(this, ...args)
   }
 
-  readGroupControlsAndPreview() {
-    this.groupCurrent = {
-      ...this.groupCurrent,
-      highpassHz: Number(this.els.mixGroupHighpass.value),
-      lowpassHz: Number(this.els.mixGroupLowpass.value),
-      gainDb: Number(this.els.mixGroupGain.value),
-      pan: Number(this.els.mixGroupPan.value) / 100,
-      echoDelayMs: Number(this.els.mixGroupEchoDelay.value),
-      echoDecay: Number(this.els.mixGroupEchoDecay.value),
-      reverbSizeMs: Number(this.els.mixGroupReverbSize.value),
-      reverbMix: Number(this.els.mixGroupReverbMix.value),
-      occlusion: Number(this.els.mixGroupOcclusion.value),
-      fluctuation: this.readMixFluctuation(this.groupFlucEls)
-    }
-    this.updateGroupLabels()
-    this.updateMixFlucEnabledUI(this.groupFlucEls)
-    this.updateModeUI()
-    if (this.mode === 'group') this.dispatchGroupPreview(this.groupCurrent)
+  readGroupControlsAndPreview(...args) {
+    return presetGroupMode.readGroupControlsAndPreview(this, ...args)
   }
 
-  setGroupEffectPreset(preset) {
-    this.els.mixGroupHighpass.value = String(preset.highpassHz)
-    this.els.mixGroupLowpass.value = String(preset.lowpassHz)
-    this.els.mixGroupGain.value = String(preset.gainDb)
-    this.els.mixGroupEchoDelay.value = String(preset.echoDelayMs ?? 0)
-    this.els.mixGroupEchoDecay.value = String(preset.echoDecay ?? 0)
-    this.els.mixGroupReverbSize.value = String(preset.reverbSizeMs ?? 0)
-    this.els.mixGroupReverbMix.value = String(preset.reverbMix ?? 0)
+  setGroupEffectPreset(...args) {
+    return presetGroupMode.setGroupEffectPreset(this, ...args)
   }
 
-  updateGroupLabels() {
-    const hp = Number(this.els.mixGroupHighpass.value)
-    const lp = Number(this.els.mixGroupLowpass.value)
-    const gain = Number(this.els.mixGroupGain.value)
-    const echoDelay = Number(this.els.mixGroupEchoDelay.value)
-    const echoDecay = Number(this.els.mixGroupEchoDecay.value)
-    const reverbSize = Number(this.els.mixGroupReverbSize.value)
-    const reverbMix = Number(this.els.mixGroupReverbMix.value)
-    const occlusion = Number(this.els.mixGroupOcclusion.value)
-    this.els.mixGroupHighpassValue.textContent = hp > 0 ? `${hp} Hz` : 'Off'
-    this.els.mixGroupLowpassValue.textContent = lp < 20000 ? `${lp} Hz` : 'Off'
-    this.els.mixGroupGainValue.textContent = `${gain > 0 ? '+' : ''}${gain} dB`
-    this.els.mixGroupPanValue.textContent = formatPan(Number(this.els.mixGroupPan.value) / 100)
-    this.els.mixGroupEchoDelayValue.textContent = echoDelay > 0 ? `${echoDelay} ms` : 'Off'
-    this.els.mixGroupEchoDecayValue.textContent = echoDecay > 0 ? echoDecay.toFixed(2) : 'Off'
-    this.els.mixGroupReverbSizeValue.textContent = reverbSize > 0 ? `${(reverbSize / 1000).toFixed(1)}s` : 'Off'
-    this.els.mixGroupReverbMixValue.textContent = reverbMix > 0 ? `${Math.round(reverbMix * 100)}%` : 'Off'
-    this.els.mixGroupOcclusionValue.textContent = occlusion > 0 ? `${Math.round(occlusion * 100)}%` : 'Off'
+  updateGroupLabels(...args) {
+    return presetGroupMode.updateGroupLabels(this, ...args)
   }
 
-  updateGroupDirty() {
-    this.updateModeUI()
+  updateGroupDirty(...args) {
+    return presetGroupMode.updateGroupDirty(this, ...args)
   }
 
-  // saveGroup/deleteGroup/createGroup below all route their actual
-  // read-this.groups-then-updateGroups work through queueGroupMutation too
-  // (self-review v0.1.149) - each has the identical race toggleGroupMember
-  // was fixed for (e.g. checking a membership box, then immediately hitting
-  // Save on the group's filters before that toggle's own write lands would
-  // otherwise have the second call's stale this.groups clobber the first).
-  saveGroup() {
-    if (!this.selectedGroupId || this._groupSaveInProgress) return Promise.resolve()
-    return this.queueGroupMutation(() => this.saveGroupNow())
+  saveGroup(...args) {
+    return presetGroupMode.saveGroup(this, ...args)
   }
 
-  async saveGroupNow() {
-    this._groupSaveInProgress = true
-    this.els.mixSave.disabled = true
-    try {
-      const name = this.els.mixGroupName.value.trim() || 'Group'
-      const updated = this.groups.map((g) => (g.id === this.selectedGroupId ? { ...g, name, filters: this.groupCurrent } : g))
-      const saved = await this.api.presets.updateGroups(this.selectedPresetId, updated)
-      this.groups = saved?.groups ?? updated
-      const local = this.presets.find((p) => p.id === this.selectedPresetId)
-      if (local) local.groups = this.groups
-      const group = this.groups.find((g) => g.id === this.selectedGroupId)
-      this.groupSaved = cloneGroupFilters(group?.filters ?? null)
-      this.groupCurrent = cloneGroupFilters(this.groupSaved)
-      this.els.mixGroupName.value = group?.name ?? name
-      this.writeGroupControls(this.groupCurrent)
-      this.groupEq.load(this.groupCurrent.eq)
-      this.groupEqTarget.updateFields()
-      this.groupEqTarget.updateBanner()
-      this.updateGroupLabels()
-      this.renderGroupSelectOptions()
-      this.els.mixGroupSelect.value = this.selectedGroupId
-      this.dispatchGroupPreview(this.groupSaved)
-      window.dispatchEvent(new CustomEvent('noctivago:sound-groups-changed', { detail: { presetId: this.selectedPresetId } }))
-      this.els.mixStatus.textContent = 'Saved.'
-    } catch (err) {
-      console.error('Editor: group save failed', err)
-      this.els.mixStatus.textContent = `Save failed: ${err.message}`
-    } finally {
-      this._groupSaveInProgress = false
-      this.updateModeUI()
-    }
+  async saveGroupNow(...args) {
+    return presetGroupMode.saveGroupNow(this, ...args)
   }
 
-  deleteGroup() {
-    if (!this.selectedGroupId || !this.selectedPresetId) return Promise.resolve()
-    return this.queueGroupMutation(() => this.deleteGroupNow())
+  deleteGroup(...args) {
+    return presetGroupMode.deleteGroup(this, ...args)
   }
 
-  async deleteGroupNow() {
-    const id = this.selectedGroupId
-    if (!id || !this.selectedPresetId) return
-    const updated = this.groups.filter((g) => g.id !== id)
-    const saved = await this.api.presets.updateGroups(this.selectedPresetId, updated)
-    this.groups = saved?.groups ?? updated
-    const local = this.presets.find((p) => p.id === this.selectedPresetId)
-    if (local) local.groups = this.groups
-    this.selectedGroupId = null
-    this.els.mixGroupEditor.classList.add('hidden')
-    this.els.mixGroupEmpty.classList.remove('hidden')
-    this.renderGroupSelectOptions()
-    this.els.mixGroupSelect.value = ''
-    window.dispatchEvent(new CustomEvent('noctivago:sound-groups-changed', { detail: { presetId: this.selectedPresetId } }))
-    this.updateModeUI()
+  async deleteGroupNow(...args) {
+    return presetGroupMode.deleteGroupNow(this, ...args)
   }
 
-  createGroup() {
-    if (!this.selectedPresetId) return Promise.resolve()
-    return this.queueGroupMutation(() => this.createGroupNow())
+  createGroup(...args) {
+    return presetGroupMode.createGroup(this, ...args)
   }
 
-  async createGroupNow() {
-    const updated = [...this.groups, { name: `Group ${this.groups.length + 1}`, soundIds: [], filters: cloneGroupFilters(null) }]
-    const saved = await this.api.presets.updateGroups(this.selectedPresetId, updated)
-    this.groups = saved?.groups ?? updated
-    const local = this.presets.find((p) => p.id === this.selectedPresetId)
-    if (local) local.groups = this.groups
-    this.renderGroupSelectOptions()
-    window.dispatchEvent(new CustomEvent('noctivago:sound-groups-changed', { detail: { presetId: this.selectedPresetId } }))
-    const created = this.groups[this.groups.length - 1]
-    if (created) this.selectGroup(created.id)
+  async createGroupNow(...args) {
+    return presetGroupMode.createGroupNow(this, ...args)
   }
 
-  dispatchGroupPreview(filters) {
-    if (!this.selectedPresetId || !this.selectedGroupId) return
-    window.dispatchEvent(
-      new CustomEvent('noctivago:sound-group-preview', {
-        detail: { presetId: this.selectedPresetId, groupId: this.selectedGroupId, filters: cloneGroupFilters(filters) }
-      })
-    )
+  dispatchGroupPreview(...args) {
+    return presetGroupMode.dispatchGroupPreview(this, ...args)
   }
 }
