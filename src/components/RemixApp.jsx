@@ -1,5 +1,6 @@
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { icon } from './icons.js'
 
 const PRESETS = [
   ['muffled', 'Muffled'],
@@ -11,7 +12,55 @@ const PRESETS = [
   ['underwater', 'Underwater']
 ]
 
+const html = (__html) => ({ __html })
+
 const host = (id) => <div id={id} style={{ display: 'contents' }} />
+
+// Studio panes (mock-noctivago-remix-studio v2), left to right: the library over
+// the preview module, then the head. layout.js wires them (buildStudio) and
+// arrangeBar moves the sticky controls in. The tab element is their grid.
+function StudioLeft() {
+  return (
+    <div className="rx-lcol">
+      <aside className="rx-pane rx-lib" aria-label="Library">
+        <div
+          className="rx-lib-h"
+          dangerouslySetInnerHTML={html(
+            `<h3>Remix</h3><button id="rx-new-group" class="rx-i rx-ib" type="button" title="New group" aria-label="New group">${icon('plus')}</button><button id="rx-lib-hide" class="rx-i rx-ib rx-narrow-only" type="button" title="Hide the library" aria-label="Hide the library">${icon('chevron-left')}</button>`
+          )}
+        />
+        <div id="rx-chips" className="rx-chips" role="group" aria-label="What you remix"></div>
+        <label id="rx-in-preset" className="rx-in-preset"><span>In preset</span></label>
+        <label
+          className="rx-search"
+          dangerouslySetInnerHTML={html(`${icon('search')}<input id="rx-lib-search" type="text" placeholder="Search sounds" aria-label="Search" autocomplete="off" />`)}
+        />
+        <div id="rx-lib-list" className="rx-list"></div>
+      </aside>
+      <section className="rx-pane rx-prev" aria-label="Preview">
+        <div className="rx-prow"><span id="rx-pplay-slot" className="rx-slot"></span><b id="rx-now-name" className="rx-now"></b><span id="rx-prow-end" className="rx-slot"></span></div>
+        <div id="rx-pnote" className="rx-pnote" hidden>Playing this group only</div>
+        <div className="rx-pseek"><span id="rx-cur">0:00</span><div id="rx-seek-slot" className="rx-seek-slot"></div><span id="rx-total">0:00</span></div>
+        <div id="rx-pvol" className="rx-pvol"></div>
+        {/* emptied into the rows by arrangeBar */}
+        <div id="rx-transport" className="rx-under rx-transport"></div>
+      </section>
+    </div>
+  )
+}
+
+function StudioHead() {
+  return (
+    <div
+      className="rx-pane rx-head"
+      dangerouslySetInnerHTML={html(
+        `<button id="rx-lib-show" class="rx-i rx-ib rx-narrow-only" type="button" title="Show the library" aria-label="Show the library">${icon('chevron-right')}</button>` +
+          '<div class="rx-ht"><div id="rx-kind" class="rx-kind">Sound</div><h2 id="rx-title" class="rx-title"></h2><div id="rx-meta" class="rx-meta"></div></div><div id="rx-acts" class="rx-acts"></div>' +
+          `<button id="rx-side-show" class="rx-b rx-ghost rx-xs-only" type="button" aria-expanded="false">${icon('sliders-horizontal')}Settings</button>`
+      )}
+    />
+  )
+}
 
 /**
  * The Remix tab shell: mode switch, picker row, the three mode panels, the
@@ -22,6 +71,8 @@ export function RemixApp() {
   return (
     <>
       <div className="editor-tab">
+        <StudioLeft />
+        <StudioHead />
         <div className="editor-mode-switch-row">
           <div className="editor-mode-switch">
             <button id="editor-mode-sound" className="editor-mode-pill editor-mode-pill-active" type="button">Sound</button>
@@ -71,6 +122,8 @@ export function RemixApp() {
           </div>
           <p id="editor-empty" className="editor-empty">Select a sound above to trim and apply filters.</p>
         </div>
+        {/* Controls the library replaces stay in the DOM (the tab still reads and writes them), out of sight. */}
+        <div className="rx-holder" hidden></div>
       </div>
       <button id="editor-scroll-top" className="editor-scroll-top-btn hidden" type="button" title="Scroll to top">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

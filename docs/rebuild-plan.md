@@ -42,6 +42,12 @@ Owner request, 2026-11-14. Goal: the Remix tab built from React components like 
 | 8 | Group panel, then Preset panel, sharing one `useEqTarget` hook (ends the three EQ copies). | `remix-member-row`, `remix-item-preview`, `remix-drift`, step 0 tests |
 | 9 | `RemixApp.jsx` root replaces `mount()`'s markup and `arrangeLayout()`. `RemixTab.js` keeps lifecycle, audio, load, save and undo; target under 1,500 lines. | the whole Remix e2e set |
 
+Step 9 progress (layout.js, one PR per region, each into ui-redesign):
+
+- #56: RemixApp.jsx renders the tab shell (mode switch, picker row, panels, leave-confirm modal).
+- #57: studio panes: library, preview module and head are RemixApp markup (`StudioLeft`, `StudioHead`, `.rx-holder`); `buildStudio` only wires them.
+- Left: canvas column, settings column and accordions, Group and Preset scope layouts, `arrangeBar`.
+
 About 13 PRs. Steps 1 and 3 come first because other open tasks touch knobs and preview buttons.
 
 ## Risks
