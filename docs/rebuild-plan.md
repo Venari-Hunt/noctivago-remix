@@ -45,8 +45,8 @@ Owner request, 2026-11-14. Goal: the Remix tab built from React components like 
 Step 9 progress (layout.js, one PR per region, each into ui-redesign):
 
 - #56: RemixApp.jsx renders the tab shell (mode switch, picker row, panels, leave-confirm modal).
-- Studio panes: library, preview module and head are RemixApp markup (, , );  only wires them.
-- Left: canvas column, settings column and accordions, Group and Preset scope layouts, .
+- #57: studio panes: library, preview module and head are RemixApp markup (`StudioLeft`, `StudioHead`, `.rx-holder`); `buildStudio` only wires them.
+- Left: canvas column, settings column and accordions, Group and Preset scope layouts, `arrangeBar`.
 
 About 13 PRs. Steps 1 and 3 come first because other open tasks touch knobs and preview buttons.
 
