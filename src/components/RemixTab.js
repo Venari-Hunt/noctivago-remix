@@ -25,6 +25,7 @@ import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
+import { previewModeToggleState, mustFallBackToLive } from '../domain/previewMode.js'
 import { loadedFluctuation, fluctuationFingerprint, isFluctuationDirty, groupDriftFor, groupOverrideNotes } from '../domain/driftState.js'
 import { saveButtonState } from '../domain/saveState.js'
 import { createAutosave } from '../domain/autosave.js'
@@ -1584,7 +1585,7 @@ export default class EditorPlugin {
   updatePreviewModeToggle() {
     if (!this.els.previewModeToggle) return
     const eligible = this.savedPreviewEligible()
-    if (!eligible && this.previewMode === 'saved' && !this._clipRebaking) {
+    if (mustFallBackToLive({ mode: this.previewMode, eligible, rebaking: this._clipRebaking })) {
       // Pause whichever engine (bakedPreview) is actually live *before*
       // flipping the mode - activePreview() reads this.previewMode, so
       // pausing after the flip would silently target the wrong (idle)
@@ -1595,17 +1596,11 @@ export default class EditorPlugin {
       this.previewMode = 'live'
     }
     this.els.previewModeToggle.disabled = false
-    this.els.previewModeToggle.textContent = this.previewMode === 'saved' ? 'Saved audio' : 'Live edit'
-    this.els.previewModeToggle.classList.toggle('editor-preview-mode-toggle-active', this.previewMode === 'saved')
-    const stale = this.previewMode === 'saved' && this.hasUnsavedChanges()
-    this.els.previewModeToggle.classList.toggle('editor-preview-mode-toggle-stale', stale)
-    this.els.previewModeToggle.title = eligible
-      ? this.previewMode === 'saved'
-        ? stale
-          ? 'Hearing the last saved/baked audio - edited since then, autosave will refresh it shortly. Click to switch to the live editable preview'
-          : 'Hearing the actual saved/baked audio - click to switch back to the live editable preview'
-        : 'Hearing the live editable preview (Reverse on a sound over 10 minutes is only heard after saving) - click to hear the actual saved audio instead'
-      : 'Click to render and hear the actual saved audio'
+    const toggle = previewModeToggleState({ mode: this.previewMode, eligible, stale: this.hasUnsavedChanges() })
+    this.els.previewModeToggle.textContent = toggle.text
+    this.els.previewModeToggle.classList.toggle('editor-preview-mode-toggle-active', toggle.active)
+    this.els.previewModeToggle.classList.toggle('editor-preview-mode-toggle-stale', toggle.stale)
+    this.els.previewModeToggle.title = toggle.title
     // Keep the "drift needs Live edit preview" note in sync with the mode.
     if (this.flucVolBar) this.updateFluctuationEnabledUI()
   }
