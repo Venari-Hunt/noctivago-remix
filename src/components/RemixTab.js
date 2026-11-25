@@ -25,6 +25,7 @@ import { mountTrimView } from './TrimView.jsx'
 import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { mountFilterControls, filterSummaries } from './FilterControls.jsx'
+import { createCompare } from '../domain/compareView.js'
 import { createHistory } from '../domain/editorHistory.js'
 import { MAX_BUFFER_CLIP_SECONDS, applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, AUTOSAVE_IDLE_MS, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, FLUC_VOL_MIN, FLUC_VOL_MAX, FLUC_PITCH_MIN, FLUC_PITCH_MAX, FLUC_PAN_MIN, FLUC_PAN_MAX, PAN_DRIFT_DEFAULTS, formatPan, defaultFluctuation, defaultScatter, defaultSchedule, defaultSpeedPitch, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, defaultMixFluctuation, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { addMarker, removeMarker, renameMarker, updateMarker } from '../domain/markers.js'
@@ -127,6 +128,7 @@ export default class EditorPlugin {
     // scheduleHistoryCommit), not every drag frame - see its own comment for
     // why. Reset fresh on every loadSound(), never persisted - undo history
     // is a per-editing-session aid, same scope as A/B Compare.
+    this.compare = createCompare()
     this.history = createHistory({ limit: HISTORY_LIMIT })
     this._historyCommitTimer = null
     // Set while applyEditorState() is pushing a past/future snapshot back
@@ -3285,7 +3287,7 @@ export default class EditorPlugin {
     this.refreshAccordionSummaries()
     // Last saved on screen: the controls show the saved settings, read-only.
     // Nothing to save, undo or cancel until the view is back on Now.
-    if (this.compareViewing === 'saved') {
+    if (this.compare.isSaved) {
       this.els.save.disabled = true
       this.setSaveLabel('Viewing last saved')
       if (this.els.saveAsCopy) this.els.saveAsCopy.disabled = true
@@ -3349,7 +3351,7 @@ export default class EditorPlugin {
   }
 
   async runAutosave() {
-    if (!this.currentEntry || this.eqCompareViewing === 'B' || this.compareViewing === 'saved' || !this.hasUnsavedChanges()) return
+    if (!this.currentEntry || this.eqCompareViewing === 'B' || this.compare.isSaved || !this.hasUnsavedChanges()) return
     if (this._saveInProgress) {
       // A manual Save (or a previous autosave) is still mid-render - try
       // again shortly rather than starting a second overlapping bake of the
@@ -3384,7 +3386,7 @@ export default class EditorPlugin {
   }
 
   scheduleHistoryCommit() {
-    if (this._restoringHistory || !this.currentEntry || this.compareViewing === 'saved') return
+    if (this._restoringHistory || !this.currentEntry || this.compare.isSaved) return
     clearTimeout(this._historyCommitTimer)
     this._historyCommitTimer = setTimeout(() => this.commitHistoryPoint(), HISTORY_COMMIT_DEBOUNCE_MS)
   }
@@ -3441,22 +3443,20 @@ export default class EditorPlugin {
   // left alone: it saves on its own, so it is already the saved drift.
   switchCompareView(target) {
     if (!this.currentEntry || !this.loopEditorController || !this.savedSnapshot) return
-    const now = this.compareViewing === 'saved' ? 'saved' : 'now'
+    const now = this.compare.isSaved ? 'saved' : 'now'
     if (target === now) return
     if (target === 'saved') {
       if (this.eqCompareViewing === 'B') this.switchEqCompareView('A')
       clearTimeout(this._historyCommitTimer)
       this.commitHistoryPoint()
       clearTimeout(this._autosaveTimer)
-      this._compareStash = this.captureEditorState()
-      this.compareViewing = 'saved'
+      this.compare.enterSaved(this.captureEditorState())
       this.applyEditorState(JSON.parse(this.savedSnapshot))
       this.eqEditorController?.setReadOnly(true)
     } else {
-      const stash = this._compareStash
-      this._compareStash = null
+      const stash = this.compare.stash
       if (stash) this.applyEditorState(stash)
-      this.compareViewing = 'now'
+      this.compare.leave()
       this.eqEditorController?.setReadOnly(false)
       this.setBarEnabled(true)
     }
@@ -3468,7 +3468,7 @@ export default class EditorPlugin {
   // Back to Now without fuss: before a load, a leave or Cancel, so stashed
   // edits are never lost behind the read-only view.
   leaveCompareView() {
-    if (this.compareViewing === 'saved') this.switchCompareView('now')
+    if (this.compare.isSaved) this.switchCompareView('now')
   }
 
   // Accordion head values, e.g. "100% · +1 st" or "Off" (amber when on).
@@ -3500,7 +3500,7 @@ export default class EditorPlugin {
   }
 
   undo() {
-    if (this.compareViewing === 'saved') return
+    if (this.compare.isSaved) return
     // A pending debounced commit represents an edit that hasn't been
     // recorded yet - flush it first so Ctrl+Z's first press undoes the most
     // recent *real* change instead of silently discarding it unrecorded.
@@ -3511,7 +3511,7 @@ export default class EditorPlugin {
   }
 
   redo() {
-    if (this.compareViewing === 'saved') return
+    if (this.compare.isSaved) return
     const state = this.history.redo()
     if (state) this.applyEditorState(state)
   }
@@ -3985,7 +3985,7 @@ export default class EditorPlugin {
     // B (see updateSaveButtonState), but currentFilters() would silently
     // read B's read-only data instead of A's real live edits if this ever
     // ran anyway.
-    if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B' || this.compareViewing === 'saved') return
+    if (!this.currentEntry || !this.loopEditorController || this.eqCompareViewing === 'B' || this.compare.isSaved) return
     if (this._saveInProgress) return
     this._saveInProgress = true
     this.saveMorph?.working(trigger === 'auto' ? 'Auto-saving' : 'Saving')
