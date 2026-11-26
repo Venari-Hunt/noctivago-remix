@@ -83,3 +83,24 @@ test('flushFluctuation does nothing without a pending edit', { skip: !fluctuatio
   const tab = { _pendingFluctuation: null, api: { library: { updateFluctuation: () => assert.fail('no write') } } }
   assert.equal(fluctuation.flushFluctuation(tab), undefined)
 })
+
+let spectralRepair
+try {
+  spectralRepair = await import('../src/tab/spectralRepair.js')
+} catch (e) {
+  spectralRepair = null
+}
+
+test('spectral repair module exports the repair methods', { skip: !spectralRepair }, () => {
+  for (const name of ['syncSpectralView', 'setSpectralTool', 'syncSpectralTool', 'syncNoiseBand', 'useShapeAsNoiseSample', 'updateSpectralControls']) {
+    assert.equal(typeof spectralRepair[name], 'function', name)
+  }
+})
+
+test('syncSpectralView does nothing before the view is mounted', { skip: !spectralRepair }, () => {
+  assert.equal(spectralRepair.syncSpectralView({ spectralView: null }), undefined)
+})
+
+test('syncNoiseBand does nothing without the filter controls', { skip: !spectralRepair }, () => {
+  assert.equal(spectralRepair.syncNoiseBand({ spectralView: {}, filterControls: null }), undefined)
+})

@@ -1,6 +1,5 @@
 import { AudioEngine } from '../audio/AudioEngine.js'
-import { formatHz, GOOD_NOISE_SEC, noiseBandFromShape, normalizeRegions } from '../domain/spectralLayout.js'
-import { toolHint } from '../domain/repairBrush.js'
+import { normalizeRegions } from '../domain/spectralLayout.js'
 import { loopLayout, clipToSource, sourceToClip } from '../domain/loopLayout.js'
 import { mountLoopEditor, mountWaveformScrollbar } from '../mounts/loopEditorMount.js'
 import { mountSpectral } from '../mounts/spectralMount.js'
@@ -57,6 +56,7 @@ import { mountCallbacks } from '../callbacks/mountCallbacks.js'
 import { findAllEls } from '../panels/index.js'
 import * as markers from '../tab/markers.js'
 import * as fluctuation from '../tab/fluctuation.js'
+import * as spectralRepair from '../tab/spectralRepair.js'
 import * as presetGroupMode from '../tab/presetGroupMode.js'
 
 export default class EditorPlugin {
@@ -1573,95 +1573,27 @@ export default class EditorPlugin {
   // The panel shows the trim only (that's all a bake reads). The spectrogram
   // is refetched for a new trim once the drag settles.
   syncSpectralView() {
-    if (!this.spectralView || !this.loopEditorController) return
-    const id = this.currentEntry?.id
-    if (!id || typeof this.api.audio.getSpectrogram !== 'function') return
-    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-    if (!(loopEnd > loopStart)) return
-    // Hidden tab: asking now would fetch a 16 x 16 image stretched blurry over the canvas.
-    if (!this.spectralView.isShown()) return
-    const want = this.spectralView.requestSize()
-    const trimKey = `${id}:${loopStart}:${loopEnd}`
-    // Size buckets of 100 px: a small resize keeps the image, a big one (a bigger window) refetches it sharper.
-    const key = `${trimKey}:${Math.round(want.columns / 100)}x${Math.round(want.rows / 100)}`
-    if (key === this._spectrogramKey) return
-    const sameTrim = this._spectrogramKey?.startsWith(`${trimKey}:`)
-    this._spectrogramKey = key
-    this.spectralView.setView(loopStart, loopEnd)
-    if (!sameTrim) this.spectralView.setSpectrogram(null, 'Reading the sound…')
-    clearTimeout(this._spectrogramTimer)
-    this._spectrogramTimer = setTimeout(async () => {
-      let spec = null
-      try {
-        spec = await this.api.audio.getSpectrogram(id, { windowStart: loopStart, windowEnd: loopEnd, ...want })
-      } catch (err) {
-        console.error('Editor: spectrogram fetch failed', err)
-      }
-      if (key !== this._spectrogramKey) return
-      this.spectralView.setSpectrogram(spec, spec ? '' : "Couldn't read this sound")
-    }, 250)
+    return spectralRepair.syncSpectralView(this)
   }
 
-  // Picks what a drag on the spectrogram does: 'select', 'box', 'lasso',
-  // 'brush' or 'noise' (the Noise sample band). The view tells back through
-  // onToolChange (also for the V R L B N keys), which syncs the buttons.
   setSpectralTool(tool) {
-    this.spectralView.setShape(tool)
-    this.syncSpectralTool()
+    return spectralRepair.setSpectralTool(this, tool)
   }
 
-  // Keeps the tool buttons, the hint line and "Mark noise sample" in step with the tool.
   syncSpectralTool() {
-    const now = this.spectralView.getShape()
-    for (const b of this.els.spectralShape.querySelectorAll('[data-shape]')) b.setAttribute('aria-pressed', String(b.dataset.shape === now))
-    this.els.spectralHint.innerHTML = toolHint(now, this.spectralView.getBrushRadius())
-    this.filterControls?.setMarkOn(now === 'noise')
+    return spectralRepair.syncSpectralTool(this)
   }
 
-  // Draws the From/To fields as a band on the spectrogram and words the legend.
   syncNoiseBand() {
-    if (!this.spectralView || !this.filterControls) return
-    const v = this.filterControls.getValues()
-    this.spectralView.setNoiseSample(v.denoiseSampleStartSec, v.denoiseSampleEndSec)
-    const band = this.spectralView.getNoiseSample()
-    // The same band on the Trim waveform (drag it there to re-sample), unless
-    // the Noise reduction card's "Show on waveform" is off.
-    const sample = this.filterControls.getShowSample() && v.denoiseSampleEndSec > v.denoiseSampleStartSec ? { startSec: v.denoiseSampleStartSec, endSec: v.denoiseSampleEndSec } : null
-    this.loopEditorController.setNoiseSample(sample)
-    this.els.spectralLegendNoise.classList.toggle('hidden', !band)
-    if (band) {
-      const length = band.endSec - band.startSec
-      const state = !v.denoiseEnabled ? 'Noise reduction is off' : length < GOOD_NOISE_SEC ? 'short: 0.5 s or more works best' : 'learned'
-      this.els.spectralLegendNoiseText.textContent = `Noise sample ${band.startSec.toFixed(1)}–${band.endSec.toFixed(1)} s (${state})`
-    }
+    return spectralRepair.syncNoiseBand(this)
   }
 
-  // "Use shape N as noise sample": the shape's whole time range, every
-  // frequency in it (owner, 2026-11-21, option A).
   useShapeAsNoiseSample() {
-    const band = noiseBandFromShape(this.spectralView.getSelected())
-    if (!band) return
-    this.filterControls.setValues({ denoiseSampleStartSec: band.startSec, denoiseSampleEndSec: band.endSec, denoiseEnabled: true })
-    this.applyFilterControls()
+    return spectralRepair.useShapeAsNoiseSample(this)
   }
 
   updateSpectralControls() {
-    const box = this.spectralView.getSelected()
-    this.els.spectralDelete.disabled = !box
-    this.els.spectralReduction.disabled = !box
-    this.els.spectralClear.disabled = this.spectralView.getRegions().length === 0
-    const index = this.spectralView.getSelectedIndex()
-    const useNoise = this.els.spectralUseNoise
-    useNoise.disabled = !noiseBandFromShape(box)
-    useNoise.querySelector('span').textContent = box ? `Use shape ${index + 1} as noise sample` : 'Use shape as noise sample'
-    if (!box) {
-      const count = this.spectralView.getRegions().length
-      this.els.spectralSelection.textContent = count ? `${count} box${count === 1 ? '' : 'es'}. Click one to change it.` : 'No box selected'
-      return
-    }
-    this.els.spectralSelection.textContent = `${box.startSec.toFixed(2)}–${box.endSec.toFixed(2)} s · ${formatHz(box.lowHz)}–${formatHz(box.highHz)}`
-    this.els.spectralReduction.value = String(box.reductionDb)
-    this.els.spectralReductionValue.textContent = `${box.reductionDb} dB`
+    return spectralRepair.updateSpectralControls(this)
   }
 
   syncSeamView({ immediate = false } = {}) {
