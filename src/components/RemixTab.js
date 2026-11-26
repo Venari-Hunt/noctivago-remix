@@ -20,7 +20,6 @@ import { mountSeamView } from './SeamView.jsx'
 import { mountSpectrumView } from './SpectrumView.jsx'
 import { filterSummaries } from './FilterControls.jsx'
 import { filterPickerSounds } from '../domain/pickerList.js'
-import { previewModeToggleState, mustFallBackToLive } from '../domain/previewMode.js'
 import { groupDriftFor, groupOverrideNotes } from '../domain/driftState.js'
 import { saveButtonState } from '../domain/saveState.js'
 import { createAutosave } from '../domain/autosave.js'
@@ -58,6 +57,7 @@ import * as fluctuation from '../tab/fluctuation.js'
 import * as spectralRepair from '../tab/spectralRepair.js'
 import * as loopLayoutMethods from '../tab/loopLayout.js'
 import * as presetGroupMode from '../tab/presetGroupMode.js'
+import * as stickyPreview from '../tab/stickyPreview.js'
 
 export default class EditorPlugin {
   constructor(app) {
@@ -526,93 +526,7 @@ export default class EditorPlugin {
   // scrollable panel body. Only ever called once, same lazy-mount-once
   // lifecycle mount() itself already has.
   mountSticky(container) {
-    // The controls are rendered in the studio panes by RemixApp (mount()).
-    this.els.playPause = this.root.querySelector('#editor-play-pause')
-    this.els.loopToggle = this.root.querySelector('#editor-loop-toggle')
-    this.els.previewModeToggle = this.root.querySelector('#editor-preview-mode-toggle')
-    this.els.previewModeToggle.addEventListener('click', () => this.togglePreviewMode())
-    this.els.stickyProgress = this.root.querySelector('#editor-sticky-progress')
-    this.els.stickyProgressFill = this.root.querySelector('#editor-sticky-progress-fill')
-    this.els.stickyProgressThumb = this.root.querySelector('#editor-sticky-progress-thumb')
-    this.els.stickyTime = this.root.querySelector('#editor-sticky-time')
-    this.wireStickyProgressDrag()
-    this.els.stickyVolume = this.root.querySelector('#editor-sticky-volume')
-    this.els.stickyMute = this.root.querySelector('#editor-sticky-mute')
-    this.els.stickySolo = this.root.querySelector('#editor-sticky-solo')
-    this.els.undo = this.root.querySelector('#editor-undo')
-    this.els.redo = this.root.querySelector('#editor-redo')
-    this.els.cancel = this.root.querySelector('#editor-cancel')
-    this.els.undo.addEventListener('click', () => this.undo())
-    this.els.redo.addEventListener('click', () => this.redo())
-    this.els.cancel.addEventListener('click', () => this.cancelEdits())
-    this.els.save = this.root.querySelector('#editor-save')
-    this.els.saveLabel = this.root.querySelector('#editor-save-label')
-    // Save works in place on apps with the morph states (2.0+, micro-interactions mock, row "Remix
-    // save", the preset pill's states): Saving, then Changes saved with a drawn check, or the reason
-    // in soft red; Cancel shows Changes canceled. Older apps keep the plain label.
-    this.saveMorph = this.app.ui?.morphButton?.(this.els.save) ?? null
-    this._saveLabelText = 'Save'
-    this.els.save.addEventListener('click', () => this.save().catch((err) => console.error('Editor: save failed', err)))
-    this.els.saveAsCopy = this.root.querySelector('#editor-save-as-copy')
-    this.els.saveAsCopy.addEventListener('click', () => this.saveAsCopy().catch((err) => console.error('Editor: save as copy failed', err)))
-    this.els.saveSegment = this.root.querySelector('#editor-save-segment')
-    this.els.saveSegment.addEventListener('click', () => this.saveSegmentAsNew().catch((err) => console.error('Editor: save segment failed', err)))
-
-    this.els.playPause.addEventListener('click', async () => {
-      const active = this.activePreview()
-      if (!active) return
-      this.stopSeamListen({ pause: false })
-      if (active.playing) {
-        active.pause()
-        this.stopPreviewTicking()
-        this.setPlayPauseIcon(false)
-        this.eqEditorController.clearSpectrum()
-      } else {
-        try {
-          await this.engine.resume()
-          await active.play()
-          this.setPlayPauseIcon(true)
-          this.tickPreviewPlayhead()
-        } catch (err) {
-          console.error('Failed to preview sound', err)
-        }
-      }
-    })
-
-    this.els.loopToggle.addEventListener('click', () => {
-      this.looping = !this.looping
-      this.updateLoopToggleVisual()
-      this.previewSource?.setLooping(this.looping)
-    })
-
-    // Persists across sounds within the tab session, same as looping above -
-    // a preview-workflow preference, not per-sound saved state (unrelated to
-    // the per-sound volume slider in the Mixer, which *is* saved).
-    this.els.stickyVolume.addEventListener('input', () => {
-      this.previewVolume = Number(this.els.stickyVolume.value) / 100
-      // Dragging the slider while muted implicitly unmutes - same
-      // convention the Mixer's volume sliders use.
-      if (this.previewMuted) {
-        this.previewMuted = false
-        this.updatePreviewMuteIcon()
-      }
-      this.activePreview()?.setVolume(this.effectivePreviewVolume())
-    })
-
-    this.els.stickyMute.addEventListener('click', () => {
-      this.previewMuted = !this.previewMuted
-      this.updatePreviewMuteIcon()
-      this.activePreview()?.setVolume(this.effectivePreviewVolume())
-    })
-
-    this.els.stickySolo.addEventListener('click', () => this.toggleSolo())
-    this.updatePreviewMuteIcon()
-
-    this.els.stickySoundControls = this.root.querySelector('#editor-sticky-sound-controls')
-    // The sound picker lives in the bar's left slot (layout.js moves it there),
-    // so the sound can be switched from anywhere. mount() built and wired it.
-    this.els.soundPicker = this.els.soundSearch?.closest('.editor-picker')
-    this.els.soundPicker?.classList.toggle('hidden', this.mode !== 'sound')
+    stickyPreview.wireStickyBar(this)
     this.els.stickyMixControls = this.root.querySelector('#editor-sticky-mix-controls')
     this.els.mixPlayPause = this.root.querySelector('#editor-mix-play-pause')
     this.els.mixSoloGroup = this.root.querySelector('#editor-mix-solo-group')
@@ -688,147 +602,45 @@ export default class EditorPlugin {
   handleMarkerKey(...args) {
     return markers.handleMarkerKey(this, ...args)
   }
-  effectivePreviewVolume() {
-    return this.previewMuted ? 0 : this.previewVolume
+
+  effectivePreviewVolume(...args) {
+    return stickyPreview.effectivePreviewVolume(this, ...args)
   }
 
-  // Whichever engine Play/Pause, volume/mute, and the sticky progress bar
-  // are actually driving right now - see this.previewMode's own doc
-  // comment. Every sticky-bar control reads through this rather than
-  // hardcoding previewSource, so switching modes doesn't need special-casing
-  // at each call site.
-  activePreview() {
-    return this.previewMode === 'saved' && this.bakedPreview ? this.bakedPreview : this.previewSource
+  activePreview(...args) {
+    return stickyPreview.activePreview(this, ...args)
   }
 
-  // Whether there's a real baked clip to switch into Saved mode for at all.
-  // v0.1.142: no longer requires the bake to still be *fresh* - staleness
-  // (edits made since that bake) doesn't disqualify it, since the toggle is
-  // now sticky (see previewMode's own doc comment) rather than auto-
-  // reverting the instant an edit makes the bake stale. This only gates
-  // whether Saved mode is reachable at all - a sound that's never been
-  // saved has nothing to compare against.
-  savedPreviewEligible() {
-    return Boolean(this.currentEntry?.loopClipReady) && Boolean(this.bakedPreview)
+  savedPreviewEligible(...args) {
+    return stickyPreview.savedPreviewEligible(this, ...args)
   }
 
-  // v0.1.214: the toggle is never disabled - owner's direct requirement
-  // ("it always has to change between live preview and saved audio
-  // preview"). Switching to Saved with no usable bake (never saved, or the
-  // last render failed) renders one first instead of refusing.
-  async togglePreviewMode() {
-    if (this._togglingPreviewMode) return
-    if (this.previewMode !== 'saved' && !this.savedPreviewEligible()) {
-      if (this._clipRebaking || this.saveCtl.isSaving() || this.eqCompareViewing === 'B') return
-      this._togglingPreviewMode = true
-      const entry = this.currentEntry
-      try {
-        this.els.saveStatus.textContent = 'Rendering saved audio…'
-        await this.save({ forceBake: true })
-      } finally {
-        this._togglingPreviewMode = false
-      }
-      if (this.currentEntry !== entry) return
-      if (!this.savedPreviewEligible()) {
-        this.els.saveStatus.textContent = "Couldn't render the saved audio - still on Live edit. Click the toggle to try again."
-        return
-      }
-    }
-    // Switching stops playback rather than trying to hand off mid-stream
-    // between two structurally different engines (one crossfading pair of
-    // <audio> elements through a live filter chain vs. one plain looping
-    // <audio> element) - simpler and more predictable than attempting a
-    // seamless handoff for what's fundamentally an A/B comparison tool, not
-    // a continuous listening experience.
-    this.stopSeamListen({ pause: false })
-    const wasPlaying = this.activePreview()?.playing
-    this.activePreview()?.pause()
-    this.stopPreviewTicking()
-    this.setPlayPauseIcon(false)
-    this.eqEditorController.clearSpectrum()
-    this.previewMode = this.previewMode === 'saved' ? 'live' : 'saved'
-    this.updatePreviewModeToggle()
-    this.updateStickyProgress(0)
-    if (wasPlaying) {
-      this.engine
-        .resume()
-        .then(() => this.activePreview()?.play())
-        .then(() => {
-          this.setPlayPauseIcon(true)
-          this.tickPreviewPlayhead()
-        })
-        .catch((err) => console.error('Failed to switch preview mode', err))
-    }
+  togglePreviewMode(...args) {
+    return stickyPreview.togglePreviewMode(this, ...args)
   }
 
-  // Called after every edit (same updateSaveButtonState() hook every field
-  // change already funnels through) and on load/dispose - keeps the toggle
-  // enabled/labeled correctly. v0.1.142: no longer auto-reverts out of
-  // 'saved' just because an edit made the bake stale (see previewMode's own
-  // doc comment + the Board's own inbox note this answers) - the one
-  // remaining force-switch is when the bake becomes genuinely unavailable
-  // (savedPreviewEligible() false: never saved, or a save's render failed),
-  // since there's nothing left to actually play in Saved mode at that point.
-  updatePreviewModeToggle() {
-    if (!this.els.previewModeToggle) return
-    const eligible = this.savedPreviewEligible()
-    if (mustFallBackToLive({ mode: this.previewMode, eligible, rebaking: this._clipRebaking })) {
-      // Pause whichever engine (bakedPreview) is actually live *before*
-      // flipping the mode - activePreview() reads this.previewMode, so
-      // pausing after the flip would silently target the wrong (idle)
-      // engine and leave the real one playing in the background.
-      this.activePreview()?.pause()
-      this.stopPreviewTicking()
-      this.setPlayPauseIcon(false)
-      this.previewMode = 'live'
-    }
-    this.els.previewModeToggle.disabled = false
-    const toggle = previewModeToggleState({ mode: this.previewMode, eligible, stale: this.hasUnsavedChanges() })
-    this.els.previewModeToggle.textContent = toggle.text
-    this.els.previewModeToggle.classList.toggle('editor-preview-mode-toggle-active', toggle.active)
-    this.els.previewModeToggle.classList.toggle('editor-preview-mode-toggle-stale', toggle.stale)
-    this.els.previewModeToggle.title = toggle.title
-    // Keep the "drift needs Live edit preview" note in sync with the mode.
-    if (this.flucVolBar) this.updateFluctuationEnabledUI()
+  updatePreviewModeToggle(...args) {
+    return stickyPreview.updatePreviewModeToggle(this, ...args)
   }
 
-  updatePreviewMuteIcon() {
-    this.els.stickyMute.innerHTML = this.previewMuted ? MUTE_ICON_SVG : VOLUME_ICON_SVG
-    this.els.stickyMute.title = this.previewMuted ? 'Unmute' : 'Mute'
-    this.els.stickyMute.classList.toggle('btn-svg-icon-active', this.previewMuted)
+  updatePreviewMuteIcon(...args) {
+    return stickyPreview.updatePreviewMuteIcon(this, ...args)
   }
 
-  updateLoopToggleVisual() {
-    this.els.loopToggle.classList.toggle('editor-loop-icon-btn-active', this.looping)
-    this.els.loopToggle.setAttribute('aria-pressed', String(this.looping))
+  updateLoopToggleVisual(...args) {
+    return stickyPreview.updateLoopToggleVisual(this, ...args)
   }
 
-  // Core's Mixer has no direct access to this plugin's state (or vice
-  // versa) - plugins only get the curated window.noctivago IPC surface, and
-  // mute is deliberately session-only/unpersisted, so there's no library
-  // data to round-trip through either. A plain window CustomEvent is the
-  // simplest bridge that doesn't require either side to import the other;
-  // see tabs/mixer/index.js's own 'noctivago:remix-solo' listener.
-  toggleSolo() {
-    if (!this.currentEntry) return
-    this.setSolo(!this.soloActive)
+  toggleSolo(...args) {
+    return stickyPreview.toggleSolo(this, ...args)
   }
 
-  setSolo(active) {
-    if (this.soloActive === active) return
-    this.soloActive = active
-    this.els.stickySolo?.classList.toggle('editor-sticky-solo-active', active)
-    if (this.currentEntry) {
-      window.dispatchEvent(new CustomEvent('noctivago:solo', { detail: { soundId: this.currentEntry.id, active } }))
-    }
+  setSolo(...args) {
+    return stickyPreview.setSolo(this, ...args)
   }
 
-  setPlayPauseIcon(playing) {
-    // The main transport and a row preview never play at once.
-    if (playing) this.itemPreview?.stop()
-    if (!this.els.playPause) return
-    this.els.playPause.innerHTML = playing ? PAUSE_ICON_SVG : PLAY_ICON_SVG
-    this.els.playPause.title = playing ? 'Pause' : 'Play'
+  setPlayPauseIcon(...args) {
+    return stickyPreview.setPlayPauseIcon(this, ...args)
   }
 
   // Per-preset sound overrides (planned 2026-09-12): also fetches
@@ -2406,122 +2218,21 @@ export default class EditorPlugin {
     })
   }
 
-  stopPreviewTicking() {
-    if (this.previewRafId) {
-      cancelAnimationFrame(this.previewRafId)
-      this.previewRafId = null
-    }
+  // --- Sticky bar and preview mode: src/tab/stickyPreview.js ---
+  stopPreviewTicking(...args) {
+    return stickyPreview.stopPreviewTicking(this, ...args)
   }
 
-  tickPreviewPlayhead() {
-    const active = this.activePreview()
-    if (!active || !this.loopEditorController) return
-    if (this.previewMode === 'saved') {
-      // The baked clip has its own 0-based timeline (it *is* the trimmed
-      // region), unlike previewSource which plays the original file - offset
-      // back into the original file's absolute time for the waveform's
-      // playhead, but keep the sticky progress bar in the clip's own
-      // 0..duration terms (see updateStickyProgress's mode branch).
-      const source = this.clipTimeToSource(active.currentTime)
-      this.loopEditorController.setPlayhead(source)
-      this.spectralView?.setPlayhead(source)
-      this.updateSeamPlayhead(source)
-      this.updateStickyProgress(active.currentTime)
-    } else {
-      const currentTime = active.currentTime
-      this.loopEditorController.setPlayhead(currentTime)
-      this.spectralView?.setPlayhead(currentTime)
-      this.updateSeamPlayhead(currentTime)
-      this.updateStickyProgress(currentTime)
-      // Volume envelope: only the *live* preview needs this (previewMode
-      // 'live' means `active` here is always this.previewSource) - the
-      // 'saved' branch above plays the baked clip, which already has the
-      // envelope rendered in.
-      this.previewSource?.tickEnvelope(currentTime)
-    }
-    // BakedClipPreview (the 'saved' engine) gained its own analyserNode
-    // specifically so this can stay a single unconditional call rather than
-    // one more mode branch - the spectrogram should track whichever engine
-    // is actually audible either way.
-    // Saved audio has no preAnalyserNode (the clip has the EQ baked in), so
-    // the graph draws After only there.
-    this.eqEditorController.tickSpectrum(active.analyserNode, active.preAnalyserNode)
-    this.previewRafId = requestAnimationFrame(() => this.tickPreviewPlayhead())
+  tickPreviewPlayhead(...args) {
+    return stickyPreview.tickPreviewPlayhead(this, ...args)
   }
 
-  // Drag-to-seek on the sticky progress bar - inbox answer to the v0.1.115
-  // volume-slider follow-up ("make it so you can control the needle via the
-  // progress bar on the sticky topbar... put a little circle on it so you
-  // can drag"). Works whether the preview is playing or paused -
-  // PreviewSource.scrubTo() already handles both (just repositions
-  // currentTime, doesn't change play state). A click anywhere on the bar
-  // seeks too, not just a precise grab on the thumb - matches how a normal
-  // scrubbable progress bar works elsewhere (e.g. a video player).
-  wireStickyProgressDrag() {
-    let dragging = false
-
-    const seekFromClientX = (clientX) => {
-      const active = this.activePreview()
-      if (!active) return
-      const rect = this.els.stickyProgress.getBoundingClientRect()
-      const fraction = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1)
-      if (this.previewMode === 'saved') {
-        const span = active.duration || 0
-        const t = fraction * span
-        active.scrubTo(t)
-        this.updateStickyProgress(t)
-        if (this.loopEditorController) {
-          this.loopEditorController.setPlayhead(this.clipTimeToSource(t))
-        }
-      } else {
-        if (!this.loopEditorController) return
-        const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-        const t = loopStart + fraction * Math.max(0, loopEnd - loopStart)
-        active.scrubTo(t)
-        this.loopEditorController.setPlayhead(t)
-        this.updateStickyProgress(t)
-      }
-    }
-
-    this.els.stickyProgress.addEventListener('mousedown', (evt) => {
-      if (!this.activePreview()) return
-      dragging = true
-      seekFromClientX(evt.clientX)
-    })
-    window.addEventListener('mousemove', (evt) => {
-      if (!dragging) return
-      seekFromClientX(evt.clientX)
-    })
-    window.addEventListener('mouseup', () => {
-      dragging = false
-    })
+  wireStickyProgressDrag(...args) {
+    return stickyPreview.wireStickyProgressDrag(this, ...args)
   }
 
-  // Progress is relative to the trimmed loop region (loopStart..loopEnd),
-  // not the whole original file - that's what's actually being previewed/
-  // looped, matching what the waveform's own highlighted region already
-  // represents visually. Guarded on stickyProgressFill existing since this
-  // can theoretically be called before mountSticky() has run.
-  updateStickyProgress(currentTime) {
-    if (!this.els.stickyProgressFill) return
-    let elapsed, span
-    if (this.previewMode === 'saved' && this.bakedPreview) {
-      // currentTime is already clip-relative here (0..clip duration) - see
-      // tickPreviewPlayhead's mode branch and wireStickyProgressDrag's own
-      // seek math, both of which pass clip-relative time in this mode.
-      span = Math.max(0, this.bakedPreview.duration || 0)
-      elapsed = Math.min(Math.max(currentTime, 0), span)
-    } else {
-      if (!this.loopEditorController) return
-      const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-      span = Math.max(0, loopEnd - loopStart)
-      elapsed = Math.min(Math.max(currentTime - loopStart, 0), span)
-    }
-    const pct = span > 0 ? (elapsed / span) * 100 : 0
-    this.els.stickyProgressFill.style.width = `${pct}%`
-    this.els.stickyProgressThumb.style.left = `${pct}%`
-    this.els.stickyTime.textContent = `${formatDuration(elapsed)} / ${formatDuration(span)}`
-    this.updateNeedleField(this.previewMode === 'saved' && this.bakedPreview ? this.clipTimeToSource(currentTime) : currentTime)
+  updateStickyProgress(...args) {
+    return stickyPreview.updateStickyProgress(this, ...args)
   }
 
   // Needle field follows the needle (original-file seconds) on every tick. It
