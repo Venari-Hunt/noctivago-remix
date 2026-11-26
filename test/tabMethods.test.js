@@ -137,3 +137,38 @@ test('currentSpeedPitchDoppler reads the Doppler checkbox', { skip: !loopLayoutM
   assert.equal(loopLayoutMethods.currentSpeedPitchDoppler({ els: { doppler: { checked: true } } }), true)
   assert.equal(loopLayoutMethods.currentSpeedPitchDoppler({ els: {} }), false)
 })
+
+let eqFiltersMethods
+try {
+  eqFiltersMethods = await import('../src/tab/eqFilters.js')
+} catch (e) {
+  eqFiltersMethods = null
+}
+
+test('EQ and filters module exports the methods', { skip: !eqFiltersMethods }, () => {
+  for (const name of ['setFilterSliders', 'currentFilters', 'previewFilters', 'updateEqFieldsFromSelection', 'applyEqFieldsToSelectedBand', 'applyEqControls', 'eqDiffersFromSaved', 'updateEqRevertBannerVisibility', 'switchEqCompareView', 'updateEqCompareButtonsUI', 'revertEqToSaved', 'resetEqCompare', 'applyFilterControls']) {
+    assert.equal(typeof eqFiltersMethods[name], 'function', name)
+  }
+})
+
+test('previewFilters mutes every band but the soloed one', { skip: !eqFiltersMethods }, () => {
+  const bands = [{ freqHz: 100 }, { freqHz: 200, muted: true }]
+  const tab = {
+    filterControls: { getValues: () => ({ gainDb: 0 }) },
+    eqEditorController: { getBands: () => bands, getSoloIndex: () => 1 },
+    loopEditorController: { getEnvelope: () => ({ enabled: false, points: [] }) },
+    spectralView: { getRegions: () => [] },
+    currentFilters: () => eqFiltersMethods.currentFilters(tab)
+  }
+  const filters = eqFiltersMethods.previewFilters(tab)
+  assert.deepEqual(filters.eq.map((b) => b.muted), [true, false])
+  assert.equal(bands[1].muted, true)
+})
+
+test('eqDiffersFromSaved compares the live bands with the snapshot', { skip: !eqFiltersMethods }, () => {
+  const tab = { eqEditorController: { getBands: () => [{ freqHz: 1 }] }, savedEqSnapshot: [{ freqHz: 1 }] }
+  assert.equal(eqFiltersMethods.eqDiffersFromSaved(tab), false)
+  tab.savedEqSnapshot = []
+  assert.equal(eqFiltersMethods.eqDiffersFromSaved(tab), true)
+  assert.equal(eqFiltersMethods.eqDiffersFromSaved({}), false)
+})

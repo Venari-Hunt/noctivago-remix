@@ -5,7 +5,6 @@ import { mountSpectral } from '../mounts/spectralMount.js'
 import { mountSeam } from '../mounts/seamMount.js'
 import { mountEqEditor, mountMixEqTargets } from '../mounts/eqMount.js'
 import { mountMixFluctuation } from '../mounts/mixFlucMount.js'
-import { Q_MIN, Q_MAX, SLOPE_CAPABLE_EQ_TYPES } from './EqEditor.js'
 import { formatDuration, parseDuration } from '../domain/time.js'
 import { mountRemixApp } from './RemixApp.jsx'
 import { mountPlaybackPanel } from './PlaybackPanel.jsx'
@@ -58,6 +57,7 @@ import * as spectralRepair from '../tab/spectralRepair.js'
 import * as loopLayoutMethods from '../tab/loopLayout.js'
 import * as presetGroupMode from '../tab/presetGroupMode.js'
 import * as stickyPreview from '../tab/stickyPreview.js'
+import * as eqFilters from '../tab/eqFilters.js'
 
 export default class EditorPlugin {
   constructor(app) {
@@ -1110,224 +1110,57 @@ export default class EditorPlugin {
     this.els.suggestStatus.textContent = `Suggested ${formatDuration(loopEnd - loopStart)} loop — adjust if needed, then Save.`
   }
 
-  // Shared by Reset filters and every preset button, both of which just set
-  // all five slider values from a filters object before re-applying. Presets
-  // (see FILTER_PRESETS) don't define .eq at all - the EQ graph is a
-  // separate, more precise tool than a one-click coloration preset, so a
-  // preset click deliberately leaves it untouched; only an explicit
-  // filters.eq (Reset filters' NEUTRAL_FILTERS, or a loaded sound's own
-  // saved bands) actually replaces it.
-  setFilterSliders(filters) {
-    this.filterControls.setValues({
-      highpassHz: filters.highpassHz,
-      lowpassHz: filters.lowpassHz,
-      gainDb: filters.gainDb,
-      // Effect presets don't define pan (placement isn't part of a sound's
-      // character), so a preset click leaves it where it is - setValues
-      // skips undefined keys.
-      pan: filters.pan,
-      gateThresholdDb: filters.gateThresholdDb ?? -80,
-      gateRangeDb: filters.gateRangeDb ?? 0,
-      gateAttackMs: filters.gateAttackMs ?? 10,
-      gateReleaseMs: filters.gateReleaseMs ?? 150,
-      denoiseEnabled: Boolean(filters.denoiseEnabled),
-      denoiseStrengthDb: filters.denoiseStrengthDb ?? 12,
-      denoiseSampleStartSec: filters.denoiseSampleStartSec ?? 0,
-      denoiseSampleEndSec: filters.denoiseSampleEndSec ?? 0,
-      echoDelayMs: filters.echoDelayMs ?? 0,
-      echoDecay: filters.echoDecay ?? 0,
-      reverbSizeMs: filters.reverbSizeMs ?? 0,
-      reverbMix: filters.reverbMix ?? 0
-    })
-    if (filters.eq) {
-      this.eqEditorController.load(filters.eq)
-      this.updateEqFieldsFromSelection()
-    }
-    if (filters.volumeEnvelope) {
-      this.loopEditorController.setEnvelope(filters.volumeEnvelope.enabled, filters.volumeEnvelope.points)
-      this.els.envelopeEnabled.checked = Boolean(filters.volumeEnvelope.enabled)
-    }
-    // Effect presets don't define it, so a preset click keeps the boxes.
-    if (filters.spectralRepairs) {
-      this.spectralView.setRegions(filters.spectralRepairs)
-      this.updateSpectralControls()
-    }
-    this.syncNoiseBand()
+  // --- EQ and filters: src/tab/eqFilters.js ---
+  setFilterSliders(...args) {
+    return eqFilters.setFilterSliders(this, ...args)
   }
 
-  currentFilters() {
-    return {
-      ...this.filterControls.getValues(),
-      eq: this.eqEditorController.getBands(),
-      volumeEnvelope: this.loopEditorController.getEnvelope(),
-      spectralRepairs: this.spectralView.getRegions()
-    }
+  currentFilters(...args) {
+    return eqFilters.currentFilters(this, ...args)
   }
 
-  // What the *live preview* should actually hear, distinct from
-  // currentFilters() (the real, saved-and-savable state) - a soloed band
-  // bypasses every other band for the preview only, without touching their
-  // real .muted values, since Solo is an audition aid that's never part of
-  // what gets persisted or baked. The soloed band itself is force-unmuted so
-  // soloing still lets you hear it even if it happens to be muted for real.
-  previewFilters() {
-    const filters = this.currentFilters()
-    const soloIndex = this.eqEditorController.getSoloIndex()
-    if (soloIndex === -1) return filters
-    return {
-      ...filters,
-      eq: filters.eq.map((band, i) => ({ ...band, muted: i !== soloIndex }))
-    }
+  previewFilters(...args) {
+    return eqFilters.previewFilters(this, ...args)
   }
 
-  // Reflects the EQ editor's currently-selected node in the precision-entry
-  // fields (see EqEditor.js's setSelectedBand for the reverse direction) -
-  // called whenever the selection or its values change, whatever the source
-  // (a drag, a wheel Q adjustment, a fresh load, or Reset EQ).
-  updateEqFieldsFromSelection() {
-    const bands = this.eqEditorController.getSlots()
-    const index = this.eqEditorController.getSelectedIndex()
-    const band = bands[index]
-    // Nothing selected - either a blank EQ, or a band was just deleted
-    // (which always clears selection, see EqEditor.js's removeSelectedBand).
-    // Disable the precision fields entirely rather than leaving them
-    // showing a stale, no-longer-meaningful value from whatever was
-    // previously selected. `disabled` (below) additionally locks the fields
-    // while viewing the read-only B (last saved) reference - "just a display
-    // for the user" - but `hasSelection` alone still governs whether they
-    // show B's real values or blank, so a selected B band reads as a real,
-    // inspectable (if uneditable) value rather than going blank.
-    const readOnly = this.eqEditorController.isReadOnly()
-    const hasSelection = Boolean(band)
-    const disabled = readOnly || !hasSelection
-    this.els.eqType.disabled = disabled
-    this.els.eqFreq.disabled = disabled
-    this.els.eqGain.disabled = disabled
-    this.els.eqQ.disabled = disabled
-    this.els.eqMute.disabled = disabled
-    this.els.eqSolo.disabled = disabled
-    this.els.eqRemoveBand.disabled = disabled
-    this.els.eqAddBand.disabled = readOnly
-    if (!hasSelection) {
-      this.els.eqType.value = 'peaking'
-      this.els.eqFreq.value = ''
-      this.els.eqGain.value = ''
-      this.els.eqQ.value = ''
-      this.els.eqSlope.value = 'gentle'
-      this.els.eqSlope.disabled = true
-      this.els.eqSlopeLabel.classList.add('hidden')
-      this.els.eqMute.classList.remove('editor-eq-mute-active')
-      this.els.eqSolo.classList.remove('editor-eq-solo-active')
-      return
-    }
-    this.els.eqType.value = band.type ?? 'peaking'
-    this.els.eqFreq.value = String(Math.round(band.freqHz))
-    this.els.eqGain.value = String(band.gainDb)
-    this.els.eqQ.value = String(band.q)
-    // Slope only means anything for the four filter-*shaped* types (a
-    // rolloff steepness) - peaking/shelf bands are gain-shaped, not
-    // rolloff-shaped, and 'off' does nothing at all, so the control hides
-    // entirely rather than showing a value with no real effect.
-    const slopeCapable = SLOPE_CAPABLE_EQ_TYPES.includes(band.type)
-    this.els.eqSlope.value = band.slope ?? 'gentle'
-    this.els.eqSlope.disabled = disabled || !slopeCapable
-    this.els.eqSlopeLabel.classList.toggle('hidden', !slopeCapable)
-    this.els.eqMute.classList.toggle('editor-eq-mute-active', Boolean(band.muted))
-    this.els.eqSolo.classList.toggle('editor-eq-solo-active', this.eqEditorController.getSoloIndex() === index)
+  updateEqFieldsFromSelection(...args) {
+    return eqFilters.updateEqFieldsFromSelection(this, ...args)
   }
 
-  applyEqFieldsToSelectedBand() {
-    const type = this.els.eqType.value
-    const slope = this.els.eqSlope.value
-    const freqHz = Math.min(20000, Math.max(20, Number(this.els.eqFreq.value)))
-    const gainDb = Math.min(24, Math.max(-24, Number(this.els.eqGain.value)))
-    const q = Math.min(Q_MAX, Math.max(Q_MIN, Number(this.els.eqQ.value)))
-    this.eqEditorController.setSelectedBand({ type, slope, freqHz, gainDb, q })
-    this.applyEqControls()
+  applyEqFieldsToSelectedBand(...args) {
+    return eqFilters.applyEqFieldsToSelectedBand(this, ...args)
   }
 
-  // Fires on every EQ graph change (drag, wheel Q) and every precision-field
-  // edit - same live-preview + dirty-state pattern as applyFilterControls,
-  // since EQ is just another part of the same filters bag now.
-  applyEqControls() {
-    this.updateEqFieldsFromSelection()
-    this.previewSource?.setFilters(this.previewFilters())
-    this.updateSaveButtonState()
-    this.updateEqRevertBannerVisibility()
+  applyEqControls(...args) {
+    return eqFilters.applyEqControls(this, ...args)
   }
 
-  // True whenever the live EQ bands (A) differ from the immutable saved
-  // snapshot (B) - a plain JSON comparison, same technique the dirty-check
-  // elsewhere in this file already uses, just scoped to EQ only.
-  eqDiffersFromSaved() {
-    if (!this.eqEditorController) return false
-    return JSON.stringify(this.eqEditorController.getBands()) !== JSON.stringify(this.savedEqSnapshot)
+  eqDiffersFromSaved(...args) {
+    return eqFilters.eqDiffersFromSaved(this, ...args)
   }
 
-  // The revert prompt only makes sense while actively editing (viewing A)
-  // and only when there's actually something to discard - showing an
-  // actionable "revert" banner when A already matches B would be confusing.
-  updateEqRevertBannerVisibility() {
-    const show = this.eqCompareViewing === 'A' && this.eqDiffersFromSaved()
-    this.els.eqRevertBanner.classList.toggle('hidden', !show)
+  updateEqRevertBannerVisibility(...args) {
+    return eqFilters.updateEqRevertBannerVisibility(this, ...args)
   }
 
-  // Switches which side of the compare is being viewed. B is a read-only
-  // reference (see EqEditorController.setReadOnly) - switching to it stashes
-  // A's live bands so editing can resume exactly where it left off when
-  // switching back, rather than losing in-progress work.
-  switchEqCompareView(target) {
-    if (target === this.eqCompareViewing || !this.eqEditorController) return
-    if (target === 'B') {
-      this.eqLiveBandsStash = this.eqEditorController.getBands()
-      this.eqEditorController.load(this.savedEqSnapshot.map((b) => ({ ...b })))
-    } else {
-      this.eqEditorController.load((this.eqLiveBandsStash ?? this.eqEditorController.getBands()).map((b) => ({ ...b })))
-      this.eqLiveBandsStash = null
-    }
-    this.eqCompareViewing = target
-    this.eqEditorController.setReadOnly(target === 'B')
-    this.updateEqFieldsFromSelection()
-    this.applyEqControls()
-    this.updateEqCompareButtonsUI()
+  switchEqCompareView(...args) {
+    return eqFilters.switchEqCompareView(this, ...args)
   }
 
-  updateEqCompareButtonsUI() {
-    this.els.eqCompareA.classList.toggle('editor-eq-compare-btn-active', this.eqCompareViewing === 'A')
-    this.els.eqCompareB.classList.toggle('editor-eq-compare-btn-active', this.eqCompareViewing === 'B')
+  updateEqCompareButtonsUI(...args) {
+    return eqFilters.updateEqCompareButtonsUI(this, ...args)
   }
 
-  // The revert banner's action: discards every unsaved EQ edit, replacing
-  // the live (A) bands with an exact copy of the saved (B) snapshot -
-  // switches back to viewing A first if B was on screen, since after this
-  // there's nothing left to distinguish them anyway.
-  revertEqToSaved() {
-    if (!this.eqEditorController) return
-    this.eqLiveBandsStash = null
-    this.eqCompareViewing = 'A'
-    this.eqEditorController.setReadOnly(false)
-    this.eqEditorController.load(this.savedEqSnapshot.map((b) => ({ ...b })))
-    this.updateEqFieldsFromSelection()
-    this.applyEqControls()
-    this.updateEqCompareButtonsUI()
+  revertEqToSaved(...args) {
+    return eqFilters.revertEqToSaved(this, ...args)
   }
 
-  // Resets compare state for a freshly loaded sound - A/B is a per-editing-
-  // session workflow aid, not something that should carry over between
-  // sounds. savedEqSnapshot itself is captured separately in loadSound()
-  // (needs the just-loaded entry's own filters.eq, not available here).
-  resetEqCompare() {
-    this.eqCompareViewing = 'A'
-    this.eqLiveBandsStash = null
-    this.eqEditorController?.setReadOnly(false)
-    this.updateEqCompareButtonsUI()
-    this.updateEqRevertBannerVisibility()
+  resetEqCompare(...args) {
+    return eqFilters.resetEqCompare(this, ...args)
   }
 
-  applyFilterControls() {
-    this.previewSource?.setFilters(this.previewFilters())
-    this.updateSaveButtonState()
-    this.syncNoiseBand()
+  applyFilterControls(...args) {
+    return eqFilters.applyFilterControls(this, ...args)
   }
 
   currentCrossfadeMs() {
