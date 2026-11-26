@@ -55,3 +55,31 @@ test('dispatchGroupPreview needs a preset and a group', { skip: !presetGroupMode
   assert.equal(events[0].detail.groupId, 'g')
   delete globalThis.window
 })
+
+let fluctuation
+try {
+  fluctuation = await import('../src/tab/fluctuation.js')
+} catch (e) {
+  fluctuation = null
+}
+
+test('fluctuation module exports the drift methods', { skip: !fluctuation }, () => {
+  for (const name of ['setFluctuationControls', 'applyFluctuationControls', 'persistFluctuation', 'flushFluctuation', 'fluctuationDirty']) {
+    assert.equal(typeof fluctuation[name], 'function', name)
+  }
+})
+
+test('persistFluctuation waits for a sound, then queues the write', { skip: !fluctuation }, () => {
+  const idle = { currentEntry: null }
+  fluctuation.persistFluctuation(idle)
+  assert.equal(idle._pendingFluctuation, undefined)
+  const tab = { currentEntry: { id: 's1' }, fluctuation: { volume: {} }, flushFluctuation: () => {} }
+  fluctuation.persistFluctuation(tab)
+  assert.deepEqual(tab._pendingFluctuation, { id: 's1', fluctuation: tab.fluctuation })
+  clearTimeout(tab._fluctuationSaveTimer)
+})
+
+test('flushFluctuation does nothing without a pending edit', { skip: !fluctuation }, () => {
+  const tab = { _pendingFluctuation: null, api: { library: { updateFluctuation: () => assert.fail('no write') } } }
+  assert.equal(fluctuation.flushFluctuation(tab), undefined)
+})

@@ -23,7 +23,7 @@ import { mountSpectrumView } from './SpectrumView.jsx'
 import { filterSummaries } from './FilterControls.jsx'
 import { filterPickerSounds } from '../domain/pickerList.js'
 import { previewModeToggleState, mustFallBackToLive } from '../domain/previewMode.js'
-import { loadedFluctuation, fluctuationFingerprint, isFluctuationDirty, groupDriftFor, groupOverrideNotes } from '../domain/driftState.js'
+import { groupDriftFor, groupOverrideNotes } from '../domain/driftState.js'
 import { saveButtonState } from '../domain/saveState.js'
 import { createAutosave } from '../domain/autosave.js'
 import { createCompare } from '../domain/compareView.js'
@@ -38,7 +38,7 @@ import { wireShapeControls } from '../controls/shapeControls.js'
 import { wireFilterControls } from '../controls/filterControls.js'
 import { wireEqControls } from '../controls/eqControls.js'
 import { wireFluctuationControls } from '../controls/fluctuationControls.js'
-import { applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, defaultFluctuation, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, flucSeconds, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
+import { applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, defaultFluctuation, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { mountMarkerUi } from './markerUi.js'
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
 import { arrangeLayout, arrangeBar, driftSummary } from './layout.js'
@@ -56,6 +56,7 @@ import { saveCallbacks } from '../callbacks/saveCallbacks.js'
 import { mountCallbacks } from '../callbacks/mountCallbacks.js'
 import { findAllEls } from '../panels/index.js'
 import * as markers from '../tab/markers.js'
+import * as fluctuation from '../tab/fluctuation.js'
 import * as presetGroupMode from '../tab/presetGroupMode.js'
 
 export default class EditorPlugin {
@@ -1802,56 +1803,16 @@ export default class EditorPlugin {
     }
   }
 
-  // --- Fluctuation (v0.1.164; flat-seconds timing + Fully-random v0.1.176) ---
-  // Pushes entry.fluctuation into the two bars + the seconds fields, called
-  // from loadSound. The bars own their own min/bias/max; the number fields +
-  // checkboxes own enabled / fullyRandom / changeMin/MaxSeconds /
-  // transitionSeconds.
-  setFluctuationControls(fluctuation) {
-    const f = loadedFluctuation(fluctuation)
-    this.fluctuation = f
-    this.writeFluctuationAxisFields('flucVol', f.volume)
-    this.flucVolBar.setValues(f.volume)
-    this.writeFluctuationAxisFields('flucPitch', f.pitch)
-    this.flucPitchBar.setValues(f.pitch)
-    this.writeFluctuationAxisFields('flucPan', f.pan)
-    this.flucPanBar.setValues(f.pan)
-    this.updateFluctuationEnabledUI()
-    // Freshly loaded from the library == the saved baseline for the dirty-check.
-    this.savedFluctuationSnapshot = this.fluctuationSnapshot()
+  setFluctuationControls(...args) {
+    return fluctuation.setFluctuationControls(this, ...args)
   }
 
-  writeFluctuationAxisFields(key, axis) {
-    this.els[`${key}Enabled`].checked = axis.enabled
-    this.els[`${key}FullRandom`].checked = axis.fullyRandom
-    this.els[`${key}ChangeMin`].value = String(axis.changeMinSeconds)
-    this.els[`${key}ChangeMax`].value = String(axis.changeMaxSeconds)
-    this.els[`${key}Transition`].value = String(axis.transitionSeconds)
-    this.els[`${key}Bias`].checked = axis.biasEnabled !== false
+  writeFluctuationAxisFields(...args) {
+    return fluctuation.writeFluctuationAxisFields(this, ...args)
   }
 
   updateFluctuationEnabledUI() {
-    for (const [key, bar] of [
-      ['flucVol', this.flucVolBar],
-      ['flucPitch', this.flucPitchBar],
-      ['flucPan', this.flucPanBar]
-    ]) {
-      const on = this.els[`${key}Enabled`].checked
-      const random = this.els[`${key}FullRandom`].checked
-      bar.setEnabled(on && !random)
-      bar.setBiasEnabled(this.els[`${key}Bias`].checked)
-      this.els[`${key}Bias`].disabled = !on || random
-      this.els[`${key}FullRandom`].disabled = !on
-      this.els[`${key}ChangeMin`].disabled = !on
-      this.els[`${key}ChangeMax`].disabled = !on
-      this.els[`${key}Transition`].disabled = !on
-    }
-    // Drift is a live-preview / Mixer behavior only - warn if the user has an
-    // axis on but is auditioning the baked "Saved audio" clip, which by
-    // design has no fluctuation (so it'd look like the feature does nothing).
-    const anyOn = this.els.flucVolEnabled.checked || this.els.flucPitchEnabled.checked || this.els.flucPanEnabled.checked
-    this.els.fluctuationSavedNote?.classList.toggle('hidden', !(anyOn && this.previewMode === 'saved'))
-    this.updateGroupOverrideNotes()
+    return fluctuation.updateFluctuationEnabledUI(this)
   }
 
   // v0.1.218: tells the user when this sound's Sound Group replaces some of
@@ -1871,76 +1832,20 @@ export default class EditorPlugin {
     }
   }
 
-  readFluctuationAxisFields(key, bar) {
-    const v = bar.getValues()
-    return {
-      enabled: this.els[`${key}Enabled`].checked,
-      fullyRandom: this.els[`${key}FullRandom`].checked,
-      biasEnabled: this.els[`${key}Bias`].checked,
-      min: v.min,
-      max: v.max,
-      bias: v.bias,
-      changeMinSeconds: flucSeconds(this.els[`${key}ChangeMin`].value, 6),
-      changeMaxSeconds: flucSeconds(this.els[`${key}ChangeMax`].value, 14),
-      transitionSeconds: flucSeconds(this.els[`${key}Transition`].value, 8, true)
-    }
+  readFluctuationAxisFields(...args) {
+    return fluctuation.readFluctuationAxisFields(this, ...args)
   }
 
-  // Reads every fluctuation control into this.fluctuation, previews it live,
-  // and (debounced) persists + tells the Mixer. No snapshot/undo hookup by
-  // design - see the wireControls comment.
   applyFluctuationControls() {
-    this.fluctuation = {
-      volume: this.readFluctuationAxisFields('flucVol', this.flucVolBar),
-      pitch: this.readFluctuationAxisFields('flucPitch', this.flucPitchBar),
-      pan: this.readFluctuationAxisFields('flucPan', this.flucPanBar)
-    }
-    this.updateFluctuationEnabledUI()
-    this.previewSource?.setFluctuation(this.fluctuation)
-    this.persistFluctuation()
-    // Light the Save button now (it clears again a moment later when the
-    // debounced write below lands - see flushFluctuation) so a drift edit
-    // never looks like it went nowhere.
-    this.updateSaveButtonState()
+    return fluctuation.applyFluctuationControls(this)
   }
 
   persistFluctuation() {
-    if (!this.currentEntry) return
-    this._pendingFluctuation = { id: this.currentEntry.id, fluctuation: this.fluctuation }
-    clearTimeout(this._fluctuationSaveTimer)
-    this._fluctuationSaveTimer = setTimeout(() => this.flushFluctuation(), 400)
+    return fluctuation.persistFluctuation(this)
   }
 
-  // Writes any pending fluctuation edit now (keyed by the captured id, so
-  // it's safe regardless of what's currently open) and tells the Mixer.
-  // Called on the debounce timer, and synchronously from loadSound before a
-  // sound switch so a fast switch can't drop the edit.
   flushFluctuation() {
-    clearTimeout(this._fluctuationSaveTimer)
-    const pending = this._pendingFluctuation
-    if (!pending) return
-    this._pendingFluctuation = null
-    const { id, fluctuation } = pending
-    this.api.library
-      .updateFluctuation(id, fluctuation)
-      .then(() => {
-        if (this.currentEntry?.id === id) this.currentEntry.fluctuation = fluctuation
-        window.dispatchEvent(
-          new CustomEvent('noctivago:sound-fluctuation-changed', { detail: { soundId: id, fluctuation } })
-        )
-        // Confirm the write so the Save button and status line stop implying
-        // the drift edit is unsaved (fluctuation persists on its own, no
-        // manual Save needed - but a silent write reads as "nothing happened").
-        if (this.currentEntry?.id === id) {
-          this.savedFluctuationSnapshot = fluctuationFingerprint(fluctuation)
-          this.updateSaveButtonState()
-          this.els.saveStatus.textContent = 'Fluctuation applied — saved automatically (no bake needed).'
-        }
-      })
-      .catch((err) => {
-        console.error('Editor: fluctuation save failed', err)
-        if (this.currentEntry?.id === id) this.els.saveStatus.textContent = 'Fluctuation change could not be saved.'
-      })
+    return fluctuation.flushFluctuation(this)
   }
 
   currentPlayMode() {
@@ -2417,18 +2322,12 @@ export default class EditorPlugin {
     )
   }
 
-  // Normalized fingerprint of the current Fluctuation config, compared
-  // against savedFluctuationSnapshot to know whether the drift settings have
-  // unsaved edits. Kept separate from hasUnsavedChanges()/snapshotOf() on
-  // purpose: fluctuation is never baked, so a fluctuation-only change must
-  // NOT mark the saved loop clip stale or drive undo/A-B - it just needs the
-  // Save button to light up and a "saved" confirmation once it's written.
   fluctuationSnapshot() {
-    return fluctuationFingerprint(this.fluctuation)
+    return fluctuation.fluctuationSnapshot(this)
   }
 
   fluctuationDirty() {
-    return isFluctuationDirty(this.fluctuation, this.savedFluctuationSnapshot)
+    return fluctuation.fluctuationDirty(this)
   }
 
   updateSaveButtonState() {
