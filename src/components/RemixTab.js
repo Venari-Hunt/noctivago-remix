@@ -36,12 +36,10 @@ import { wireEqControls } from '../controls/eqControls.js'
 import { wireFluctuationControls } from '../controls/fluctuationControls.js'
 import { applySoundOverride,HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, defaultFluctuation, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { mountMarkerUi } from './markerUi.js'
-import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
+import { icon } from './icons.js'
 import { arrangeLayout, arrangeBar, driftSummary } from './layout.js'
 import { wireNameMarquee } from './nameMarquee.js'
-import { requestAnalyser, requestMixerStatus } from './mixerBridge.js'
-import { pushLevel, peakFromTimeDomain } from '../domain/levels.js'
-import { drawLevelHistory } from './levelHistory.js'
+import { requestMixerStatus } from './mixerBridge.js'
 import { groupDetail, presetDetail, soundDetail, panOverride, withSoundVolume } from '../domain/detailPanel.js'
 import { ItemPreviewPlayer } from '../audio/ItemPreview.js'
 import { soundPlan, groupPlan, previewKind, effectiveSound } from '../domain/itemPreview.js'
@@ -58,6 +56,7 @@ import * as loopLayoutMethods from '../tab/loopLayout.js'
 import * as presetGroupMode from '../tab/presetGroupMode.js'
 import * as stickyPreview from '../tab/stickyPreview.js'
 import * as eqFilters from '../tab/eqFilters.js'
+import * as mixPlayback from '../tab/mixPlayback.js'
 
 export default class EditorPlugin {
   constructor(app) {
@@ -2319,187 +2318,41 @@ export default class EditorPlugin {
     this.layout?.refreshStudio?.()
   }
 
-  // --- Live spectrogram (Preset/Group only) ---
-  // A second, separate rAF loop from tickPreviewPlayhead (which only ever
-  // drives Sound mode) - there's no playhead/progress to show here, this
-  // loop's only job is polling whichever real engine node is relevant right
-  // now and feeding it to that mode's own EqEditor controller (presetEq/
-  // groupEq).
-  startWholeMixSpectrumTicking() {
-    if (this._wholeMixSpectrumRafId) return
-    const tick = () => {
-      this.tickWholeMixSpectrum()
-      this._wholeMixSpectrumRafId = requestAnimationFrame(tick)
-    }
-    this._wholeMixSpectrumRafId = requestAnimationFrame(tick)
+  // --- Mix panel play, volume and spectrogram: src/tab/mixPlayback.js ---
+  startWholeMixSpectrumTicking(...args) {
+    return mixPlayback.startWholeMixSpectrumTicking(this, ...args)
   }
 
-  stopWholeMixSpectrumTicking() {
-    if (this._wholeMixSpectrumRafId) cancelAnimationFrame(this._wholeMixSpectrumRafId)
-    this._wholeMixSpectrumRafId = null
-    this.presetEq?.clearSpectrum()
-    this.groupEq?.clearSpectrum()
+  stopWholeMixSpectrumTicking(...args) {
+    return mixPlayback.stopWholeMixSpectrumTicking(this, ...args)
   }
 
-  // Cleared whenever the thing being looked at changes (a different preset
-  // or group selected) so the scrolling loudness strip doesn't show a few
-  // stale seconds from whatever was open before.
-  resetLevelHistory(which) {
-    if (which === 'preset') this.presetLevelHistory.length = 0
-    else if (which === 'group') this.groupLevelHistory.length = 0
+  resetLevelHistory(...args) {
+    return mixPlayback.resetLevelHistory(this, ...args)
   }
 
-  tickWholeMixSpectrum() {
-    this.updateMixPlayPauseUI(requestMixerStatus())
-
-    if (this.mode === 'preset' && this.selectedPresetId) {
-      const node = requestAnalyser('whole-mix', this.selectedPresetId, null)
-      if (node) {
-        this.presetEq.tickSpectrum(node)
-        if (!this._presetTimeBuf || this._presetTimeBuf.length !== node.fftSize) this._presetTimeBuf = new Uint8Array(node.fftSize)
-        node.getByteTimeDomainData(this._presetTimeBuf)
-        pushLevel(this.presetLevelHistory, peakFromTimeDomain(this._presetTimeBuf))
-      } else {
-        this.presetEq.clearSpectrum()
-        pushLevel(this.presetLevelHistory, 0)
-      }
-      drawLevelHistory(this.els.mixPresetWaveform, this.presetLevelHistory)
-    } else if (this.mode === 'group' && this.selectedPresetId && this.selectedGroupId) {
-      const node = requestAnalyser('group', this.selectedPresetId, this.selectedGroupId)
-      if (node) {
-        this.groupEq.tickSpectrum(node)
-        if (!this._groupTimeBuf || this._groupTimeBuf.length !== node.fftSize) this._groupTimeBuf = new Uint8Array(node.fftSize)
-        node.getByteTimeDomainData(this._groupTimeBuf)
-        pushLevel(this.groupLevelHistory, peakFromTimeDomain(this._groupTimeBuf))
-      } else {
-        this.groupEq.clearSpectrum()
-        pushLevel(this.groupLevelHistory, 0)
-      }
-      drawLevelHistory(this.els.mixGroupWaveform, this.groupLevelHistory)
-    }
+  tickWholeMixSpectrum(...args) {
+    return mixPlayback.tickWholeMixSpectrum(this, ...args)
   }
 
-  // Reflects real Mixer state on the shared Play/Pause icon + Group mode's
-  // Solo button - polled once per tick (see tickWholeMixSpectrum) rather
-  // than pushed, since this plugin has no direct reference into the
-  // Mixer's own state to subscribe to.
-  updateMixPlayPauseUI(status) {
-    const isActivePreset = Boolean(this.selectedPresetId) && status.activePresetId === this.selectedPresetId
-    const soloed = this.mode === 'group' && isActivePreset && status.soloedGroupId === this.selectedGroupId
-    // Group mode's Play plays only the picked group (owner, 2026-11-11), so
-    // the whole preset playing there shows Play: pressing it solos the group.
-    const playing = isActivePreset && status.isPlaying && (this.mode !== 'group' || !this.selectedGroupId || soloed)
-    this.updateMixVolumeUI(status)
-    // Skip the DOM writes entirely when nothing actually changed since the
-    // last tick (self-review v0.1.149) - this runs every rAF frame for as
-    // long as Preset/Group mode is open, and .innerHTML in particular tears
-    // down and rebuilds the icon's SVG node every single call regardless of
-    // whether play/pause/solo state flipped.
-    const signature = JSON.stringify([this.mode, this.selectedPresetId, this.selectedGroupId, playing, isActivePreset, soloed])
-    if (signature === this._mixPlayPauseSignature) return
-    this._mixPlayPauseSignature = signature
-
-    this.els.mixPlayPause.innerHTML = playing ? PAUSE_ICON_SVG : PLAY_ICON_SVG
-    this.els.mixPlayPause.title = playing ? 'Pause' : isActivePreset ? 'Play' : 'Load this preset and play it in the Mixer'
-    this.els.mixPlayPause.disabled = !this.selectedPresetId
-
-    if (this.mode === 'group' && this.selectedGroupId) this.els.mixPlayPause.title = playing ? 'Pause' : 'Play this group only'
-    // Play is the solo now, so the separate Solo button stays hidden.
-    this.els.mixSoloGroup.classList.add('hidden')
-    // The preview module is built after els are looked up (arrangeBar), so
-    // the note is found here.
-    const note = this.root?.querySelector('#rx-pnote')
-    if (note) note.hidden = !(this.mode === 'group' && playing && soloed)
+  updateMixPlayPauseUI(...args) {
+    return mixPlayback.updateMixPlayPauseUI(this, ...args)
   }
 
-  // The Group/Preset player's volume row is the app's master volume (those
-  // modes play through the Mixer). Polled with the status like Play/Pause; an
-  // app without the remix-set-volume bridge reports no volumePosition, and
-  // the row stays hidden.
-  updateMixVolumeUI(status) {
-    const supported = Number.isFinite(status.volumePosition)
-    this.root?.classList.toggle('rx-mixvol-on', supported)
-    if (!supported) return
-    const doc = this.els.mixVolume.ownerDocument
-    if (doc.activeElement !== this.els.mixVolume || !this.els.mixVolume.matches(':active')) {
-      const value = String(Math.round(status.volumePosition * 1000))
-      if (this.els.mixVolume.value !== value) this.els.mixVolume.value = value
-    }
-    this.els.mixVolume.style.setProperty('--p', `${(Number(this.els.mixVolume.value) / 10).toFixed(1)}%`)
-    const muted = Boolean(status.muted)
-    if (this._mixMuted !== muted) {
-      this._mixMuted = muted
-      this.els.mixMute.innerHTML = muted ? MUTE_ICON_SVG : VOLUME_ICON_SVG
-      this.els.mixMute.title = muted ? 'Unmute' : 'Mute'
-      this.els.mixMute.setAttribute('aria-label', this.els.mixMute.title)
-    }
+  updateMixVolumeUI(...args) {
+    return mixPlayback.updateMixVolumeUI(this, ...args)
   }
 
-  // Play button (v0.1.148) - reported directly ("where's the play button
-  // for the preset and group?"): Preset/Group mode previously only ever
-  // previewed live if that preset already happened to be playing in the
-  // Mixer, with no way to actually start it from Remix itself. Loading a
-  // preset (tabs/mixer/index.js's loadPreset) already unconditionally plays
-  // every sound in it, so "not yet the active preset" and "toggle the
-  // shared mix's play/pause" are the only two cases this needs.
-  onMixPlayPauseClick() {
-    if (!this.selectedPresetId) return
-    const status = requestMixerStatus()
-    if (this.mode === 'group' && this.selectedGroupId) {
-      this.playGroupOnly(status)
-      return
-    }
-    // Preset mode plays the whole preset: a group soloed from Group mode is
-    // released first.
-    if (status.activePresetId === this.selectedPresetId && status.soloedGroupId) {
-      window.dispatchEvent(new CustomEvent('noctivago:remix-unsolo-group', {}))
-      if (!status.isPlaying) window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-playback', {}))
-      return
-    }
-    if (status.activePresetId !== this.selectedPresetId) {
-      window.dispatchEvent(new CustomEvent('noctivago:remix-load-preset', { detail: { presetId: this.selectedPresetId } }))
-    } else {
-      window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-playback', {}))
-    }
+  onMixPlayPauseClick(...args) {
+    return mixPlayback.onMixPlayPauseClick(this, ...args)
   }
 
-  // Group mode's Play (owner, 2026-11-11): plays only the picked group, with
-  // "Playing this group only" on the player. Loads the preset if needed (with
-  // the solo applied once it lands), solos the group if another is heard,
-  // and otherwise toggles play/pause.
-  playGroupOnly(status) {
-    const presetId = this.selectedPresetId
-    const groupId = this.selectedGroupId
-    if (status.activePresetId !== presetId) {
-      window.dispatchEvent(new CustomEvent('noctivago:remix-load-preset', { detail: { presetId, soloGroupId: groupId } }))
-      return
-    }
-    if (status.soloedGroupId !== groupId) {
-      window.dispatchEvent(new CustomEvent('noctivago:remix-solo-group', { detail: { presetId, groupId } }))
-      if (!status.isPlaying) window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-playback', {}))
-      return
-    }
-    window.dispatchEvent(new CustomEvent('noctivago:remix-toggle-playback', {}))
+  playGroupOnly(...args) {
+    return mixPlayback.playGroupOnly(this, ...args)
   }
 
-  // Group mode's own "hear just this group" button - mutes every other
-  // currently-playing sound in the Mixer, same idea as Sound mode's Solo
-  // button (src/renderer/tabs/mixer/index.js's applyGroupSolo). Loads the
-  // preset first if it isn't already playing, same as plain Play, since
-  // soloing implies wanting to actually hear it.
-  onMixSoloGroupClick() {
-    if (!this.selectedPresetId || !this.selectedGroupId) return
-    const status = requestMixerStatus()
-    const alreadySoloed = status.activePresetId === this.selectedPresetId && status.soloedGroupId === this.selectedGroupId
-    if (alreadySoloed) {
-      window.dispatchEvent(new CustomEvent('noctivago:remix-unsolo-group', {}))
-      return
-    }
-    if (status.activePresetId !== this.selectedPresetId) {
-      window.dispatchEvent(new CustomEvent('noctivago:remix-load-preset', { detail: { presetId: this.selectedPresetId, soloGroupId: this.selectedGroupId } }))
-    } else {
-      window.dispatchEvent(new CustomEvent('noctivago:remix-solo-group', { detail: { presetId: this.selectedPresetId, groupId: this.selectedGroupId } }))
-    }
+  onMixSoloGroupClick(...args) {
+    return mixPlayback.onMixSoloGroupClick(this, ...args)
   }
 
   async refreshMixPanel(...args) {

@@ -172,3 +172,30 @@ test('eqDiffersFromSaved compares the live bands with the snapshot', { skip: !eq
   assert.equal(eqFiltersMethods.eqDiffersFromSaved(tab), true)
   assert.equal(eqFiltersMethods.eqDiffersFromSaved({}), false)
 })
+
+let mixPlaybackMethods
+try {
+  mixPlaybackMethods = await import('../src/tab/mixPlayback.js')
+} catch (e) {
+  mixPlaybackMethods = null
+}
+
+test('mix playback module exports the methods', { skip: !mixPlaybackMethods }, () => {
+  for (const name of ['startWholeMixSpectrumTicking', 'stopWholeMixSpectrumTicking', 'resetLevelHistory', 'tickWholeMixSpectrum', 'updateMixPlayPauseUI', 'updateMixVolumeUI', 'onMixPlayPauseClick', 'playGroupOnly', 'onMixSoloGroupClick']) {
+    assert.equal(typeof mixPlaybackMethods[name], 'function', name)
+  }
+})
+
+test('resetLevelHistory empties only the named history', { skip: !mixPlaybackMethods }, () => {
+  const tab = { presetLevelHistory: [1, 2], groupLevelHistory: [3] }
+  mixPlaybackMethods.resetLevelHistory(tab, 'preset')
+  assert.deepEqual(tab.presetLevelHistory, [])
+  assert.deepEqual(tab.groupLevelHistory, [3])
+})
+
+test('updateMixVolumeUI hides the volume row when the app reports no volume', { skip: !mixPlaybackMethods }, () => {
+  const toggles = []
+  const tab = { root: { classList: { toggle: (c, on) => toggles.push([c, on]) } }, els: {} }
+  mixPlaybackMethods.updateMixVolumeUI(tab, {})
+  assert.deepEqual(toggles, [['rx-mixvol-on', false]])
+})
