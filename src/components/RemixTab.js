@@ -1,6 +1,5 @@
 import { AudioEngine } from '../audio/AudioEngine.js'
 import { normalizeRegions } from '../domain/spectralLayout.js'
-import { loopLayout, clipToSource, sourceToClip } from '../domain/loopLayout.js'
 import { mountLoopEditor, mountWaveformScrollbar } from '../mounts/loopEditorMount.js'
 import { mountSpectral } from '../mounts/spectralMount.js'
 import { mountSeam } from '../mounts/seamMount.js'
@@ -37,7 +36,7 @@ import { wireShapeControls } from '../controls/shapeControls.js'
 import { wireFilterControls } from '../controls/filterControls.js'
 import { wireEqControls } from '../controls/eqControls.js'
 import { wireFluctuationControls } from '../controls/fluctuationControls.js'
-import { applySoundOverride, DEFAULT_CROSSFADE_MS, SEAM_LEAD_SECONDS, SEAM_TAIL_SECONDS, HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, defaultFluctuation, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
+import { applySoundOverride,HISTORY_COMMIT_DEBOUNCE_MS, HISTORY_LIMIT, defaultEqBands, defaultVolumeEnvelope, NEUTRAL_FILTERS, defaultFluctuation, FILTER_PRESETS, NEUTRAL_WHOLE_MIX, NEUTRAL_GROUP_FILTERS, SHOT_AXES, shotBiasDefault, SHOT_AXIS_NAMES, cloneWholeMix, wholeMixEqual, cloneGroupFilters, groupFiltersEqual } from '../domain/mixSettings.js'
 import { mountMarkerUi } from './markerUi.js'
 import { icon, PLAY_ICON_SVG, PAUSE_ICON_SVG, VOLUME_ICON_SVG, MUTE_ICON_SVG } from './icons.js'
 import { arrangeLayout, arrangeBar, driftSummary } from './layout.js'
@@ -57,6 +56,7 @@ import { findAllEls } from '../panels/index.js'
 import * as markers from '../tab/markers.js'
 import * as fluctuation from '../tab/fluctuation.js'
 import * as spectralRepair from '../tab/spectralRepair.js'
+import * as loopLayoutMethods from '../tab/loopLayout.js'
 import * as presetGroupMode from '../tab/presetGroupMode.js'
 
 export default class EditorPlugin {
@@ -1534,41 +1534,51 @@ export default class EditorPlugin {
     this.updateSaveButtonState()
   }
 
-  // --- Loop layout (v0.1.222) ---
-  // A baked loop clip is the second half of the trim, the crossfade, then
-  // the first half (loopLayout.js mirrors loopClip.js). liveLayout() is what
-  // the current, possibly unsaved, settings would bake - the Loop seam strip
-  // draws it. savedLayout() is the clip actually on disk, from the loopClip*
-  // fields recorded at bake time (the stored crossfade is already the
-  // effective one, 0 under Doppler).
+  // --- Loop layout and Loop seam: src/tab/loopLayout.js ---
   liveLayout() {
-    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-    const doppler = this.currentSpeedPitchDoppler()
-    return loopLayout(loopStart, loopEnd, doppler ? 0 : this.currentCrossfadeMs() / 1000)
+    return loopLayoutMethods.liveLayout(this)
   }
 
   currentSpeedPitchDoppler() {
-    return Boolean(this.els.doppler?.checked)
+    return loopLayoutMethods.currentSpeedPitchDoppler(this)
   }
 
   savedLayout() {
-    const entry = this.currentEntry
-    const live = this.loopEditorController.getLoopPoints()
-    const start = entry?.loopClipStart ?? live.loopStart
-    const end = entry?.loopClipEnd ?? live.loopEnd
-    const fade = entry?.loopClipCrossfadeSeconds ?? DEFAULT_CROSSFADE_MS / 1000
-    return loopLayout(start, end, fade)
+    return loopLayoutMethods.savedLayout(this)
   }
 
   clipTimeToSource(clipTime) {
-    return clipToSource(this.savedLayout(), clipTime)
+    return loopLayoutMethods.clipTimeToSource(this, clipTime)
   }
 
   sourceTimeToClip(t) {
-    return sourceToClip(this.savedLayout(), t)
+    return loopLayoutMethods.sourceTimeToClip(this, t)
   }
 
-  // Pushes the current trim/crossfade/mode into the Loop seam strip.
+  syncSeamView(...args) {
+    return loopLayoutMethods.syncSeamView(this, ...args)
+  }
+
+  scheduleSeamPeaks(...args) {
+    return loopLayoutMethods.scheduleSeamPeaks(this, ...args)
+  }
+
+  scheduleSeamDetailPeaks(sourceRanges) {
+    return loopLayoutMethods.scheduleSeamDetailPeaks(this, sourceRanges)
+  }
+
+  updateSeamPlayhead(sourceTime) {
+    return loopLayoutMethods.updateSeamPlayhead(this, sourceTime)
+  }
+
+  toggleSeamListen() {
+    return loopLayoutMethods.toggleSeamListen(this)
+  }
+
+  stopSeamListen(...args) {
+    return loopLayoutMethods.stopSeamListen(this, ...args)
+  }
+
   // --- Spectral repair ---
   // The panel shows the trim only (that's all a bake reads). The spectrogram
   // is refetched for a new trim once the drag settles.
@@ -1594,145 +1604,6 @@ export default class EditorPlugin {
 
   updateSpectralControls() {
     return spectralRepair.updateSpectralControls(this)
-  }
-
-  syncSeamView({ immediate = false } = {}) {
-    if (!this.seamView || !this.loopEditorController) return
-    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-    this.seamView.setLoop(loopStart, loopEnd)
-    this.seamView.setCrossfade(this.currentCrossfadeMs() / 1000)
-    this.seamView.setEnabled(!this.currentSpeedPitchDoppler())
-    this.scheduleSeamPeaks({ immediate })
-  }
-
-  // The strip needs peaks for just the trim. Base (whole-file) peaks show
-  // immediately; a finer fetch for the trim replaces them once settled.
-  // The fetch sizes itself to the canvas, so it only runs while the Loop seam
-  // view is shown: loading a sound commits loop points while the Trim view is
-  // up, and a fetch then got a 0 px canvas (2 peaks for the whole trim) that
-  // the key kept on screen until the trim changed (2026-11-12). Opening the
-  // view fetches at once; the 300 ms wait is only for trim and fade edits.
-  scheduleSeamPeaks({ immediate = false } = {}) {
-    clearTimeout(this._seamPeaksTimer)
-    const id = this.currentEntry?.id
-    if (!id || !this.seamView) return
-    const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-    const base = this.waveformPeaksCache.get(id)
-    const width = Math.round(this.els.seamCanvas.getBoundingClientRect().width)
-    const key = `${id}:${loopStart}:${loopEnd}:${Boolean(base)}:${width}`
-    if (key === this._seamPeaksKey) return
-    const duration = this.currentEntry?.durationSeconds
-    const trimKey = `${id}:${loopStart}:${loopEnd}`
-    if (base && duration && this._seamFineFor !== trimKey) this.seamView.setPeaks(base, 0, duration)
-    if (width < 2) {
-      this._seamPeaksKey = null
-      return
-    }
-    this._seamPeaksKey = key
-    this._seamPeaksTimer = setTimeout(async () => {
-      try {
-        const peaks = await this.api.audio.getWaveformPeaks(id, width * 2, loopStart, loopEnd)
-        const current = this.loopEditorController.getLoopPoints()
-        if (!peaks || this.currentEntry?.id !== id || current.loopStart !== loopStart || current.loopEnd !== loopEnd) return
-        this.seamView.setPeaks(peaks, loopStart, loopEnd)
-        this._seamFineFor = trimKey
-      } catch (err) {
-        console.error('Editor: seam strip peaks fetch failed', err)
-      }
-    }, immediate ? 0 : 300)
-  }
-
-  // Finer peaks for exactly what the "Loop seam" strip's current zoom
-  // shows (v0.1.231) - the same idea as maybeFetchDetailPeaks for the main
-  // trim waveform, keyed off the source-time ranges SeamView's own
-  // onViewportChange already resolved: two when the view straddles the
-  // crossfade (the trim's end and its start), fetched separately so each is
-  // really finer (see that file's computeSourceRanges).
-  scheduleSeamDetailPeaks(sourceRanges) {
-    clearTimeout(this._seamDetailPeaksTimer)
-    const id = this.currentEntry?.id
-    const ranges = (sourceRanges || []).filter(([start, end]) => end > start)
-    if (!id || !this.seamView || ranges.length === 0) return
-    const request = (this._seamDetailRequest = (this._seamDetailRequest || 0) + 1)
-    this._seamDetailPeaksTimer = setTimeout(async () => {
-      const width = Math.max(1, Math.round(this.els.seamCanvas.getBoundingClientRect().width))
-      try {
-        const segments = await Promise.all(ranges.map(async ([start, end]) => ({ peaks: await this.api.audio.getWaveformPeaks(id, width, start, end), start, end })))
-        if (request !== this._seamDetailRequest || this.currentEntry?.id !== id) return
-        this.seamView.setDetailPeaks(segments)
-      } catch (err) {
-        console.error('Editor: seam detail peaks fetch failed', err)
-      }
-    }, 250)
-  }
-
-  // The strip's playhead, in liveLayout() clip time.
-  updateSeamPlayhead(sourceTime) {
-    if (!this.seamView) return
-    this.seamView.setPlayhead(sourceTime == null ? null : sourceToClip(this.liveLayout(), sourceTime))
-  }
-
-  // --- Listen to the seam (v0.1.221) ---
-  // Plays SEAM_LEAD_SECONDS before the crossfade, through it, then
-  // SEAM_TAIL_SECONDS more, and stops - in whichever preview mode is active.
-  // The live preview crossfades at the trim's end, so looping is forced on
-  // while it runs.
-  async toggleSeamListen() {
-    if (this._seamTimer) {
-      this.stopSeamListen()
-      return
-    }
-    const active = this.activePreview()
-    if (!active || !this.loopEditorController) return
-    let startAt
-    let secondsToSeamEnd
-    if (this.previewMode === 'saved' && this.bakedPreview) {
-      // The baked seam is the crossfade in the middle of the clip; with no
-      // crossfade (a plain trim) it's the clip's own restart.
-      await this.bakedPreview.waitForMetadata()
-      const layout = this.savedLayout()
-      const clipDuration = this.bakedPreview.duration
-      const seamEnd = layout.fade > 0 ? Math.min(layout.blendEnd, clipDuration) : clipDuration
-      startAt = Math.max(0, seamEnd - layout.fade - SEAM_LEAD_SECONDS)
-      secondsToSeamEnd = seamEnd - startAt
-    } else {
-      const { loopStart, loopEnd } = this.loopEditorController.getLoopPoints()
-      const fade = this.liveLayout().fade
-      startAt = Math.max(loopStart, loopEnd - fade - SEAM_LEAD_SECONDS)
-      // The live preview plays the source at its Speed/Pitch rate.
-      secondsToSeamEnd = (loopEnd - startAt) / (active.audioEl.playbackRate || 1)
-      this._seamRestoreLooping = !this.looping
-      if (!this.looping) this.previewSource.setLooping(true)
-    }
-    if (active.playing) active.pause()
-    active.scrubTo(startAt)
-    this._seamTimer = setTimeout(() => this.stopSeamListen(), (secondsToSeamEnd + SEAM_TAIL_SECONDS) * 1000)
-    this.els.seamListen.querySelector('span').textContent = 'Stop'
-    this.els.seamStatus.textContent = 'Playing through the loop point…'
-    await this.engine.resume()
-    await active.play()
-    this.setPlayPauseIcon(true)
-    this.tickPreviewPlayhead()
-  }
-
-  // Ends a seam preview: pauses what it started and restores the loop
-  // toggle. Also called when the user takes over (Play/Pause, a mode switch,
-  // loading another sound) with pause: false, so a pending timer never
-  // pauses their own playback later.
-  stopSeamListen({ pause = true } = {}) {
-    if (!this._seamTimer) return
-    clearTimeout(this._seamTimer)
-    this._seamTimer = null
-    if (this._seamRestoreLooping) this.previewSource?.setLooping(this.looping)
-    this._seamRestoreLooping = false
-    this.els.seamListen.querySelector('span').textContent = 'Listen to the seam'
-    this.els.seamStatus.textContent = ''
-    if (pause && this.activePreview()?.playing) {
-      this.activePreview().pause()
-      this.stopPreviewTicking()
-      this.setPlayPauseIcon(false)
-      this.eqEditorController.clearSpectrum()
-    }
   }
 
   setFluctuationControls(...args) {

@@ -104,3 +104,36 @@ test('syncSpectralView does nothing before the view is mounted', { skip: !spectr
 test('syncNoiseBand does nothing without the filter controls', { skip: !spectralRepair }, () => {
   assert.equal(spectralRepair.syncNoiseBand({ spectralView: {}, filterControls: null }), undefined)
 })
+
+let loopLayoutMethods
+try {
+  loopLayoutMethods = await import('../src/tab/loopLayout.js')
+} catch (e) {
+  loopLayoutMethods = null
+}
+
+test('loop layout module exports the layout and seam methods', { skip: !loopLayoutMethods }, () => {
+  for (const name of ['liveLayout', 'currentSpeedPitchDoppler', 'savedLayout', 'clipTimeToSource', 'sourceTimeToClip', 'syncSeamView', 'scheduleSeamPeaks', 'scheduleSeamDetailPeaks', 'updateSeamPlayhead', 'toggleSeamListen', 'stopSeamListen']) {
+    assert.equal(typeof loopLayoutMethods[name], 'function', name)
+  }
+})
+
+test('savedLayout falls back to the live trim and the default crossfade', { skip: !loopLayoutMethods }, () => {
+  const tab = { currentEntry: null, loopEditorController: { getLoopPoints: () => ({ loopStart: 1, loopEnd: 5 }) } }
+  const layout = loopLayoutMethods.savedLayout(tab)
+  assert.equal(typeof layout, 'object')
+  assert.equal(loopLayoutMethods.clipTimeToSource(tab, 0), loopLayoutMethods.clipTimeToSource(tab, 0))
+})
+
+test('syncSeamView does nothing before the seam view is mounted', { skip: !loopLayoutMethods }, () => {
+  assert.equal(loopLayoutMethods.syncSeamView({ seamView: null }), undefined)
+})
+
+test('stopSeamListen does nothing without a pending timer', { skip: !loopLayoutMethods }, () => {
+  assert.equal(loopLayoutMethods.stopSeamListen({ _seamTimer: null }), undefined)
+})
+
+test('currentSpeedPitchDoppler reads the Doppler checkbox', { skip: !loopLayoutMethods }, () => {
+  assert.equal(loopLayoutMethods.currentSpeedPitchDoppler({ els: { doppler: { checked: true } } }), true)
+  assert.equal(loopLayoutMethods.currentSpeedPitchDoppler({ els: {} }), false)
+})
